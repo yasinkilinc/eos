@@ -23,11 +23,19 @@ jobs:
         working-directory: ui/frontend
         run: npm ci && npm run build
       - name: Package
+        # The archive is written outside the tree being archived and moved back
+        # afterwards. Writing it into "." makes tar read its own growing output
+        # and abort with "file changed as we read it".
         run: |
           VERSION="${GITHUB_REF_NAME#v}"
           tar --exclude='.git' --exclude='node_modules' --exclude='__pycache__' \
-              --exclude='.pytest_cache' \
-              -czf "eos-${VERSION}.tar.gz" .
+              --exclude='.pytest_cache' --exclude='.eos' \
+              -czf "${RUNNER_TEMP}/eos-${VERSION}.tar.gz" .
+          mv "${RUNNER_TEMP}/eos-${VERSION}.tar.gz" .
+          echo "Archive contents (top level):"
+          tar -tzf "eos-${VERSION}.tar.gz" | cut -d/ -f2 | sort -u | head -20
+          echo "Prebuilt UI present:"
+          tar -tzf "eos-${VERSION}.tar.gz" | grep -q 'ui/static/index.html' && echo yes || exit 1
       - uses: softprops/action-gh-release@v2
         with:
           files: eos-*.tar.gz
