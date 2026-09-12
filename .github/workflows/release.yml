@@ -6,6 +6,11 @@ on:
 jobs:
   release:
     runs-on: ubuntu-latest
+    # GITHUB_TOKEN is read-only by default, so publishing a release needs this
+    # granted explicitly. Without it the job builds the archive correctly and
+    # then fails at the last step with a 403.
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
