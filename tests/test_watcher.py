@@ -119,6 +119,44 @@ def test_debouncer_retrigger_extends_wait():
     assert calls == ["/proj/a"]
 
 
+def test_debouncer_defers_a_trigger_that_fires_while_running():
+    """A timer firing for a project that is already running must not start
+    a second, concurrent invocation -- it defers into _pending, and
+    _Debouncer arms exactly one follow-up once the in-progress run
+    completes.
+
+    test_debouncer_never_runs_one_project_concurrently used to check this
+    indirectly, via a real burst of retriggers racing a real
+    threading.Timer -- and that is exactly why it flaked: how many runs a
+    real burst produces depends on OS scheduling, not on this logic. A
+    fake clock cannot reproduce "a timer fires while a previous run is
+    still executing" either, since its callback always runs synchronously
+    to completion before the clock advances again -- there is no second
+    thread for a new timer to interleave with. So this drives _fire()
+    directly against seeded state instead: deterministic either way,
+    because it is a statement about what _fire() does when it observes
+    self._running already holding the project, not about elapsed time.
+    """
+    calls: list[str] = []
+    clock = _FakeClock()
+    deb = _Debouncer(delay=0.05, callback=calls.append, timer_factory=clock.timer_factory)
+
+    with deb._lock:
+        deb._running.add("/proj/a")  # a run is (hypothetically) in progress
+    deb._fire("/proj/a")  # a retrigger's timer fires while it is
+    assert calls == [], "must not invoke the callback while already running"
+    assert "/proj/a" in deb._pending, "a trigger during a run must be deferred"
+
+    # The in-progress run finishing is exactly _fire()'s own finally block.
+    with deb._lock:
+        deb._running.discard("/proj/a")
+        deb._pending.discard("/proj/a")
+        deb._arm("/proj/a")
+    assert calls == [], "the deferred run must wait for its own timer"
+    clock.advance(0.05)
+    assert calls == ["/proj/a"], "deferred run must fire exactly once, after the delay"
+
+
 def test_handler_maps_event_to_owning_project(tmp_path):
     root = tmp_path / "workspace"
     proj = root / "myproj"
@@ -166,19 +204,27 @@ def test_debouncer_never_runs_one_project_concurrently():
     (the timer thread invoking the callback, and the main thread still
     calling trigger()) never run the callback concurrently. A fake clock
     would remove the second thread entirely -- there would be nothing left
-    to race -- so it cannot express what this test is checking. The
-    assertions already tolerate the one legitimate timing ambiguity (a
-    trailing trigger may or may not land a follow-up run).
+    to race -- so it cannot express what this test is checking.
+
+    The only claim made is the entry/exit counter never exceeding 1: that
+    is true regardless of machine load, thread scheduling, or how many
+    separate runs a real burst happens to produce, which is exactly why it
+    is the right thing to assert here. This test used to also assert on
+    the number of runs a burst collapses into (`1 <= len(calls) <= 2`) --
+    that is a timing *consequence* of the debounce window, not the
+    exclusion invariant, and it failed on a loaded runner (3 runs instead
+    of <= 2) while this invariant held. That coalescing behaviour is real
+    and worth testing, just not with a wall-clock race: see
+    test_debouncer_defers_a_trigger_that_fires_while_running below, which
+    drives the same code path deterministically.
     """
     lock = threading.Lock()
     live = {"now": 0, "peak": 0}
-    calls: list[str] = []
 
     def callback(project_path: str) -> None:
         with lock:
             live["now"] += 1
             live["peak"] = max(live["peak"], live["now"])
-            calls.append(project_path)
         time.sleep(0.3)
         with lock:
             live["now"] -= 1
@@ -190,7 +236,6 @@ def test_debouncer_never_runs_one_project_concurrently():
     time.sleep(0.8)
 
     assert live["peak"] == 1, f"concurrent rescans of one project: {live['peak']}"
-    assert 1 <= len(calls) <= 2, f"a burst must collapse into one run plus a follow-up: {calls}"
 
 
 def test_debouncer_logs_a_failing_callback(caplog):
