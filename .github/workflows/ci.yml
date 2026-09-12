@@ -14,6 +14,12 @@ jobs:
           python-version: "3.12"
       - name: check-clean
         run: bash tools/check-clean.sh .
+      # The core runtime needs nothing installed -- that is the point of it
+      # being pure stdlib. The test suite is a different matter: it exercises
+      # the UI layer too, so it needs pytest and httpx from requirements-dev
+      # plus the UI's own runtime dependencies.
+      - name: install test dependencies
+        run: python -m pip install --disable-pip-version-check -r requirements-dev.txt -r requirements-ui.txt
       - name: pytest
         run: python -m pytest -q
       - uses: actions/setup-node@v4
