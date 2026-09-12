@@ -206,6 +206,14 @@ class GraphifyQueue:
         self._state_path = Path(state_path) if state_path else None
         self._lock = threading.Lock()
         self._stopping = threading.Event()
+        # Guards the actual state-file write/unlink (not the queue state
+        # itself). A worker's terminal _persist() call happens outside
+        # _lock, after the worker has already removed itself from
+        # _workers -- so stop() can reach _clear_state() while that last
+        # write is still in flight or merely pending. Serializing the two
+        # through this lock, plus the _stopping check inside _persist,
+        # guarantees no write can land after the file has been retracted.
+        self._publish_lock = threading.Lock()
 
     def enqueue(self, project_path: str) -> None:
         key = normalize_project_path(project_path)
@@ -277,7 +285,17 @@ class GraphifyQueue:
                     break
 
     def _persist(self) -> None:
-        """Publish the snapshot so the API process can report queue state."""
+        """Publish the snapshot so the API process can report queue state.
+
+        A worker's terminal call to this (from _fire's `finally`, after it has
+        already removed itself from _workers so stop() has nothing left to
+        join) races stop()'s _clear_state(): without synchronization, the
+        write can land after the file was retracted, resurrecting it. The
+        _stopping check and the write both happen under _publish_lock, the
+        same lock _clear_state() takes, so once stop() has set _stopping no
+        write started afterwards can proceed, and a write already in flight
+        is guaranteed to finish before _clear_state() gets the lock.
+        """
         if self._state_path is None:
             return
         payload = {"pid": os.getpid(), "updated_at": _now(), "entries": self.status()}
@@ -289,26 +307,30 @@ class GraphifyQueue:
         temp_path = self._state_path.with_name(
             f"{self._state_path.name}.{os.getpid()}.{threading.get_ident()}.tmp"
         )
-        try:
-            self._state_path.parent.mkdir(parents=True, exist_ok=True)
-            temp_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
-            os.replace(temp_path, self._state_path)
-        except OSError:
-            _LOG.warning("Could not publish queue state to %s", self._state_path, exc_info=True)
+        with self._publish_lock:
+            if self._stopping.is_set():
+                return
             try:
-                temp_path.unlink()
+                self._state_path.parent.mkdir(parents=True, exist_ok=True)
+                temp_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+                os.replace(temp_path, self._state_path)
             except OSError:
-                pass
+                _LOG.warning("Could not publish queue state to %s", self._state_path, exc_info=True)
+                try:
+                    temp_path.unlink()
+                except OSError:
+                    pass
 
     def _clear_state(self) -> None:
         if self._state_path is None:
             return
-        try:
-            self._state_path.unlink()
-        except FileNotFoundError:
-            return
-        except OSError:
-            _LOG.warning("Could not remove queue state %s", self._state_path, exc_info=True)
+        with self._publish_lock:
+            try:
+                self._state_path.unlink()
+            except FileNotFoundError:
+                return
+            except OSError:
+                _LOG.warning("Could not remove queue state %s", self._state_path, exc_info=True)
 
     def _schedule(self, entry: _Entry) -> None:
         """Start (or restart) the debounce timer. Caller holds the lock."""
