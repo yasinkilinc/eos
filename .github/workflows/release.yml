@@ -1,0 +1,31 @@
+name: release
+on:
+  push:
+    tags: ["v*"]
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - run: bash tools/check-clean.sh .
+      - run: python -m pytest -q
+      - name: Build the UI so the tarball needs no Node
+        working-directory: ui/frontend
+        run: npm ci && npm run build
+      - name: Package
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          tar --exclude='.git' --exclude='node_modules' --exclude='__pycache__' \
+              --exclude='.pytest_cache' \
+              -czf "eos-${VERSION}.tar.gz" .
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: eos-*.tar.gz
+          generate_release_notes: true
