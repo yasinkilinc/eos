@@ -1,0 +1,1 @@
+"""Package marker for the eos-ui FastAPI application."""

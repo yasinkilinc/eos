@@ -1,0 +1,17 @@
+#!/bin/sh
+set -eu
+
+SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+PYTHON=${EOS_PYTHON:-python3}
+
+# The same floor install.sh enforces. Without it, a distro whose python3 is
+# 3.10 -- Ubuntu 20.04, RHEL 8, Debian 11 -- gets "ModuleNotFoundError:
+# tomllib" or an unrelated TypeError from a `X | None` annotation, neither of
+# which mentions a Python version.
+if ! "$PYTHON" -c 'import sys; raise SystemExit(0 if sys.version_info >= (3, 11) else 1)' 2>/dev/null; then
+  printf '%s\n' "EOS requires Python 3.11 or newer (found: $("$PYTHON" -V 2>&1 || echo "no $PYTHON"))" >&2
+  printf '%s\n' "Set EOS_PYTHON to a newer interpreter, e.g. EOS_PYTHON=python3.12" >&2
+  exit 1
+fi
+
+exec "$PYTHON" "$SCRIPT_DIR/../core/eos.py" "$@"

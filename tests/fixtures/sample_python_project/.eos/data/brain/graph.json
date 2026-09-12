@@ -1,0 +1,36 @@
+{
+  "languages": ["python"],
+  "tech_stack": ["python"],
+  "entry_points": ["file:src/main.py"],
+  "nodes": [
+    {
+      "id": "file:src/main.py",
+      "type": "entry-point",
+      "label": "main",
+      "path": "src/main.py",
+      "language": "python",
+      "tags": ["entry-point", "python"],
+      "metadata": {"exports": ["run"], "top_symbols": ["run"]},
+      "doc": "Sample entry point."
+    },
+    {
+      "id": "file:src/utils.py",
+      "type": "util",
+      "label": "utils",
+      "path": "src/utils.py",
+      "language": "python",
+      "tags": ["util", "python"],
+      "metadata": {"exports": ["process"], "top_symbols": ["process"]},
+      "doc": "Utility module."
+    }
+  ],
+  "edges": [
+    {
+      "source": "file:src/main.py",
+      "target": "file:src/utils.py",
+      "kind": "import",
+      "weight": 1,
+      "metadata": {}
+    }
+  ]
+}

@@ -1,0 +1,36 @@
+# EOS development repository
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+
+# Sandbox artifacts generated during local tests
+testsandbox/.eos/
+
+# Temp / loose
+*.tmp
+
+# EOS UI runtime artifacts
+.eos-ui.pid
+.eos-ui.log
+
+# EOS UI build output (vite outDir is ../static, not the frontend's own dist/)
+ui/static/
+
+# Node
+node_modules/
+
+# Logs
+*.log
+
+# SDD scaffolding (ledger, briefs, review packages) - never published
+.superpowers/

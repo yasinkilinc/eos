@@ -1,0 +1,148 @@
+# EOS Architecture
+
+## Top-Level Topology
+
+`eos-ui` tracks multiple `.eos` instances from a central SQLite database. Each instance lives inside a project folder and contains:
+
+- `.eos/id.txt` — permanent UUID v4.
+- `.eos/config.toml` — local ignore patterns and depth overrides.
+- `.eos/runtime/` — deployed copy of the canonical `eos/core/` runtime.
+- `.eos/data/` — immutable generated artifacts (cache, brain, graphs).
+
+```text
+┌─────────────────────────────────────┐
+│            eos-ui                   │
+│   SQLite  +  scan roots  +  views   │
+└──────────────┬──────────────────────┘
+               │ reads/writes
+┌──────────────▼──────────────────────┐
+│  ~/.eos-ui/eos.db (single SQLite)   │
+│  eos_instances(id, path, name, ...) │
+└─────────────────────────────────────┘
+               │ scans / registers
+    ┌──────────┴──────────┐
+    ▼                     ▼
+project-a/            project-b/
+  .eos/                 .eos/
+    id.txt                id.txt
+    runtime/              runtime/
+    data/                 data/
+```
+
+## Data Model
+
+### `eos_instances` table
+
+| Field | Type | Constraint | Purpose |
+|-------|------|------------|---------|
+| `id` | TEXT | PRIMARY KEY | Matches `.eos/id.txt` |
+| `path` | TEXT | UNIQUE NOT NULL | Last known absolute path |
+| `name` | TEXT | — | Display name |
+| `engine_version` | TEXT | NOT NULL | Installed runtime version |
+| `tech_stack` | JSON | — | e.g. `["python", "typescript"]` |
+| `status` | TEXT | NOT NULL DEFAULT 'active' indexed | `active / missing / stale` |
+| `created_at` | TIMESTAMP | NOT NULL | First registration |
+| `last_scanned_at` | TIMESTAMP | indexed | Last scan timestamp |
+| `last_updated_at` | TIMESTAMP | — | Last runtime update |
+| `metadata` | JSON | — | Flexible extra fields |
+
+Reconciliation rule: scanner reads `.eos/id.txt` first, then queries `WHERE id=?`. If found, `UPDATE path`; otherwise `INSERT`. This survives folder moves and renames.
+
+## `.eos` Folder Layout
+
+```text
+.eos/
+  id.txt
+  config.toml
+  runtime/                 # overwritten entirely by updates
+    VERSION
+    manifest.json
+    eos.py
+    scanner.py
+    knowledge/
+    plugins/
+    generators/
+    lib/
+  data/                    # updates never touch
+    cache/
+    brain/
+      _index.md
+      Architecture.md
+      TechStack.md
+      EntryPoints.md
+      AI_SUMMARY.md
+      graph.json           # machine-readable graph (eos-ui reads this)
+```
+
+## Knowledge Pipeline
+
+```text
+Scanner (filesystem walk + mtime/hash cache)
+  → Plugin Detector (which languages?)
+  → Plugin Parser (AST / regex imports)
+  → Plugin Analyzer (extract symbols, exports, dependencies)
+    → Semantic Model (File, Symbol, Import, Export)
+      → Knowledge Model (Component, Service, EntryPoint, Dependency)
+        → Linker (backlinks, cross-references)
+          → Classifier (tags, types)
+            → Generators
+              ├─ markdown/  → brain/*.md
+              ├─ graph/     → import.graph.json
+              └─ json/      → graph.index.json
+```
+
+The Knowledge Model is the single source of truth. Markdown and JSON are derived artifacts; changing output format never changes the model.
+
+## Update Mechanism
+
+Canonical source is this repository's `core/` folder. During `eos update`:
+
+1. Compute manifest of local `.eos/runtime/`.
+2. Compute manifest of canonical `core/`.
+3. Replace only changed files.
+
+`data/` is never modified by updates, and no backup of the previous runtime is
+kept. The runtime is a copy of a canonical source tracked in git, so a rollback
+is `git checkout` plus one `eos update` — the timestamped copies this used to
+leave in every project's gitignored `.eos/` were never read.
+
+## CLI Commands
+
+| Command | Phase | Purpose |
+|---------|-------|---------|
+| `eos init <path>` | 0 | Bootstrap `.eos/` in a project, write the AI integration surfaces |
+| `eos scan <path> [--full]` | 0 | Incremental or full scan |
+| `eos update <path>` | 1 | Update runtime from canonical source |
+| `eos doctor <path>` | 0 | Validate `.eos/` health |
+| `eos info <path>` | 0 | Show instance metadata |
+| `eos clean <path>` | 0 | Clear cache/brain/graph (preserve id/config) |
+| `eos index <path>` | 1 | Rebuild `.eos/data/eos.db` from notes, brain, graph and git history |
+| `eos query <path>` | 1 | Read-only SQL, or `--search`, against `eos.db` |
+| `eos status <path>` | 0 | Project status and latest scan metadata |
+| `eos graph <path>` | 3 | Export the generated project graph |
+| `eos context <path>` | 0 | AI-oriented project context, budgeted |
+| `eos compose <path> <task>` | 0 | Focused context for one task |
+| `eos impact <path> <file>` | 0 | Direct import impact of a file |
+| `eos mcp <path>` | 0 | Start the read-only stdio MCP server |
+| `eos bench <path>` | — | Measure EOS's own tools against baselines, on this project (ADR-011) |
+| `eos ui [port]` | 2–3 | Start the multi-project dashboard |
+| `eos parents <path>` | — | List configured parent-project links |
+| `eos note <subcommand> <path>` | — | Manage authored knowledge notes |
+| `eos ai update <path>` | — | Refresh the AI integration surfaces (ADR-009) |
+
+The full flag reference for each command is in the project README.
+
+## Technology Choices
+
+| Layer | Choice | Rationale |
+|-------|--------|-----------|
+| Runtime | Python stdlib | No `pip install` for the code dropped into random project folders |
+| UI backend | FastAPI (Python) | Local-only, 127.0.0.1 bind |
+| UI frontend | React + Cytoscape.js | Hierarchy/dependency graphs fit Cytoscape layouts |
+| Database | SQLite | Single-user, local, serverless |
+| Config | TOML | Python 3.11+ stdlib `tomllib`; no YAML dependency |
+| Packaging | Browser-first local app; Tauri optional in Phase 4 | |
+
+## ADRs
+
+All architectural decisions are recorded in `docs/decisions/`.
