@@ -4,6 +4,8 @@ on: [push, pull_request]
 jobs:
   test:
     strategy:
+      # One platform failing must not hide whether the other passed.
+      fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest]
     runs-on: ${{ matrix.os }}
