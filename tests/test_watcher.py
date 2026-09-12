@@ -16,6 +16,61 @@ import pytest
 from ui.watcher import _Debouncer, _Handler, _is_noise
 
 
+class _FakeTimer:
+    """threading.Timer look-alike whose firing is driven by _FakeClock.advance()
+    instead of a real background thread waiting on wall-clock time."""
+
+    def __init__(self, clock: "_FakeClock", interval: float, function, args=()):
+        self._clock = clock
+        self._remaining = interval
+        self._function = function
+        self._args = args
+        self._cancelled = False
+        self.daemon = False
+        clock._pending.append(self)
+
+    def start(self) -> None:
+        pass  # already registered with the clock at construction
+
+    def cancel(self) -> None:
+        self._cancelled = True
+
+
+class _FakeClock:
+    """Deterministic stand-in for real time for debounce tests.
+
+    A wall-clock sleep only *probably* falls on the right side of a debounce
+    deadline; under CI load it sometimes doesn't (this is what made
+    test_debouncer_retrigger_extends_wait fail on a loaded macOS runner with
+    a 50ms margin). advance() instead moves a virtual clock forward by an
+    exact amount and fires, synchronously and in the calling thread, every
+    timer whose remaining delay reaches zero -- so "retrigger resets the
+    window" becomes a statement about _Debouncer's own bookkeeping, true
+    regardless of machine speed.
+    """
+
+    def __init__(self):
+        self._pending: list[_FakeTimer] = []
+
+    def timer_factory(self, interval: float, function, args=()) -> _FakeTimer:
+        return _FakeTimer(self, interval, function, args)
+
+    def advance(self, seconds: float) -> None:
+        # Snapshot first: a fired timer's callback may re-arm a new one (a
+        # retrigger, or _Debouncer._fire's own pending-run re-arm), and that
+        # new timer must wait for its own future advance(), not fire within
+        # this same call.
+        live = [t for t in self._pending if not t._cancelled]
+        for t in live:
+            t._remaining -= seconds
+        for t in live:
+            if t._cancelled or t._remaining > 0:
+                continue
+            t._cancelled = True
+            t._function(*t._args)
+        self._pending = [t for t in self._pending if not t._cancelled]
+
+
 def test_is_noise_filters_caches_and_venvs():
     assert _is_noise(Path("proj/.git/HEAD"))
     assert _is_noise(Path("proj/node_modules/x/index.js"))
@@ -27,33 +82,40 @@ def test_is_noise_filters_caches_and_venvs():
 
 def test_debouncer_coalesces_bursts_into_one_call():
     calls: list[str] = []
+    clock = _FakeClock()
 
-    deb = _Debouncer(delay=0.05, callback=lambda p: calls.append(p))
+    deb = _Debouncer(delay=0.05, callback=lambda p: calls.append(p), timer_factory=clock.timer_factory)
     for _ in range(5):
         deb.trigger("/proj/a")
-    time.sleep(0.2)
+    clock.advance(0.05)
     assert calls == ["/proj/a"], f"expected one call, got {calls}"
 
 
 def test_debouncer_distinct_projects_each_fire():
     calls: list[str] = []
+    clock = _FakeClock()
 
-    deb = _Debouncer(delay=0.05, callback=lambda p: calls.append(p))
+    deb = _Debouncer(delay=0.05, callback=lambda p: calls.append(p), timer_factory=clock.timer_factory)
     deb.trigger("/proj/a")
     deb.trigger("/proj/b")
-    time.sleep(0.2)
+    clock.advance(0.05)
     assert sorted(calls) == ["/proj/a", "/proj/b"]
 
 
 def test_debouncer_retrigger_extends_wait():
+    """A retrigger must restart the debounce window rather than being
+    absorbed by the one already running -- driven by a fake clock so the
+    assertion is about _Debouncer's bookkeeping, not about winning a race
+    against a live threading.Timer under CI load (see _FakeClock)."""
     calls: list[str] = []
-    deb = _Debouncer(delay=0.1, callback=lambda p: calls.append(p))
+    clock = _FakeClock()
+    deb = _Debouncer(delay=0.1, callback=lambda p: calls.append(p), timer_factory=clock.timer_factory)
     deb.trigger("/proj/a")
-    time.sleep(0.05)
+    clock.advance(0.05)
     deb.trigger("/proj/a")  # should reset the timer
-    time.sleep(0.08)
+    clock.advance(0.08)
     assert calls == [], "retrigger should extend the wait window"
-    time.sleep(0.1)
+    clock.advance(0.1)
     assert calls == ["/proj/a"]
 
 
@@ -98,7 +160,16 @@ def test_watcher_service_requires_watchdog(monkeypatch):
 
 
 def test_debouncer_never_runs_one_project_concurrently():
-    """A rescan far outlives the debounce window; overlapping runs mean two scans."""
+    """A rescan far outlives the debounce window; overlapping runs mean two scans.
+
+    Left on real time deliberately: this asserts that two *real* threads
+    (the timer thread invoking the callback, and the main thread still
+    calling trigger()) never run the callback concurrently. A fake clock
+    would remove the second thread entirely -- there would be nothing left
+    to race -- so it cannot express what this test is checking. The
+    assertions already tolerate the one legitimate timing ambiguity (a
+    trailing trigger may or may not land a follow-up run).
+    """
     lock = threading.Lock()
     live = {"now": 0, "peak": 0}
     calls: list[str] = []

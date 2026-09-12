@@ -13,7 +13,7 @@ import logging
 import threading
 import time
 from pathlib import Path
-from typing import Dict, List, Optional, Set
+from typing import Callable, Dict, List, Optional, Set
 
 from ui.app import db, reconcile
 
@@ -72,9 +72,14 @@ class _Debouncer:
     coalesced into exactly one follow-up instead of starting a second scan.
     """
 
-    def __init__(self, delay: float, callback):
+    def __init__(self, delay: float, callback, timer_factory: Callable = threading.Timer):
         self.delay = delay
         self.callback = callback
+        # threading.Timer by default; a test can substitute a fake driven by
+        # an explicit virtual clock instead of one racing wall-clock sleeps
+        # against a live background thread. Same call signature as
+        # threading.Timer: factory(interval, function, args=(...)).
+        self._timer_factory = timer_factory
         self._timers: Dict[str, threading.Timer] = {}
         self._running: Set[str] = set()
         self._pending: Set[str] = set()
@@ -101,7 +106,7 @@ class _Debouncer:
         old = self._timers.pop(project_path, None)
         if old:
             old.cancel()
-        t = threading.Timer(self.delay, self._fire, args=(project_path,))
+        t = self._timer_factory(self.delay, self._fire, args=(project_path,))
         t.daemon = True
         self._timers[project_path] = t
         t.start()
