@@ -204,15 +204,21 @@ class GraphifyQueue:
         self._workers: Dict[str, threading.Thread] = {}
         self._processes: Dict[str, subprocess.Popen] = {}
         self._state_path = Path(state_path) if state_path else None
-        self._lock = threading.Lock()
+        # Reentrant: _persist() is called from inside the same critical
+        # section that mutates the entry it is publishing (see the call
+        # sites below), and _persist() itself calls self.status(), which
+        # re-acquires this lock. A plain Lock would deadlock there.
+        self._lock = threading.RLock()
         self._stopping = threading.Event()
         # Guards the actual state-file write/unlink (not the queue state
-        # itself). A worker's terminal _persist() call happens outside
-        # _lock, after the worker has already removed itself from
-        # _workers -- so stop() can reach _clear_state() while that last
-        # write is still in flight or merely pending. Serializing the two
-        # through this lock, plus the _stopping check inside _persist,
-        # guarantees no write can land after the file has been retracted.
+        # itself, which self._lock already guards). stop() releases
+        # self._lock before joining worker threads and clearing the state
+        # file, so a worker's terminal _persist() call (made while holding
+        # self._lock, but that lock is gone again by the time stop() looks)
+        # can still be mid-write when stop() reaches _clear_state().
+        # Serializing the two through this lock, plus the _stopping check
+        # inside _persist, guarantees no write can land after the file has
+        # been retracted.
         self._publish_lock = threading.Lock()
 
     def enqueue(self, project_path: str) -> None:
@@ -230,7 +236,10 @@ class GraphifyQueue:
                 entry.pending = True
             else:
                 self._schedule(entry)
-        self._persist()
+            # Publish while still holding the lock: status()/status_for()
+            # also take this lock, so a reader can only observe the new
+            # state once the file already reflects it.
+            self._persist()
 
     def status(self) -> List[dict]:
         with self._lock:
@@ -287,14 +296,27 @@ class GraphifyQueue:
     def _persist(self) -> None:
         """Publish the snapshot so the API process can report queue state.
 
-        A worker's terminal call to this (from _fire's `finally`, after it has
-        already removed itself from _workers so stop() has nothing left to
-        join) races stop()'s _clear_state(): without synchronization, the
-        write can land after the file was retracted, resurrecting it. The
-        _stopping check and the write both happen under _publish_lock, the
-        same lock _clear_state() takes, so once stop() has set _stopping no
-        write started afterwards can proceed, and a write already in flight
-        is guaranteed to finish before _clear_state() gets the lock.
+        Callers MUST hold self._lock across the entry mutation and this
+        call. status()/status_for() also take self._lock, so a caller that
+        observes a state change can only do so after this method's write
+        for that same change has completed -- otherwise a reader could see
+        e.g. state="failed" via status_for() while the published file still
+        showed the previous snapshot, because the mutation (releasing the
+        lock) and the publish (a separate, later critical section) were not
+        ordered with respect to each other. Requiring the same lock for
+        both is what closes that: this method is never reached until the
+        state it is about to write is exactly the state already visible in
+        memory, and nothing else can read that state until the write below
+        has returned.
+
+        Separately, a worker's terminal call to this (from _fire's
+        `finally`) still races stop()'s _clear_state(), because stop() may
+        already be past the point of capturing self._workers by the time
+        this call happens: the _stopping check and the write both happen
+        under _publish_lock, the same lock _clear_state() takes, so once
+        stop() has set _stopping no write started afterwards can proceed,
+        and a write already in flight is guaranteed to finish before
+        _clear_state() gets the lock.
         """
         if self._state_path is None:
             return
@@ -357,7 +379,7 @@ class GraphifyQueue:
             entry.state = "running"
             entry.last_started_at = _now()
             self._workers[key] = threading.current_thread()
-        self._persist()
+            self._persist()
         try:
             self._run(entry)
         finally:
@@ -369,7 +391,7 @@ class GraphifyQueue:
                 if entry.pending and not self._stopping.is_set():
                     entry.pending = False
                     self._schedule(entry)
-            self._persist()
+                self._persist()
 
     def _run(self, entry: _Entry) -> None:
         while True:
@@ -384,7 +406,7 @@ class GraphifyQueue:
                 with self._lock:
                     entry.state = "failed"
                     entry.last_error = message
-                self._persist()
+                    self._persist()
                 if attempt >= self.max_attempts or self._stopping.is_set():
                     return
                 if self._stopping.wait(self.retry_delay):
@@ -393,5 +415,5 @@ class GraphifyQueue:
             with self._lock:
                 entry.state = "ok"
                 entry.last_error = None
-            self._persist()
+                self._persist()
             return
