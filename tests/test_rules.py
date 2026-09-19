@@ -162,3 +162,29 @@ def test_a_project_with_no_codes_answers_rather_than_failing(tmp_path):
     assert "eos why" in done.stdout, (
         "an empty answer must point at the command that says whether anything looked"
     )
+
+
+def test_the_listing_is_bounded_but_the_tally_is_not(tmp_path):
+    """Telemetry measured the unbounded listing at 37,874 tokens on one real
+    service -- for a command the skill tells agents to run before writing a
+    test. A habit that costs a third of a context window is not one anyone
+    keeps."""
+    root = _scanned(tmp_path)
+
+    done = _run(["rules", str(root), "--limit", "1"])
+
+    assert done.returncode == 0, done.stderr
+    assert done.stdout.count("thrown at") == 1, done.stdout
+    assert "and 2 more" in done.stdout, done.stdout
+    # The four numbers are the part worth reading, and they cover every code.
+    assert "3 code(s):" in done.stdout, done.stdout
+
+
+def test_limit_zero_still_lists_everything(tmp_path):
+    root = _scanned(tmp_path)
+
+    done = _run(["rules", str(root), "--limit", "0"])
+
+    assert done.returncode == 0, done.stderr
+    assert done.stdout.count("thrown at") == 3, done.stdout
+    assert "more, least covered first" not in done.stdout

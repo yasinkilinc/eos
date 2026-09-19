@@ -623,7 +623,14 @@ def cmd_rules(args: argparse.Namespace) -> int:
               "detector ran at all.")
         return 0
     marks = {"none": "!", "named": "~", "reachable": "-", "asserted": " ", "verified": "+"}
-    for entry in answer["codes"]:
+    # Bounded by default, and the bound is not a style choice. Telemetry on its
+    # first day measured the unbounded listing at 37,874 tokens on one service
+    # -- for a command the skill tells agents to run before writing a test.
+    # A habit that costs a third of a context window is not a habit anyone
+    # keeps. The tally below is the part worth reading; the list is a sample of
+    # the worst, and --format json is still complete for a machine.
+    shown = answer["codes"] if args.limit <= 0 else answer["codes"][:args.limit]
+    for entry in shown:
         where = ", ".join(entry["where"][:2]) or "?"
         print(f"{marks[entry['coverage']]} {entry['code']:<40} {entry['coverage']:<10} {where}")
         for reference in entry["thrown_at"][:3]:
@@ -640,6 +647,11 @@ def cmd_rules(args: argparse.Namespace) -> int:
                   + (f", verdict {run['verdict']}" if run.get("verdict") else ""))
         if not entry["reached_by"] and not entry["tests"] and not run:
             print("    no test reaches the class or names the code")
+
+    hidden = len(answer["codes"]) - len(shown)
+    if hidden:
+        print(f"\n… and {hidden} more, least covered first. `--limit 0` for all of them, "
+              "`--format json` for every field.")
 
     tally = answer["coverage"]
     print(f"\n{answer['total']} code(s):")
@@ -1339,6 +1351,8 @@ def main(argv: list[str] | None = None) -> int:
     add_path(rules_p)
     rules_p.add_argument("--untested", action="store_true",
                          help="Only codes no test names")
+    rules_p.add_argument("--limit", type=int, default=20,
+                         help="How many codes to list (0 for all); the tally always covers every one")
     rules_p.add_argument("--format", choices=("text", "json"), default="text")
 
     why_p = sub.add_parser(
