@@ -342,12 +342,87 @@ def _brain_orientation(root: Path) -> str:
     """
     kept: list[str] = []
     skipping = False
+    # The brain is five documents and four of them list the entry points, so a
+    # plain concatenation repeats itself. Measured on one service: the phrase
+    # "Entry Points" headed four separate sections of the composed context and
+    # one controller's name appeared four times, for 9,350 of 20,804 characters
+    # -- 45% of an agent's budget spent saying the same thing again.
+    #
+    # Keyed on the heading text, so the *first* document to cover a topic wins
+    # and the rest are dropped whole. First, not best, deliberately: the brain
+    # is generated in a fixed order, so which one wins is stable, and a
+    # "pick the longest" rule would silently change what an agent reads
+    # whenever a file grew.
+    seen_headings: set[str] = set()
     for line in _read_brain(root).splitlines():
         if line.startswith("#"):
-            skipping = line.strip() in DROPPED_BRAIN_SECTIONS
+            heading = line.strip()
+            normalized = _heading_key(heading)
+            skipping = heading in DROPPED_BRAIN_SECTIONS or normalized in seen_headings
+            if not skipping:
+                seen_headings.add(normalized)
         if not skipping:
             kept.append(line)
     return "\n".join(kept).strip()
+
+
+def _heading_key(heading: str) -> str:
+    """A heading's identity, independent of level and of a parenthesised aside.
+
+    "## Entry Points", "# Entry Points" and "## Entry Points (linked parent,
+    not this project)" are the same topic covered by three documents.
+    """
+    text = heading.lstrip("#").strip().lower()
+    return text.split("(")[0].strip()
+
+
+def _target_facts(project: Path, target: str) -> str:
+    """What is known about the target file, in prose rather than as a JSON dump.
+
+    The old section was `json.dumps(impact(...))` -- two lists of paths, which
+    an agent has to read in full to learn anything from. Everything the index
+    has gained since then answers a question instead: what this file serves,
+    what reaches it, what it can refuse with, and what the tests do about
+    those refusals.
+
+    Where the file throws nothing and reaches nothing, the section is omitted
+    rather than printed empty: a heading with nothing under it costs budget and
+    teaches the reader that the heading is not worth reading.
+    """
+    lines: list[str] = []
+    try:
+        reach = impact(project, target, depth=2)
+    except ValueError:
+        return ""
+
+    dependents = reach.get("dependents") or []
+    dependencies = reach.get("dependencies") or []
+    if dependents:
+        tests = [entry["path"] for entry in dependents if is_test_path(entry["path"])]
+        lines.append(f"- Reached by {len(dependents)} file(s)"
+                     + (f", {len(tests)} of them tests" if tests else ", none of them tests"))
+        for entry in dependents[:5]:
+            lines.append(f"  - {entry['path']}")
+    if dependencies:
+        lines.append(f"- Reaches {len(dependencies)} file(s) within 2 hops")
+
+    try:
+        codes = rules(project)
+    except ValueError:
+        codes = {"codes": []}
+    mine = [entry for entry in codes["codes"]
+            if any(str(reference).startswith(f"{target}:") for reference in entry["thrown_at"])]
+    if mine:
+        lines.append(f"- Can refuse with {len(mine)} behaviour code(s):")
+        for entry in mine[:8]:
+            lines.append(f"  - `{entry['code']}` — {entry['coverage']}"
+                         + (f" ({entry['where'][0]})" if entry["where"] else ""))
+        if len(mine) > 8:
+            lines.append(f"  - …and {len(mine) - 8} more, see `eos rules`")
+
+    if not lines:
+        return ""
+    return "## What Is Known About The Target\n\n" + "\n".join(lines)
 
 
 def _fit_sections(sections: list[str], max_chars: int) -> str:
@@ -403,11 +478,9 @@ def build_context(root: str | Path, budget: int = 12000, task: str | None = None
         sections.append(
             f"## Target File\n\n`{file_data['path']}`\n\n```\n{file_data['content']}\n```{cut}"
         )
-        try:
-            file_impact = impact(project, target)
-            sections.append(f"## Target Impact\n\n```json\n{json.dumps(file_impact, indent=2)}\n```")
-        except ValueError:
-            pass
+        target_section = _target_facts(project, target)
+        if target_section:
+            sections.append(target_section)
     sections.append(_brain_orientation(project))
 
     from core import notes

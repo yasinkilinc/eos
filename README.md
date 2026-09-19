@@ -152,6 +152,33 @@ Provenance is not part of `graph.json`: that artifact reaches 25 MB on a real
 service and is returned whole over MCP. Facts travel in
 `.eos/data/brain/evidence.jsonl` and are queried from `eos.db`. See ADR-014.
 
+### The context an agent actually gets
+
+```bash
+eos context .                 # orientation
+eos compose . "<task>" <file> # focused on a task and a file
+```
+
+Two things matter about the output. It says the same thing once — the brain is
+five documents and four of them list the entry points, so concatenating them
+spent 45% of the budget repeating itself (9,350 of 20,804 characters on one
+real service; 11,345 after). And when a target file is given, the section about
+it answers rather than dumps: what reaches it, what it reaches, and what it can
+refuse with — each refusal graded by what the tests do about it.
+
+```text
+## What Is Known About The Target
+
+- Reached by 1 file(s), 1 of them tests
+  - src/test/java/.../FmTopUpValidationCommandTest.java
+- Reaches 44 file(s) within 2 hops
+- Can refuse with 1 behaviour code(s):
+  - `INVALID_TOPUP_CHAR_VALUE` — reachable (FmTopUpValidationCommand.parseBigDecimal)
+```
+
+That last line is a task: the test already reaches the class, so the missing
+assertion is an afternoon's work.
+
 ### What this code refuses to do, and what no test names
 
 Most systems identify a refusal with a constant — `AGE_LIMIT`, not "too
