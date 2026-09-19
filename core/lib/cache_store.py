@@ -10,7 +10,9 @@ from dataclasses import asdict
 from pathlib import Path
 from typing import Any, Dict, Optional
 
-from core.knowledge.semantic import Export, FileSemantic, Import, Symbol
+from core.knowledge.semantic import (
+    Annotation, Call, Export, Field, FileSemantic, Import, Symbol, TypeRef,
+)
 
 
 # Bump whenever the serialized FileSemantic shape changes in a way that makes
@@ -22,7 +24,7 @@ from core.knowledge.semantic import Export, FileSemantic, Import, Symbol
 #
 # A mismatch drops the whole cache, which costs one full parse -- 1.7 s for
 # 4,000 files -- and is the only way to be sure no stale shape survives.
-_CACHE_FORMAT = 3
+_CACHE_FORMAT = 4
 
 _FORMAT_KEY = "__format__"
 
@@ -127,9 +129,14 @@ class CacheStore:
                 "doc": file_sem.doc,
                 "role": file_sem.role,
                 "parsed_at": file_sem.parsed_at,
+                "package": file_sem.package,
                 "imports": [asdict(i) for i in file_sem.imports],
                 "exports": [asdict(e) for e in file_sem.exports],
                 "symbols": [asdict(s) for s in file_sem.symbols],
+                "annotations": [asdict(a) for a in file_sem.annotations],
+                "fields": [asdict(f) for f in file_sem.fields],
+                "type_refs": [asdict(r) for r in file_sem.type_refs],
+                "calls": [asdict(c) for c in file_sem.calls],
             }
         if isinstance(file_sem, dict):
             return file_sem
@@ -146,9 +153,14 @@ class CacheStore:
                 doc=data.get("doc"),
                 role=data.get("role"),
                 parsed_at=data.get("parsed_at"),
+                package=data.get("package"),
                 imports=[Import(**i) for i in data.get("imports", [])],
                 exports=[Export(**e) for e in data.get("exports", [])],
                 symbols=[Symbol(**s) for s in data.get("symbols", [])],
+                annotations=[Annotation(**a) for a in data.get("annotations", [])],
+                fields=[Field(**f) for f in data.get("fields", [])],
+                type_refs=[TypeRef(**r) for r in data.get("type_refs", [])],
+                calls=[Call(**c) for c in data.get("calls", [])],
             )
         except Exception:
             return None

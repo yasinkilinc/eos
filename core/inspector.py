@@ -236,7 +236,7 @@ def _node_for_path(graph: dict[str, Any], relative_path: str) -> dict[str, Any] 
 
 
 def impact(root: str | Path, relative_path: str, depth: int = 1,
-           kinds: tuple[str, ...] = ("import",)) -> dict[str, Any]:
+           kinds: tuple[str, ...] | None = None) -> dict[str, Any]:
     """What this file reaches, and what reaches it, out to `depth` hops.
 
     Answered from the SQLite index when there is one: the graph.json path
@@ -256,7 +256,8 @@ def impact(root: str | Path, relative_path: str, depth: int = 1,
     conn = _index.open_for_read(root)
     if conn is not None:
         try:
-            answer = _index.impact_rows(conn, normalized, depth=depth, kinds=kinds)
+            answer = _index.impact_rows(conn, normalized, depth=depth,
+                                        kinds=kinds or _index.IMPACT_KINDS)
             built_at = conn.execute("SELECT value FROM meta WHERE key = 'built_at'").fetchone()
         finally:
             conn.close()

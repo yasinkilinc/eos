@@ -42,6 +42,76 @@ class Symbol:
     line: int = 0
     doc: Optional[str] = None
     parent: Optional[str] = None
+    signature: Optional[str] = None
+    """The declaration as written, parameters included. Two methods can share a
+    name and differ only here."""
+    returns: Optional[str] = None
+    modifiers: List[str] = field(default_factory=list)
+    annotations: List[str] = field(default_factory=list)
+    end_line: int = 0
+    """Last line of the declaration's body, so a caller can be attributed to
+    the method it sits in."""
+
+
+@dataclass
+class Annotation:
+    """A decoration on a declaration, with whatever arguments it carried.
+
+    `values` keys are the argument names; the single unnamed argument of
+    `@Component("orderCommand")` is stored under "". That value is the bean
+    name a configuration-driven system looks a step up by, and it was the most
+    load-bearing identifier the previous parser never captured.
+    """
+    name: str
+    values: Dict[str, str] = field(default_factory=dict)
+    line: int = 0
+    target: Optional[str] = None
+
+
+@dataclass
+class Field:
+    """A declared field, with its type.
+
+    Constructor-injected collaborators are `private final` fields, so on a
+    Lombok codebase this is the entire dependency-injection graph.
+    """
+    name: str
+    type: str
+    owner: Optional[str] = None
+    line: int = 0
+    modifiers: List[str] = field(default_factory=list)
+    annotations: List[str] = field(default_factory=list)
+
+
+@dataclass
+class TypeRef:
+    """One place this file names another type, and why.
+
+    Declaration-site relations only -- extends, implements, a field's type, a
+    `new`, an annotation. Parameter and return types are deliberately left out:
+    they are the long tail with the least "changing X breaks Y" signal, and
+    including them multiplies the edge count without improving the answer.
+    """
+    name: str
+    relation: str  # extends | implements | field | new | annotation
+    line: int = 0
+    owner: Optional[str] = None
+
+
+@dataclass
+class Call:
+    """A method call resolved to the declared type of its receiver.
+
+    Unresolved receivers are kept with `receiver_type=None` rather than
+    dropped, so coverage can report how much of the call graph was recovered
+    instead of implying it was all of it.
+    """
+    method: str
+    receiver: Optional[str] = None
+    receiver_type: Optional[str] = None
+    from_type: Optional[str] = None
+    from_method: Optional[str] = None
+    line: int = 0
 
 
 @dataclass
@@ -53,6 +123,11 @@ class FileSemantic:
     exports: List[Export] = field(default_factory=list)
     symbols: List[Symbol] = field(default_factory=list)
     doc: Optional[str] = None
+    package: Optional[str] = None
+    annotations: List[Annotation] = field(default_factory=list)
+    fields: List[Field] = field(default_factory=list)
+    type_refs: List[TypeRef] = field(default_factory=list)
+    calls: List[Call] = field(default_factory=list)
     parsed_at: Optional[str] = None
     """When this file was actually parsed, UTC.
 

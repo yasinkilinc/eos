@@ -14,6 +14,7 @@ claim about EOS in general.
 from __future__ import annotations
 
 import json
+import re
 import random
 import subprocess
 import time
@@ -21,7 +22,10 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 
+from core import index
 from core import inspector
+from core.generators.json.evidence import EvidenceGenerator
+from core.generators.json.graph_index import GraphIndexGenerator
 from core.generators.markdown.brain import BrainGenerator
 from core.knowledge.builder import KnowledgeBuilder
 from core.lib.cache_store import CacheStore
@@ -77,6 +81,13 @@ class BenchReport:
     scan_note: str | None = None
     find_symbol: ProbeMetric | None = None
     get_context: ProbeMetric | None = None
+    dependents: ProbeMetric | None = None
+    dependents_rule: str | None = None
+    """How the dependents oracle was constructed, printed with its result.
+
+    ADR-011 requires a measurement to name either real ground truth or a
+    labelled baseline. This one has ground truth, and the rule that builds it
+    is stated so a reader can re-derive it independently."""
 
     def to_markdown(self) -> str:
         lines = [
@@ -166,6 +177,17 @@ class BenchReport:
             f"  get_context: ~{gc.tool_avg_tokens:.0f} tok (est.), {gc.tool_avg_seconds * 1000:.1f} ms avg",
             f"  Read:        ~{gc.baseline_avg_tokens:.0f} tok (est.), {gc.baseline_avg_seconds * 1000:.1f} ms avg",
         ]
+        dep = self.dependents
+        if dep is None:
+            lines += ["", "Objective -- dependent recall: not run (no Java test/subject pairs "
+                          "in this project). Absent, not zero."]
+        else:
+            lines += [
+                "",
+                f"Objective -- dependent recall over {dep.n} known pair(s):",
+                f"  impact_analysis: {dep.tool_recall:.0%}",
+                f"  oracle: {self.dependents_rule}",
+            ]
         return "\n".join(lines)
 
 
@@ -262,12 +284,41 @@ def _ensure_scanned(root: Path, scanner: Scanner) -> str:
     project = scanner.scan(full=False)
     if project.detected_languages:
         graph = KnowledgeBuilder().build(project, root=root)
-        BrainGenerator(graph).generate(root / ".eos" / "data" / "brain")
+        brain = root / ".eos" / "data" / "brain"
+        BrainGenerator(graph).generate(brain)
+        # The graph and the index too, not just the brain. impact_analysis is
+        # answered from the index, so a probe of it measured whatever an older
+        # scan happened to leave behind -- a dependent-recall probe read 0% on
+        # a project where the same pairs resolve at 100% when freshly built.
+        GraphIndexGenerator(graph).generate(brain / "graph.json")
+        counts = EvidenceGenerator(graph, project.report, _engine_version()).generate(
+            brain / "evidence.jsonl")
+        (root / ".eos" / "data" / "last_scan.json").write_text(json.dumps({
+            "languages": project.detected_languages,
+            "files_parsed": len(project.files),
+            "nodes": len(graph.nodes),
+            "edges": len(graph.edges),
+            **counts,
+        }, indent=2), encoding="utf-8")
+        try:
+            index.build(root)
+        except Exception as exc:  # noqa: BLE001 - disclosed below, not fatal
+            return (f"Scanned this project before probing, but the index could not be "
+                    f"rebuilt ({type(exc).__name__}: {exc}); impact-based probes below "
+                    "may be measured against stale data.")
     return (
-        f"Scanned this project before probing: wrote/updated `.eos/data/cache` "
-        f"and `.eos/data/brain` under `{root}` (the same artifacts `eos scan` "
-        "produces)."
+        f"Scanned this project before probing: wrote/updated `.eos/data/cache`, "
+        f"`.eos/data/brain` and `.eos/data/eos.db` under `{root}` (the same "
+        "artifacts `eos scan` produces)."
     )
+
+
+def _engine_version() -> str:
+    version = Path(__file__).resolve().parent / "VERSION"
+    try:
+        return version.read_text(encoding="utf-8").strip()
+    except OSError:
+        return "unknown"
 
 
 def _mean(values: list[float]) -> float:
@@ -348,6 +399,81 @@ def _bench_find_symbol(root: Path, sampled: list[Symbol]) -> ProbeMetric:
         baseline_avg_chars=_mean(baseline_chars),
         baseline_avg_seconds=_mean(baseline_seconds),
         errors=errors,
+    )
+
+
+_DEPENDENTS_RULE = (
+    "a src/test/java/<pkg>/<Name>Test.java and a src/main/java/<pkg>/<Name>.java "
+    "in the same package, where the test's source with comments and string "
+    "literals removed names <Name> as a standalone token"
+)
+
+
+def _java_dependent_pairs(root: Path) -> list[tuple[str, str]]:
+    """(test path, subject path) for every same-package test/subject pair.
+
+    Ground truth, and derived by a different rule than the one under test: the
+    edge builder works from declared field types, imports and the package
+    table, while this reads the token out of the masked source. Java requires
+    no import for a same-package reference, so an import-only graph cannot see
+    any of these -- measured at 0 of 142 on one service before declaration-site
+    edges existed.
+
+    Masking is what keeps the oracle honest: without it a subject named only
+    inside a comment or a string would count as a reference.
+    """
+    from core.plugins.java.lexer import lex
+
+    main_root, test_root = root / "src" / "main" / "java", root / "src" / "test" / "java"
+    if not (main_root.is_dir() and test_root.is_dir()):
+        return []
+    subjects: dict[tuple[str, str], str] = {}
+    for path in main_root.rglob("*.java"):
+        rel = path.relative_to(main_root)
+        subjects[(str(rel.parent), path.stem)] = f"src/main/java/{rel.as_posix()}"
+
+    pairs = []
+    for path in test_root.rglob("*Test.java"):
+        rel = path.relative_to(test_root)
+        subject = subjects.get((str(rel.parent), path.stem[: -len("Test")]))
+        if subject is None:
+            continue
+        try:
+            masked = lex(path.read_text(encoding="utf-8", errors="replace")).masked
+        except OSError:
+            continue
+        if re.search(rf"\b{re.escape(path.stem[: -len('Test')])}\b", masked):
+            pairs.append((f"src/test/java/{rel.as_posix()}", subject))
+    return pairs
+
+
+def _bench_dependents(root: Path) -> ProbeMetric | None:
+    """Does impact_analysis report the test that exercises a class?
+
+    None -- not zero -- when the project has no such pairs. A 0% line on a
+    project with no Java would be a false claim about EOS, which is the same
+    principle the coverage table applies to detectors.
+    """
+    pairs = _java_dependent_pairs(root)
+    if not pairs:
+        return None
+    hits, chars, seconds, errors = 0, 0, 0.0, []
+    for test_path, subject in pairs:
+        started = time.perf_counter()
+        try:
+            answer = inspector.impact(root, subject)
+        except Exception as exc:  # noqa: BLE001 - a failure is a miss, not a crash
+            errors.append(f"{subject}: {type(exc).__name__}: {exc}")
+            continue
+        finally:
+            seconds += time.perf_counter() - started
+        if any(entry.get("path") == test_path for entry in answer.get("dependents", [])):
+            hits += 1
+        chars += len(json.dumps(answer))
+    return ProbeMetric(
+        n=len(pairs), tool_recall=hits / len(pairs), baseline_recall=None,
+        tool_avg_chars=chars / len(pairs), tool_avg_seconds=seconds / len(pairs),
+        baseline_avg_chars=0.0, baseline_avg_seconds=0.0, errors=errors,
     )
 
 
@@ -457,4 +583,6 @@ def run(root: Path, samples: int) -> BenchReport:
         scan_note=scan_note,
         find_symbol=_bench_find_symbol(root, sampled),
         get_context=_bench_get_context(root, sampled),
+        dependents=_bench_dependents(root),
+        dependents_rule=_DEPENDENTS_RULE,
     )

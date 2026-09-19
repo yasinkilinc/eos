@@ -90,7 +90,7 @@ Read this before trusting an artifact.
 | Language | Symbols | Import edges | Entry points |
 |---|---|---|---|
 | Python | real `ast` | resolved, including relative imports | `main`/`app`/`cli` filename heuristics |
-| Java | regex | package-qualified imports | Spring annotations (`@RestController`, `@Service`, …) |
+| Java | masking lexer + scope scanner: classes, methods with signatures, fields with types, annotations with values | imports, `extends`, `implements`, field types, `new`, and calls resolved through field types | Spring annotations read off declarations |
 | JavaScript / TypeScript | regex | path specifiers, `import type`, re-exports | `index.*` filename heuristics |
 
 Anything else — C, SQL, Rust, Go, HTML — is not parsed. Every scan prints how

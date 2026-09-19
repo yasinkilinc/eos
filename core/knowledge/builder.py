@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Dict, List, Set
 
 from .classifier import Classifier
-from .evidence import CERTAIN, EXTRACTED, Fact, detector, edge_subject, utc_now
+from .evidence import CERTAIN, EXTRACTED, LIKELY, Fact, detector, edge_subject, utc_now
 from .model import Dependency, KnowledgeGraph, KnowledgeNode
 from .semantic import FileSemantic, Import, ProjectSemantic
 
@@ -211,7 +211,111 @@ class KnowledgeBuilder:
             # ran" must not read the same.
             project.report.note_coverage(import_detector, "import-edge", resolved_here)
 
+        self._add_type_edges(project, graph, node_ids, observed)
         return graph
+
+    # Relations read off declarations, not off import statements. On a Java
+    # codebase the two barely overlap: measured on one service, 142 of 143
+    # test-to-subject relationships are same-package and *all* 142 carry no
+    # import at all, so an import-only graph reports zero dependents for every
+    # one of them.
+    _TYPE_RELATIONS = ("extends", "implements", "field", "new")
+
+    def _add_type_edges(self, project: ProjectSemantic, graph: KnowledgeGraph,
+                        node_ids: Set[str], observed: str) -> None:
+        index = self._type_index(project)
+        type_detector = detector("java.typeref")
+        call_detector = detector("java.calls")
+
+        for file in project.files:
+            if not (file.type_refs or file.calls):
+                continue
+            source_id = self._file_node_id(file.path)
+            declared = {imp.name: imp for imp in file.imports if imp.name}
+            produced = {relation: 0 for relation in self._TYPE_RELATIONS}
+            resolved_calls = 0
+
+            for ref in file.type_refs:
+                if ref.relation not in produced:
+                    continue
+                target = self._resolve_type(ref.name, file, declared, index)
+                if target is None or target == file.path:
+                    continue
+                target_id = self._file_node_id(target)
+                if target_id not in node_ids:
+                    continue
+                produced[ref.relation] += 1
+                graph.add_edge(Dependency(source_id=source_id, target_id=target_id,
+                                          kind=ref.relation, weight=1,
+                                          metadata={"type": ref.name}))
+                graph.add_fact(Fact(
+                    subject_kind="edge",
+                    subject=edge_subject(source_id, target_id, ref.relation, ref.name),
+                    predicate=f"{ref.relation}-edge", object=ref.name,
+                    origin=EXTRACTED, confidence=CERTAIN, detector=type_detector,
+                    source_ref=f"{file.path}:{ref.line}" if ref.line else file.path,
+                    observed_at=file.parsed_at or observed,
+                ))
+
+            # A call is only an edge when its receiver's declared type is known.
+            # An unresolved receiver is left out rather than guessed at, and
+            # counted, so the gap is reportable instead of invisible.
+            seen_calls: Set[tuple] = set()
+            for call in file.calls:
+                if not call.receiver_type:
+                    continue
+                target = self._resolve_type(call.receiver_type, file, declared, index)
+                if target is None or target == file.path:
+                    continue
+                target_id = self._file_node_id(target)
+                if target_id not in node_ids or (target_id, call.method) in seen_calls:
+                    continue
+                seen_calls.add((target_id, call.method))
+                resolved_calls += 1
+                graph.add_edge(Dependency(source_id=source_id, target_id=target_id,
+                                          kind="calls", weight=1,
+                                          metadata={"method": call.method}))
+                graph.add_fact(Fact(
+                    subject_kind="edge",
+                    subject=edge_subject(source_id, target_id, "calls", call.method),
+                    predicate="calls-edge", object=call.method,
+                    origin=EXTRACTED, confidence=LIKELY, detector=call_detector,
+                    source_ref=f"{file.path}:{call.line}" if call.line else file.path,
+                    observed_at=file.parsed_at or observed,
+                ))
+
+            for relation, count in produced.items():
+                project.report.note_coverage(type_detector, f"{relation}-edge", count)
+            project.report.note_coverage(call_detector, "calls-edge", resolved_calls)
+
+    @staticmethod
+    def _type_index(project: ProjectSemantic) -> Dict[tuple, str]:
+        """(package, SimpleName) -> path, for every type the project declares."""
+        index: Dict[tuple, str] = {}
+        for file in project.files:
+            if not file.package:
+                continue
+            for export in file.exports:
+                simple = export.name.rsplit(".", 1)[-1]
+                index.setdefault((file.package, simple), file.path)
+        return index
+
+    @staticmethod
+    def _resolve_type(simple: str, file: FileSemantic, declared: Dict[str, Import],
+                      index: Dict[tuple, str]) -> str | None:
+        """Where a named type is declared: by explicit import, then same package.
+
+        Same package is the rule that matters here and the one an import-only
+        graph cannot express -- Java requires no import for it, so the
+        relationship leaves no trace in the import statements at all.
+        """
+        imported = declared.get(simple)
+        if imported is not None:
+            found = index.get((imported.module, simple))
+            if found is not None:
+                return found
+            return None       # named explicitly, and it is outside this project
+        return index.get((file.package, simple))
 
     @staticmethod
     def _looks_like_alias(module: str) -> bool:
