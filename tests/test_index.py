@@ -142,10 +142,17 @@ def _write_brain(root: Path, last_scan_nodes: int | None = None) -> None:
     _write(root / ".eos" / "data" / "last_scan.json", json.dumps(last_scan))
 
 
+JOURNEYS_EXTENSION = (REPO / "extensions" / "journeys.py").as_posix()
+
+
 def _eos_dir(root: Path, service: str) -> None:
     _write(
         root / ".eos" / "config.toml",
-        f'[knowledge]\ndir = "../../nexus/.devin/knowledge/{service}"\n',
+        f'[knowledge]\ndir = "../../nexus/.devin/knowledge/{service}"\n\n'
+        f'[index]\nextensions = ["{JOURNEYS_EXTENSION}"]\n\n'
+        '[journeys]\n'
+        'upstream_prefix = "upstream-"\n'
+        'implementation_prefix = "acme-"\n',
     )
 
 
@@ -387,6 +394,82 @@ def test_an_incomplete_scan_is_left_out_and_reported(tmp_path, breakage):
     assert _rows(db, "SELECT COUNT(*) FROM node") == [(0,)]
     assert _rows(db, "SELECT COUNT(*) FROM build_issue WHERE source = 'brain'") == [(1,)]
     assert _rows(db, "SELECT COUNT(*) FROM note") == [(3,)]
+
+
+# --- journeys (the extension in extensions/journeys.py) ---------------------------
+
+
+def test_journey_documents_are_indexed_only_into_the_services_they_name(tmp_path):
+    service = _workspace(tmp_path)["service"]
+    db = index.build(service).path
+
+    docs = _rows(db, "SELECT name, journey, title, services, bis, flows, verified_on FROM journey_doc ORDER BY name")
+    # 20-activation.md names another service; 00-platform.md names none at all.
+    assert docs == [("10-top-up.md", "topup", "Top-up — end to end",
+                     "acme-wallet-topup,acme-customer-profile", "TOP_UP", "TOP_UP", "env1")]
+    _, rows = index.search(db, "credited by Order Management")
+    assert ("journey", "10-top-up.md") in _refs(rows)
+
+
+def test_journey_steps_resolve_to_the_service_that_runs_them(tmp_path):
+    service = _workspace(tmp_path)["service"]
+    db = index.build(service).path
+
+    steps = _rows(db, """
+        SELECT cmd_config_id, owner, resolution, candidates, owned FROM journey_step
+        WHERE env = 'env1' ORDER BY sort_id""")
+    assert steps == [
+        # Declared here by class name, by @Component("customName"), and in the
+        # upstream tree this service overlays.
+        ("c1", "acme-wallet-topup", "bean", "acme-wallet-topup", 1),
+        ("c2", "acme-wallet-topup", "bean", "acme-wallet-topup", 1),
+        ("c3", "acme-wallet-topup", "bean", "acme-wallet-topup", 1),
+        # Only a shared library declares it, so it is credited to whoever runs
+        # the rest of the flow -- and the library is still named as the candidate.
+        ("c4", "acme-wallet-topup", "shared", "acme-common", 1),
+        # Two services declare the bean and its impl_cls names neither, so it is
+        # configured against a service that is not checked out here.
+        ("c5", None, "elsewhere", "acme-customer-profile,acme-wallet-topup", 0),
+        ("c6", None, "unresolved", "", 0),
+        ("c7", None, "no-bean", "", 0),
+        # A neighbour in this service's flow, run by another service: readable
+        # here, but not owned.
+        ("c8", "acme-search-service", "bean", "acme-search-service", 0),
+        # Test sources are not the deployed class.
+        ("c9", None, "unresolved", "", 0),
+    ]
+    # REAL_SALE runs entirely in another service, so none of it is indexed here.
+    assert _rows(db, "SELECT DISTINCT bi FROM journey_step") == [("TOP_UP",)]
+    assert _rows(db, "SELECT bi, config_id FROM flow_step") == [("TOP_UP", "f1")]
+    assert _rows(db, "SELECT env, generated_by FROM journey_snapshot") == [("env1", "dump-config-chains.sh")]
+
+
+def test_journey_steps_are_counted_and_the_extension_is_named_in_meta(tmp_path):
+    service = _workspace(tmp_path)["service"]
+
+    result = index.build(service)
+
+    assert result.counts["journey steps"] == 4
+    extensions_meta = _meta(result.path)["extensions"]
+    assert extensions_meta.startswith("journeys@"), extensions_meta
+
+
+def test_a_project_outside_the_implementation_tree_indexes_docs_but_owns_no_steps(tmp_path):
+    """The workspace repository itself, or a worktree: it has journeys but runs none."""
+    paths = _workspace(tmp_path)
+    nexus = paths["nexus"]
+    _write(
+        nexus / ".eos" / "config.toml",
+        f'[knowledge]\ndir = ".devin/knowledge/{SERVICE}"\n\n'
+        f'[index]\nextensions = ["{JOURNEYS_EXTENSION}"]\n',
+    )
+    _write_brain(nexus)
+
+    db = index.build(nexus).path
+
+    assert _rows(db, "SELECT COUNT(*) FROM journey_step") == [(0,)]
+    # The snapshot is still recorded: which environment was exported, and when.
+    assert _rows(db, "SELECT env FROM journey_snapshot") == [("env1",)]
 
 
 @needs_git

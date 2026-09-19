@@ -25,6 +25,7 @@ import tempfile
 import time
 from pathlib import Path
 
+from core import extensions
 from core import inspector
 from core import links
 from core import notes
@@ -185,9 +186,16 @@ class BuildResult:
 
 
 @dataclasses.dataclass
-class _Build:
+class BuildContext:
+    """What a build in progress carries. Also the contract index extensions see.
+
+    `notes_dir` is empty until the notes are loaded, which happens first; an
+    extension always sees it set. See core/extensions.py.
+    """
+
     conn: sqlite3.Connection
     root: Path
+    notes_dir: Path | None = None
     issues: list = dataclasses.field(default_factory=list)
     meta: dict = dataclasses.field(default_factory=dict)
 
@@ -197,6 +205,9 @@ class _Build:
 
     def issue(self, source: str, ref: str | None, problem: str) -> None:
         self.issues.append((source, ref, problem))
+
+    def search(self, source: str, ref: str, title: str | None, body: str) -> None:
+        _add_search(self, source, ref, title, body)
 
 
 def db_path(project_root: str | Path) -> Path:
@@ -269,9 +280,16 @@ def _build(root: Path, sources: str) -> BuildResult:
     try:
         conn = sqlite3.connect(temp)
         try:
-            fts5, issues = _populate(conn, root, sources)
+            fts5, issues, queries = _populate(conn, root, sources)
             conn.commit()
-            counts = {label: conn.execute(sql).fetchone()[0] for label, sql in _COUNTS.items()}
+            counts = {}
+            for label, sql in queries.items():
+                try:
+                    counts[label] = conn.execute(sql).fetchone()[0]
+                except sqlite3.Error as exc:
+                    # An extension's own COUNTS entry. Its rows are written; only
+                    # the headline number is missing, which is not worth the build.
+                    issues.append(("extension", label, f"count query failed ({exc})"))
         finally:
             conn.close()
         with open(temp, "rb+") as written:
@@ -362,7 +380,7 @@ def _like(word: str) -> str:
     return "%" + word.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"
 
 
-def _populate(conn: sqlite3.Connection, root: Path, sources: str) -> tuple[bool, list]:
+def _populate(conn: sqlite3.Connection, root: Path, sources: str) -> tuple[bool, list, dict]:
     # A crash throws the temp file away, so neither a journal nor per-commit
     # syncs buy anything here; the finished file is fsynced once before rename.
     conn.execute("PRAGMA journal_mode=OFF")
@@ -370,11 +388,26 @@ def _populate(conn: sqlite3.Connection, root: Path, sources: str) -> tuple[bool,
     fts5 = fts5_available(conn)
     conn.executescript(_SCHEMA + (_FTS_SCHEMA if fts5 else _LIKE_SCHEMA))
 
-    build = _Build(conn, root)
-    _load_notes(build)
+    # Imported before anything is written: an extension the project configured
+    # but that cannot be imported is a configuration error, and the build must
+    # not get as far as replacing a good index with one silently missing it.
+    declared = _extensions(root)
+    build = BuildContext(conn, root)
+    usable = _create_extension_schema(build, declared)
+    counts = dict(_COUNTS)
+
+    build.notes_dir = _load_notes(build)
     _load_brain(build)
+    for extension in usable:
+        try:
+            counts.update(extension.counts)
+            extension.load(build)
+        except Exception as exc:  # noqa: BLE001 - one extension may not cost the index
+            build.issue("extension", extension.name, f"load failed ({exc}); its tables are empty")
     _load_history(build)
 
+    if declared:
+        build.meta["extensions"] = extensions.provenance(declared)
     build.meta.update({
         "schema_version": str(SCHEMA_VERSION),
         "built_at": datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="seconds"),
@@ -387,7 +420,42 @@ def _populate(conn: sqlite3.Connection, root: Path, sources: str) -> tuple[bool,
     })
     conn.executemany("INSERT INTO meta(key, value) VALUES (?, ?)", sorted(build.meta.items()))
     conn.executemany("INSERT INTO build_issue(source, ref, problem) VALUES (?, ?, ?)", build.issues)
-    return fts5, build.issues
+    return fts5, build.issues, counts
+
+
+def _extensions(root: Path) -> list:
+    """Every configured extension, imported. A configuration mistake stops the build.
+
+    Reported as an IndexBuildError so a caller that already handles "the
+    index was not written" needs nothing new, and so the previous index
+    stays in place while the config is wrong.
+    """
+    try:
+        return extensions.load_all(root)
+    except extensions.ExtensionError as exc:
+        raise IndexBuildError(str(exc)) from exc
+
+
+def _create_extension_schema(build: BuildContext, declared: list) -> list:
+    """Run each extension's SCHEMA. An extension whose schema fails is dropped.
+
+    Dropped rather than tolerated: without its tables its `load` would fail on
+    the first insert anyway, and half-created tables would make a later query
+    look like missing data rather than a broken extension.
+    """
+    usable = []
+    for extension in declared:
+        schema = extension.schema
+        if not schema.strip():
+            usable.append(extension)
+            continue
+        try:
+            build.conn.executescript(schema)
+        except sqlite3.Error as exc:
+            build.issue("extension", extension.name, f"SCHEMA failed ({exc}); extension skipped")
+            continue
+        usable.append(extension)
+    return usable
 
 
 def _engine_version() -> str:
@@ -430,7 +498,28 @@ def _sources_digest(root: Path) -> str:
     # be "" here -- unset and set-to-something always digest differently.
     add("merge_branch_pattern", merge_branch_pattern.pattern if merge_branch_pattern is not None else "")
     add("git", _git_head(root))
+    _add_extension_sources(add, root, directory)
     return digest.hexdigest()
+
+
+def _add_extension_sources(add, root: Path, notes_dir: Path) -> None:
+    """Fold each extension's own file and its declared sources into the digest.
+
+    The extension's file counts as a source of itself: editing what it indexes
+    out of an unchanged snapshot has to make the index stale, or the change
+    lands only on whoever next deletes the database by hand.
+
+    An extension that raises while listing its sources is not allowed to make
+    the digest unstable -- that would rebuild the index on every single read.
+    The failure is digested as a constant and reported by the build instead.
+    """
+    for extension in _extensions(root):
+        add("extension", extension.name, extension.digest)
+        try:
+            for fields in extension.sources(root, notes_dir):
+                add("extension-source", extension.name, *fields)
+        except Exception as exc:  # noqa: BLE001 - reported by the build that follows
+            add("extension-source", extension.name, "unavailable", type(exc).__name__)
 
 
 def _file_digest(path: Path) -> str:
@@ -479,17 +568,25 @@ def _terms(text: str) -> str:
     return " ".join(dict.fromkeys(parts))
 
 
-def _add_search(build: _Build, source: str, ref: str, title: str | None, body: str) -> None:
+def _add_search(build: BuildContext, source: str, ref: str, title: str | None, body: str) -> None:
     build.conn.execute(
         "INSERT INTO search(source, ref, title, body, terms) VALUES (?, ?, ?, ?, ?)",
         (source, ref, title, body, _terms(f"{title or ''}\n{body}")),
     )
 
 
+# Text helpers an index extension may reuse rather than reimplement. Public
+# because the private spellings above are free to change; these are not.
+text_of = _text
+front_matter = _front_matter
+heading_of = _heading
+file_digest = _file_digest
+
+
 # --- notes -----------------------------------------------------------------------
 
 
-def _load_notes(build: _Build) -> Path:
+def _load_notes(build: BuildContext) -> Path:
     directory = notes.notes_dir(build.root)
     build.meta["notes_dir"] = str(directory)
     if not directory.is_dir():
@@ -534,7 +631,7 @@ def _load_notes(build: _Build) -> Path:
 # --- brain and graph ---------------------------------------------------------------
 
 
-def _load_brain(build: _Build) -> None:
+def _load_brain(build: BuildContext) -> None:
     data = build.root / ".eos" / "data"
     last_scan_path = data / "last_scan.json"
     graph_path = data / "brain" / "graph.json"
@@ -688,7 +785,7 @@ def _git_head(root: Path) -> str:
     return done.stdout.decode("utf-8", errors="replace").strip() if done.returncode == 0 else ""
 
 
-def _load_history(build: _Build) -> None:
+def _load_history(build: BuildContext) -> None:
     pattern = _ticket_pattern(build.root)
     merge_branch_pattern = _merge_branch_pattern(build.root)
     git = shutil.which("git")

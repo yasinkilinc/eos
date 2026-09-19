@@ -128,6 +128,38 @@ own pattern here to get source-branch extraction for free. It is matched
 line-by-line against the commit body (`re.MULTILINE`), not the whole body at
 once.
 
+### Indexing something only your project has
+
+Some knowledge is not in the code. A system that implements its business flows
+as a configured chain of named steps, looked up at run time, cannot be
+understood from the source alone — the configuration *is* the program. EOS
+indexes that kind of artifact through **extensions**: small Python modules the
+project supplies, which add tables to the same index everything else lives in.
+
+```toml
+[index]
+extensions = ["tools/eos-ext/flows.py"]
+```
+
+A module may define `SCHEMA` (its tables), `COUNTS` (numbers `eos index`
+prints), `sources(root, notes_dir)` (what it reads, hashed for staleness) and
+`load(build)` (the rows). The contract is documented in `core/extensions.py`.
+
+`extensions/journeys.py` in this repository is the reference implementation
+and is usable as-is. It indexes journey documents and exported step-chain
+snapshots, and resolves each configured step to the service that runs it —
+recording *how* it was resolved and what else it could have been, so an
+attribution can be checked rather than believed:
+
+```bash
+eos query <project> "SELECT flow, sort_id, bean_name, owner, resolution
+                     FROM journey_step WHERE owned = 1 ORDER BY sort_id"
+```
+
+A configured extension that is missing or unimportable stops the build and
+keeps the previous index; one that fails while running costs only its own
+tables and is reported in `build_issue`. See ADR-013.
+
 ## MCP
 
 ```bash

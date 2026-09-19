@@ -93,6 +93,28 @@ Scanner (filesystem walk + mtime/hash cache)
 
 The Knowledge Model is the single source of truth. Markdown and JSON are derived artifacts; changing output format never changes the model.
 
+## The Index and its Extensions
+
+`eos index` folds the authored notes, the brain documents, the graph and git
+history into one SQLite file at `.eos/data/eos.db`. It is derived and always
+safe to delete: it is rebuilt from scratch, written to a temp file and moved
+into place in one step.
+
+A project can add to it. `[index] extensions` in `.eos/config.toml` names
+Python modules that contribute tables, counts, staleness inputs and rows
+against the published `index.BuildContext`. That is how to index an artifact
+only one project knows how to read — without a second database, a second query
+interface, or project-specific code in `core/`. `extensions/journeys.py` is
+the reference implementation. Contract: `core/extensions.py`; rationale:
+ADR-013.
+
+```text
+notes ─┐
+brain ─┤
+graph ─┼─→  .eos/data/eos.db  ←─ extension tables (same file, same queries)
+ git  ─┘         meta.extensions records which extension wrote what
+```
+
 ## Update Mechanism
 
 Canonical source is this repository's `core/` folder. During `eos update`:
