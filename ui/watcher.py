@@ -49,6 +49,16 @@ _IGNORE_DIRS = {
     "dist", "build", "target", "bin", ".mvn", ".gradle",
     ".next", ".turbo", ".mypy_cache",
     ".pytest_cache", ".egg-info", ".tox", ".eos",
+    # graphify-out is this watcher's own output, and on the project that holds
+    # it, it lives inside a watched root. Without this entry the loop feeds
+    # itself: scanning the project refreshes its Graphify artifact, the refresh
+    # writes under graphify-out/, the write looks like a change, and the project
+    # is scanned again. Measured 2026-09-18 on a 19-project workspace: 10,269 of
+    # 10,373 `[scan ok]` lines were for the one project whose tree contains the
+    # output directory, against 75 for the busiest of the others.
+    "graphify-out",
+    # Generated per-run state that no index should follow.
+    ".scratch", "logs",
 }
 _IGNORE_SUFFIXES = {".pyc", ".pyo", ".log", ".swp"}
 _IGNORE_NAMES = {".DS_Store", "Thumbs.db"}
