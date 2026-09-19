@@ -675,6 +675,12 @@ def rules(project_root: str | Path, untested_only: bool = False) -> dict[str, An
         if is_test_path(source):
             reaching.setdefault(target, set()).add(source)
 
+    # The top of the ladder is the only rung that is not static analysis: a
+    # run someone recorded, with the command and the exit code behind it.
+    from core import verification
+
+    runs = verification.latest_by_code(project_root)
+
     mentions: dict[str, set[str]] = {}
     for code, path in named:
         if is_test_path(path):
@@ -692,12 +698,15 @@ def rules(project_root: str | Path, untested_only: bool = False) -> dict[str, An
         entry["tests"] = sorted(mentions.get(code, ()))
         entry["reached_by"] = sorted({test for path in entry.pop("_paths", ())
                                       for test in reaching.get(path, ())})
-        entry["coverage"] = _coverage_of(bool(entry["reached_by"]), bool(entry["tests"]))
+        run = runs.get(code)
+        entry["verification"] = run.to_dict() if run else None
+        entry["coverage"] = _coverage_of(bool(entry["reached_by"]), bool(entry["tests"]),
+                                         run.outcome if run else None)
     ordered = sorted(found.values(), key=lambda entry: (_COVERAGE_ORDER[entry["coverage"]],
                                                         entry["code"]))
     if untested_only:
         ordered = [entry for entry in ordered if entry["coverage"] == "none"]
-    tally = {state: 0 for state in _COVERAGE_ORDER}
+    tally = {state: 0 for state in _COVERAGE_ORDER}  # noqa: E501
     for entry in found.values():
         tally[entry["coverage"]] += 1
     return {
@@ -715,10 +724,17 @@ def rules(project_root: str | Path, untested_only: bool = False) -> dict[str, An
 # reachable, 9 named, 51 asserted. "reachable" is the interesting middle -- the
 # class is exercised, and this particular branch is not checked -- and a binary
 # tested/untested answer hides all 134 of them on one side or the other.
-_COVERAGE_ORDER = {"none": 0, "named": 1, "reachable": 2, "asserted": 3}
+_COVERAGE_ORDER = {"none": 0, "named": 1, "reachable": 2, "asserted": 3, "verified": 4}
 
 
-def _coverage_of(reached: bool, named: bool) -> str:
+def _coverage_of(reached: bool, named: bool, outcome: str | None) -> str:
+    # A recorded passing run outranks every static signal, because it is the
+    # only one that observed the behaviour rather than inferring it from
+    # structure. A failing run does not demote the static reading: the test
+    # existing and the test passing are different facts, and `eos findings`
+    # is where the failure is read.
+    if outcome == "passed":
+        return "verified"
     if reached and named:
         return "asserted"
     if reached:

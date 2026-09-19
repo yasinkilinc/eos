@@ -77,6 +77,8 @@ them. See [ADR-009](docs/decisions/009-ai-integration-layer.md).
 | `eos trace <path> <file> [--depth N]` | What an entry point serves and reaches, and what is wired at run time |
 | `eos ask <path> [question] [arg]` | Run a question this project's index extensions provide; omit the name to list them |
 | `eos draft-test <path> <code> [--write]` | Draft a test for a behaviour code the suite does not assert |
+| `eos verify <path> <code> --outcome … --command …` | Record what an adapter ran, and what happened |
+| `eos findings <path> [--failed-only]` | Recorded runs and what they were judged to be |
 | `eos graph <path> [--type import\|all] [--output -]` | Export the generated project graph as JSON |
 | `eos index <path>` | Rebuild `.eos/data/eos.db` from notes, brain, graph, and git history |
 | `eos query <path> [sql \| --search "..."] [--limit N]` | Read-only SQL, or full-text search, against `eos.db` |
@@ -194,11 +196,12 @@ Each code is listed with the class and method that throws it, the exception
 type, and the test files that name it. Untested codes lead, because the gap is
 what people came for.
 
-Coverage is graded in four states, because a tested/untested answer buries the
-interesting one:
+Coverage is graded, because a tested/untested answer buries the interesting
+states:
 
 | state | meaning |
 |---|---|
+| `verified` | a recorded run passed — the only rung that observed anything |
 | `asserted` | a test reaches the throwing class **and** names the code |
 | `reachable` | the class is exercised, this refusal is not asserted |
 | `named` | the code appears in a test, nothing touches the class |

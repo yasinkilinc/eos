@@ -72,7 +72,8 @@ def test_coverage_is_graded_not_binary(tmp_path):
     assert by_code["AGE_IMPLAUSIBLE"]["coverage"] == "reachable", by_code["AGE_IMPLAUSIBLE"]
     # Thrown by a component nothing calls and no test names.
     assert by_code["AGE_NEGATIVE"]["coverage"] == "none", by_code["AGE_NEGATIVE"]
-    assert answer["coverage"] == {"none": 1, "named": 0, "reachable": 1, "asserted": 1}, answer
+    assert answer["coverage"] == {"none": 1, "named": 0, "reachable": 1,
+                                  "asserted": 1, "verified": 0}, answer
     assert answer["untested"] == 1 and answer["total"] == 3, answer
 
 

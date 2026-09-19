@@ -165,6 +165,8 @@ leave in every project's gitignored `.eos/` were never read.
 | `eos trace <path> <file>` | — | What an entry point reaches, and what is wired at run time (ADR-017) |
 | `eos ask <path> [question]` | — | Run a question an index extension provides |
 | `eos draft-test <path> <code>` | — | Draft a test for a refusal the suite does not assert |
+| `eos verify <path> <code>` | — | Record an adapter's run as evidence (ADR-018) |
+| `eos findings <path>` | — | Recorded runs and their verdicts |
 | `eos mcp <path>` | 0 | Start the read-only stdio MCP server |
 | `eos bench <path>` | — | Measure EOS's own tools against baselines, on this project (ADR-011) |
 | `eos ui [port]` | 2–3 | Start the multi-project dashboard |

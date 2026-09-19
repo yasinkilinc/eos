@@ -617,7 +617,7 @@ def cmd_rules(args: argparse.Namespace) -> int:
         print("No thrown behaviour codes found. `eos why` reports whether the "
               "detector ran at all.")
         return 0
-    marks = {"none": "!", "named": "~", "reachable": "-", "asserted": " "}
+    marks = {"none": "!", "named": "~", "reachable": "-", "asserted": " ", "verified": "+"}
     for entry in answer["codes"]:
         where = ", ".join(entry["where"][:2]) or "?"
         print(f"{marks[entry['coverage']]} {entry['code']:<40} {entry['coverage']:<10} {where}")
@@ -629,17 +629,91 @@ def cmd_rules(args: argparse.Namespace) -> int:
         if entry["tests"]:
             print(f"    named by {len(entry['tests'])} test file(s): "
                   f"{', '.join(Path(p).name for p in entry['tests'][:2])}")
-        if not entry["reached_by"] and not entry["tests"]:
+        run = entry.get("verification")
+        if run:
+            print(f"    last run {run['outcome']} (exit {run['exit_code']}) at {run['recorded_at']}"
+                  + (f", verdict {run['verdict']}" if run.get("verdict") else ""))
+        if not entry["reached_by"] and not entry["tests"] and not run:
             print("    no test reaches the class or names the code")
 
     tally = answer["coverage"]
     print(f"\n{answer['total']} code(s):")
+    print(f"  verified   {tally['verified']:>4}  a recorded run passed (the only rung that is not analysis)")
     print(f"  asserted   {tally['asserted']:>4}  a test reaches the class and names the code")
     print(f"  reachable  {tally['reachable']:>4}  the class is exercised, this refusal is not asserted")
     print(f"  named      {tally['named']:>4}  the code is named, nothing touches the class")
     print(f"  none       {tally['none']:>4}  no test reaches the class or names the code")
     print("\nStill a floor: reaching a class is not the same as exercising the branch "
           "that raises the code.")
+    return 0
+
+
+def cmd_verify(args: argparse.Namespace) -> int:
+    """Record what an adapter ran for one behaviour code, and what happened.
+
+    EOS does not run the test. Executing one needs a build tool, an
+    environment and minutes, and core/ is stdlib-only by design; the workspace
+    already has a wrapper that keeps the log and prints a digest. This records
+    the evidence that wrapper produced.
+    """
+    from core import verification
+
+    output = None
+    if args.output == "-":
+        output = sys.stdin.read()
+    elif args.output:
+        try:
+            output = Path(args.output).read_text(encoding="utf-8", errors="replace")
+        except OSError as exc:
+            print(f"error: cannot read {args.output} ({exc})", file=sys.stderr)
+            return 1
+    try:
+        entry = verification.record(
+            args.path, args.code, args.outcome, args.ran, exit_code=args.exit_code,
+            log=args.log, output=output, verdict=args.verdict, note=args.note)
+    except ValueError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+
+    print(f"recorded {entry.outcome} for {entry.code} at {entry.recorded_at}")
+    print(f"  {entry.command}")
+    if entry.commit:
+        print(f"  commit {entry.commit[:12]}")
+    if entry.verdict is None and entry.outcome != verification.PASSED:
+        # Said once, here, rather than inferred anywhere: an exit code does not
+        # separate "the rule is not enforced" from "the test is wrong" from
+        # "the environment was".
+        print("  no verdict recorded. A failing run does not say which of a wrong rule, "
+              f"a wrong test or a bad environment it was -- pass --verdict when you know "
+              f"({', '.join(verification.VERDICTS)}).", file=sys.stderr)
+    return 0
+
+
+def cmd_findings(args: argparse.Namespace) -> int:
+    """Recorded runs, newest first, and what they were judged to be."""
+    from core import verification
+
+    records = verification.load(args.path)
+    if args.failed_only:
+        records = [entry for entry in records if entry.outcome != verification.PASSED]
+    if args.format == "json":
+        print(json.dumps([entry.to_dict() for entry in records], indent=2, ensure_ascii=False))
+        return 0
+    if not records:
+        print("No run has been recorded here. `eos verify` records one; "
+              "`eos draft-test` writes the test to run.")
+        return 0
+    for entry in reversed(records):
+        verdict = entry.verdict or ("-" if entry.outcome == verification.PASSED else "no verdict yet")
+        print(f"{entry.recorded_at}  {entry.outcome:<8} {entry.code:<40} {verdict}")
+        print(f"    {entry.command}")
+        if entry.log:
+            print(f"    log {entry.log}")
+        if entry.note:
+            print(f"    {entry.note}")
+    summary = verification.summary(args.path)
+    print(f"\n{summary['runs']} run(s) over {summary['codes']} code(s): "
+          f"{summary['outcomes']}" + (f", verdicts {summary['verdicts']}" if summary["verdicts"] else ""))
     return 0
 
 
@@ -1178,6 +1252,29 @@ def main(argv: list[str] | None = None) -> int:
     impact_p.add_argument("--include", action="append", choices=("facts", "coverage", "history"),
                           help="Add provenance, detector coverage, or this file's commits")
 
+    verify_p = sub.add_parser(
+        "verify", help="Record what an adapter ran for a behaviour code, and what happened")
+    add_path(verify_p)
+    verify_p.add_argument("code", help="The behaviour code the run was about")
+    verify_p.add_argument("--outcome", required=True, choices=("passed", "failed", "errored"))
+    # dest is not "command": the subparser already stores the subcommand name
+    # there, and a flag writing to it replaced "verify" with the shell line,
+    # which surfaced as a KeyError on dispatch.
+    verify_p.add_argument("--command", required=True, dest="ran", help="Exactly what was run")
+    verify_p.add_argument("--exit-code", type=int, dest="exit_code")
+    verify_p.add_argument("--log", help="Where the full output was kept")
+    verify_p.add_argument("--output", help="File holding the output, or - for stdin; only its digest is stored")
+    verify_p.add_argument("--verdict", choices=(
+        "expected-behaviour", "test-defect", "environment-failure",
+        "potential-defect", "confirmed-defect"),
+        help="What a person concluded. Never filled in automatically.")
+    verify_p.add_argument("--note", help="One line of context for the run")
+
+    findings_p = sub.add_parser("findings", help="Recorded runs and what they were judged to be")
+    add_path(findings_p)
+    findings_p.add_argument("--failed-only", action="store_true", dest="failed_only")
+    findings_p.add_argument("--format", choices=("text", "json"), default="text")
+
     draft_p = sub.add_parser(
         "draft-test", help="Draft a test for a behaviour code the suite does not assert")
     add_path(draft_p)
@@ -1307,6 +1404,8 @@ def main(argv: list[str] | None = None) -> int:
         "trace": cmd_trace,
         "ask": cmd_ask,
         "draft-test": cmd_draft_test,
+        "verify": cmd_verify,
+        "findings": cmd_findings,
         "mcp": cmd_mcp,
         "bench": cmd_bench,
         "ui": cmd_ui,
