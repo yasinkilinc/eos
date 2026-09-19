@@ -58,6 +58,39 @@ def _explicit_scope(args: dict) -> list | None:
     return scope
 
 
+def _impact_with(project_root, args: dict) -> dict:
+    """impact_analysis, plus whatever `include` asks for.
+
+    Folded into one tool rather than three. This workspace retired MCP servers
+    over roster cost -- 18 servers came to 2,194 tokens of tool list per
+    session -- so a thirteenth tool is paid for on every request, while a
+    slightly broader one costs only at call time.
+    """
+    answer = inspector.impact(project_root, args["path"], depth=int(args.get("depth", 1)))
+    include = [item for item in (args.get("include") or []) if isinstance(item, str)]
+    if not include:
+        return answer
+    detail = inspector.why(project_root, args["path"]) if {"facts", "coverage"} & set(include) else {}
+    if "facts" in include:
+        answer["facts"] = detail.get("facts", [])
+        answer["inbound_facts"] = detail.get("inbound", [])
+    if "coverage" in include:
+        answer["coverage"] = detail.get("coverage", [])
+    if "history" in include:
+        answer["history"] = inspector.file_history(project_root, args["path"])
+    return answer
+
+
+def _search_index(project_root, args: dict) -> dict:
+    from core import index as _index
+
+    database = _index.db_path(project_root)
+    if not database.is_file():
+        return {"results": [], "note": "No index yet. Run 'eos index' or 'eos scan'."}
+    columns, rows = _index.search(database, args["query"], int(args.get("limit", 20)))
+    return {"results": [dict(zip(columns, row)) for row in rows]}
+
+
 class McpServer:
     """Serve read-only EOS tools over newline-delimited JSON-RPC."""
 
@@ -79,12 +112,23 @@ class McpServer:
                 "handler": lambda args: {"files": inspector.structure(project_root, int(args.get("max_entries", 500)))},
             },
             "get_context": {
-                "description": "Return the generated AI-oriented project context.",
+                "description": (
+                    "Return AI-oriented project context, budgeted in approximate tokens. "
+                    "Pass `task` to rank the accumulated notes against it and `target` to "
+                    "anchor on one file -- without a task the notes are ordered by recency, "
+                    "which is the next best signal but rarely the right one."
+                ),
                 "inputSchema": {
                     "type": "object",
-                    "properties": {"budget": {"type": "integer", "minimum": 1, "maximum": 100000}},
+                    "properties": {
+                        "budget": {"type": "integer", "minimum": 1, "maximum": 100000},
+                        "task": {"type": "string"},
+                        "target": {"type": "string"},
+                    },
                 },
-                "handler": lambda args: {"context": inspector.build_context(project_root, int(args.get("budget", 12000)))},
+                "handler": lambda args: {"context": inspector.build_context(
+                    project_root, int(args.get("budget", 12000)),
+                    task=args.get("task"), target=args.get("target"))},
             },
             "get_file": {
                 "description": "Read a project-relative source file.",
@@ -113,7 +157,10 @@ class McpServer:
                 },
             },
             "compose": {
-                "description": "Compose focused project context for a task and optional target file.",
+                "description": (
+                    "Deprecated alias of get_context with `task`/`target`. Kept for one "
+                    "release so existing prompts keep working; prefer get_context."
+                ),
                 "inputSchema": {
                     "type": "object",
                     "required": ["task"],
@@ -133,23 +180,49 @@ class McpServer:
                 },
             },
             "impact_analysis": {
-                "description": "Return direct import dependencies and dependents for a file.",
+                "description": (
+                    "What a file reaches and what reaches it, out to `depth` hops. "
+                    "`include` adds, per file: 'facts' (where each fact came from -- "
+                    "detector, origin, confidence, path:line), 'coverage' (which "
+                    "detectors looked at this project and what they found, so "
+                    "'found nothing' is distinguishable from 'never looked'), and "
+                    "'history' (the commits that touched this file)."
+                ),
                 "inputSchema": {
                     "type": "object",
                     "required": ["path"],
-                    "properties": {"path": {"type": "string"}},
+                    "properties": {
+                        "path": {"type": "string"},
+                        "depth": {"type": "integer", "minimum": 1, "maximum": 5},
+                        "include": {
+                            "type": "array",
+                            "items": {"enum": ["facts", "coverage", "history"]},
+                        },
+                    },
                 },
-                "handler": lambda args: inspector.impact(project_root, args["path"]),
+                "handler": lambda args: _impact_with(project_root, args),
             },
             "get_graph": {
                 "description": "Return the generated project graph.",
                 "inputSchema": {"type": "object", "properties": {}},
                 "handler": lambda _: inspector.load_graph(project_root),
             },
-            "get_history": {
-                "description": "Return EOS runtime, scan and backup history.",
-                "inputSchema": {"type": "object", "properties": {}},
-                "handler": lambda _: inspector.history(project_root),
+            "search_index": {
+                "description": (
+                    "Full-text search across everything indexed: authored notes, the "
+                    "brain documents, and whatever this project's index extensions "
+                    "contribute. Returns (source, ref, title, snippet) -- use get_file "
+                    "or search_notes to read a hit in full."
+                ),
+                "inputSchema": {
+                    "type": "object",
+                    "required": ["query"],
+                    "properties": {
+                        "query": {"type": "string"},
+                        "limit": {"type": "integer", "minimum": 1, "maximum": 100},
+                    },
+                },
+                "handler": lambda args: _search_index(project_root, args),
             },
             "get_parent_implementation": {
                 "description": (

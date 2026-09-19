@@ -1,9 +1,11 @@
 """Read-only project inspection helpers shared by the CLI and MCP server."""
 from __future__ import annotations
 
+import datetime
 import fnmatch
 import json
 import os
+import sqlite3
 from pathlib import Path
 from typing import Any
 
@@ -233,11 +235,49 @@ def _node_for_path(graph: dict[str, Any], relative_path: str) -> dict[str, Any] 
     return None
 
 
-def impact(root: str | Path, relative_path: str) -> dict[str, Any]:
+def impact(root: str | Path, relative_path: str, depth: int = 1,
+           kinds: tuple[str, ...] = ("import",)) -> dict[str, Any]:
+    """What this file reaches, and what reaches it, out to `depth` hops.
+
+    Answered from the SQLite index when there is one: the graph.json path
+    re-parses a file that is 25 MB on a real service and then linear-scans
+    6,040 nodes, which measured 0.14 s per call against 0.0013 s indexed.
+    Without an index it falls back to that path, so the answer degrades rather
+    than disappearing before the first `eos index`.
+
+    The caller is told which it got, and whether the index is older than the
+    scan output it was built from. Staleness is one stat() rather than
+    index.refresh(): a rebuild re-hashes the graph and shells out to git, which
+    is right for `eos query` and wrong inside an MCP call.
+    """
+    from core import index as _index
+
+    normalized = str(relative_path).replace("\\", "/").removeprefix("./")
+    conn = _index.open_for_read(root)
+    if conn is not None:
+        try:
+            answer = _index.impact_rows(conn, normalized, depth=depth, kinds=kinds)
+            built_at = conn.execute("SELECT value FROM meta WHERE key = 'built_at'").fetchone()
+        finally:
+            conn.close()
+        if answer["file"] is not None:
+            answer["source"] = "index"
+            answer["depth"] = max(1, min(int(depth), _index.MAX_IMPACT_DEPTH))
+            answer["index_built_at"] = built_at[0] if built_at else None
+            answer["stale"] = _index_is_behind_scan(root, answer["index_built_at"])
+            return answer
+        # Indexed, but this path is not in it. The graph may still know the
+        # file -- the index drops folder nodes -- so fall through rather than
+        # refusing, and let the graph path produce the error if it does not.
+
+    return _impact_from_graph(root, normalized)
+
+
+def _impact_from_graph(root: str | Path, normalized: str) -> dict[str, Any]:
     graph = load_graph(root)
-    node = _node_for_path(graph, relative_path)
+    node = _node_for_path(graph, normalized)
     if node is None:
-        raise ValueError(f"No graph node found for file: {relative_path}")
+        raise ValueError(f"No graph node found for file: {normalized}")
     node_id = node.get("id")
     dependencies: list[dict[str, Any]] = []
     dependents: list[dict[str, Any]] = []
@@ -247,20 +287,36 @@ def impact(root: str | Path, relative_path: str) -> dict[str, Any]:
             continue
         if edge.get("source") == node_id:
             target = nodes.get(edge.get("target"), {})
-            dependencies.append({"path": target.get("path"), "kind": edge.get("kind")})
+            dependencies.append({"path": target.get("path"), "depth": 1, "kind": edge.get("kind")})
         elif edge.get("target") == node_id:
             source = nodes.get(edge.get("source"), {})
-            dependents.append({"path": source.get("path"), "kind": edge.get("kind")})
-    return {"file": node.get("path"), "dependencies": dependencies, "dependents": dependents}
+            dependents.append({"path": source.get("path"), "depth": 1, "kind": edge.get("kind")})
+    return {"file": node.get("path"), "dependencies": dependencies, "dependents": dependents,
+            "source": "graph.json", "depth": 1, "truncated": False}
 
 
-def history(root: str | Path) -> dict[str, Any]:
-    project = require_project(root)
-    runtime = project / ".eos" / "runtime"
-    return {
-        "engine_version": (runtime / "VERSION").read_text(encoding="utf-8").strip() if (runtime / "VERSION").is_file() else "unknown",
-        "last_scan": load_metadata(project),
-    }
+_BUILT_AT_PRECISION = datetime.timedelta(seconds=1)
+
+
+def _index_is_behind_scan(root: str | Path, built_at: str | None) -> bool:
+    """Whether scan output is newer than the index built from it.
+
+    Compares against the mtime of graph.json, which `eos scan` writes on every
+    run. Cheap enough to do on every call, which is the point: a reader that
+    cannot afford to check will not check.
+    """
+    if not built_at:
+        return False
+    graph_path = Path(root).expanduser().resolve() / ".eos" / "data" / "brain" / "graph.json"
+    try:
+        written = datetime.datetime.fromtimestamp(graph_path.stat().st_mtime, datetime.timezone.utc)
+        # built_at is recorded to whole seconds, and a scan writes graph.json
+        # milliseconds before the index it then builds -- so an exact
+        # comparison calls every fresh scan stale. One second of slack is the
+        # truncation window, not a fudge factor.
+        return written > datetime.datetime.fromisoformat(built_at) + _BUILT_AT_PRECISION
+    except (OSError, ValueError):
+        return False
 
 
 def _read_brain(root: Path) -> str:
@@ -412,6 +468,15 @@ def why(project_root: str | Path, subject: str | None = None,
     inbound: list[dict[str, Any]] = []
     conn = _index.connect_read_only(database)
     try:
+        # An index built before provenance existed has no fact table. Say so in
+        # a sentence that names the fix, rather than letting a raw
+        # "no such table" reach an agent through an MCP tool result.
+        present = {row[0] for row in conn.execute(
+            "SELECT name FROM sqlite_master WHERE type = 'table' AND name IN ('fact', 'coverage')")}
+        if not {"fact", "coverage"} <= present:
+            raise ValueError(
+                f"{database} predates provenance (schema {_index.SCHEMA_VERSION} expected). "
+                "Run 'eos index' to rebuild it.")
         if subject:
             normalized = subject.replace("\\", "/").removeprefix("./")
             row = conn.execute("SELECT id, path FROM node WHERE path = ?", (normalized,)).fetchone()
@@ -460,3 +525,27 @@ def why(project_root: str | Path, subject: str | None = None,
         "coverage": coverage,
         "index_built_at": built_at[0] if built_at else None,
     }
+
+
+def file_history(project_root: str | Path, relative_path: str, limit: int = 20) -> list[dict[str, Any]]:
+    """Commits that touched one file, newest first, from the index.
+
+    Returns an empty list when there is no index rather than raising: it is
+    reached through an MCP tool that has to answer before the first scan.
+    """
+    from core import index as _index
+
+    conn = _index.open_for_read(project_root)
+    if conn is None:
+        return []
+    normalized = str(relative_path).replace("\\", "/").removeprefix("./")
+    try:
+        rows = conn.execute(
+            "SELECT c.sha, c.authored_at, c.author_name, c.subject "
+            "FROM git_commit_file f JOIN git_commit c ON c.sha = f.sha "
+            "WHERE f.path = ? ORDER BY c.ord LIMIT ?", (normalized, max(1, int(limit)))).fetchall()
+    except sqlite3.Error:
+        return []
+    finally:
+        conn.close()
+    return [dict(zip(("sha", "authored_at", "author", "subject"), row)) for row in rows]

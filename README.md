@@ -71,7 +71,7 @@ them. See [ADR-009](docs/decisions/009-ai-integration-layer.md).
 | `eos clean <path>` | Remove generated artifacts (cache/brain/graph); id and config are kept |
 | `eos context <path> [--budget N]` | Generate an AI-oriented project context, budgeted in approximate tokens |
 | `eos compose <path> <task> [target] [--budget N]` | Compose focused context for one task, optionally anchored on a file |
-| `eos impact <path> <file>` | Direct import impact of a file |
+| `eos impact <path> <file> [--depth N] [--include facts\|coverage\|history]` | What a file reaches and what reaches it, to N hops |
 | `eos why <path> [file] [--predicate P] [--format json]` | Provenance of a file's facts, and which detectors found nothing |
 | `eos graph <path> [--type import\|all] [--output -]` | Export the generated project graph as JSON |
 | `eos index <path>` | Rebuild `.eos/data/eos.db` from notes, brain, graph, and git history |

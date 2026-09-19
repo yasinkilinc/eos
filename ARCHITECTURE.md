@@ -159,7 +159,7 @@ leave in every project's gitignored `.eos/` were never read.
 | `eos graph <path>` | 3 | Export the generated project graph |
 | `eos context <path>` | 0 | AI-oriented project context, budgeted |
 | `eos compose <path> <task>` | 0 | Focused context for one task |
-| `eos impact <path> <file>` | 0 | Direct import impact of a file |
+| `eos impact <path> <file> [--depth N]` | 0 | What a file reaches and what reaches it, answered from the index |
 | `eos why <path> [file]` | — | Provenance of a file's facts, and which detectors found nothing (ADR-014) |
 | `eos mcp <path>` | 0 | Start the read-only stdio MCP server |
 | `eos bench <path>` | — | Measure EOS's own tools against baselines, on this project (ADR-011) |

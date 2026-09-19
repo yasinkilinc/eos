@@ -385,6 +385,86 @@ def connect_read_only(path: str | Path) -> sqlite3.Connection:
     return conn
 
 
+def open_for_read(project_root: str | Path) -> sqlite3.Connection | None:
+    """The project's index, opened read-only, or None when there is not one.
+
+    Never raises: callers are agent-facing surfaces that must answer before the
+    first scan, so "no index" is a normal state, not an error.
+
+    Every caller opens per call and closes. That is not an optimisation: a
+    build replaces the database with os.replace(), and Windows refuses to
+    replace a file another process still holds open -- a long-lived handle here
+    would break `eos scan` intermittently and invisibly.
+    """
+    database = db_path(project_root)
+    if not database.is_file():
+        return None
+    try:
+        return connect_read_only(database)
+    except sqlite3.Error:
+        return None
+
+
+# Bounded on purpose. Import graphs on a real service have cycles and hubs; an
+# unbounded walk answers "what does this affect" with most of the repository,
+# which is as useless as answering with nothing.
+MAX_IMPACT_DEPTH = 5
+MAX_IMPACT_ROWS = 500
+
+# UNION, not UNION ALL: Java packages import each other in cycles and the CTE
+# would not terminate. Depth is carried so a caller can tell a direct dependent
+# from a third-hop one, and the node join happens inside this query so no nid
+# ever leaves it -- _load_brain assigns nid in graph.json iteration order, so a
+# nid held across two builds silently names a different file.
+_IMPACT_SQL = """
+WITH RECURSIVE reachable(nid, depth) AS (
+    SELECT :start, 0
+    UNION
+    SELECT e.{far}, r.depth + 1
+      FROM reachable r
+      JOIN edge e ON e.{near} = r.nid
+     WHERE r.depth < :depth AND e.kind IN ({kinds})
+)
+SELECT n.path, MIN(r.depth) AS depth, n.origin
+  FROM reachable r
+  JOIN node n ON n.nid = r.nid
+ WHERE r.nid != :start
+ GROUP BY n.path, n.origin
+ ORDER BY depth, n.path
+ LIMIT :limit
+"""
+
+
+def impact_rows(conn: sqlite3.Connection, path: str, depth: int = 1,
+                kinds: tuple[str, ...] = ("import",)) -> dict:
+    """Files this one reaches, and files that reach it, out to `depth` hops.
+
+    Returns None for `file` when the path is not in the index, so the caller
+    decides whether that is an error or a reason to fall back.
+    """
+    depth = max(1, min(int(depth), MAX_IMPACT_DEPTH))
+    kinds = tuple(kinds) or ("import",)
+    row = conn.execute("SELECT nid, path FROM node WHERE path = ?", (path,)).fetchone()
+    if row is None:
+        return {"file": None, "dependencies": [], "dependents": [], "truncated": False}
+    start, resolved = row
+
+    placeholders = ", ".join("?" * len(kinds))
+    out = {"file": resolved, "truncated": False}
+    for label, near, far in (("dependencies", "src", "dst"), ("dependents", "dst", "src")):
+        sql = _IMPACT_SQL.format(near=near, far=far, kinds=placeholders)
+        # Named and positional parameters cannot be mixed, so the kinds are
+        # spliced as placeholders and every value is passed positionally.
+        sql = sql.replace(":start", "?").replace(":depth", "?").replace(":limit", "?")
+        params = [start, depth, *kinds, start, MAX_IMPACT_ROWS + 1]
+        found = conn.execute(sql, params).fetchall()
+        if len(found) > MAX_IMPACT_ROWS:
+            out["truncated"] = True
+            found = found[:MAX_IMPACT_ROWS]
+        out[label] = [{"path": p, "depth": d, "origin": o} for p, d, o in found]
+    return out
+
+
 def run_query(path: str | Path, sql: str) -> tuple[list[str], list[tuple]]:
     conn = connect_read_only(path)
     try:
@@ -788,6 +868,13 @@ def _load_evidence(build: BuildContext) -> None:
     data = build.root / ".eos" / "data"
     path = data / "brain" / "evidence.jsonl"
     if not path.exists():
+        # A project whose brain was written by an older engine has a graph but
+        # no provenance. Recorded, because the alternative is an empty coverage
+        # table that reads as "every detector found nothing".
+        if (data / "brain" / "graph.json").exists():
+            build.issue("evidence", None,
+                        "no evidence.jsonl beside graph.json (brain predates provenance); "
+                        "run 'eos scan' to produce it")
         return
     last_scan_path = data / "last_scan.json"
     try:

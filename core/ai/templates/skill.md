@@ -26,14 +26,20 @@ reason to call it.
 | `get_structure` | Bounded list of project files | low–medium | **Glob** — same information, no round trip |
 | `get_file` | Contents of one project-relative file | same as the file | **Read** — identical bytes, nothing gained by going through EOS |
 | `find_symbol` | Where a name is defined, across the whole index | low–medium | **Grep** — usually just as fast, and exact when you know the string |
-| `impact_analysis` | Direct importers and imports of a file | medium | **Grep** for the import string, if the project is small enough that this is quick by hand |
-| `get_context` | Generated project-wide summary | medium | **Read** the files it summarizes, when you only need one or two of them |
-| `compose` | Context focused on a task and an optional target file | medium–high | Read the files you already know you need |
+| `impact_analysis` | What a file reaches and what reaches it, to `depth` hops; `include` adds provenance, detector coverage and the file's commits | medium | **Grep** for the import string, if the project is small enough that this is quick by hand |
+| `get_context` | Project context; pass `task` to rank notes against it and `target` to anchor on a file | medium | **Read** the files it summarizes, when you only need one or two of them |
+| `compose` | Alias of `get_context` with `task`/`target`, kept for one release | medium–high | `get_context` with `task` |
 | `get_graph` | The entire generated project graph | high, and grows with project size | almost never the right first call — see below |
-| `get_history` | Commits touching an area, from the index | low | `git log` directly, if you are already in a shell |
+| `search_index` | Full-text search over notes, brain documents and index extensions | low | `search_notes`, when you only want authored findings |
 | `get_parent_implementation` | Real source from a linked parent project, by symbol | low–medium | doing it by hand when the parent's names differ from this project's, which is the case it exists for |
 | `search_notes` | What an earlier session already learned about this | low | nothing else holds this — it is not derivable by rescanning |
 | `add_note` | Records a durable finding so the next scan doesn't lose it | low | nothing else does this either |
+
+One habit worth forming: when `impact_analysis` comes back with less than you
+expected, ask for `include: ["coverage"]` before concluding there is nothing
+there. It reports what each detector was asked about, so "this file has no
+dependents" and "nothing here looks for that kind of dependency" stop reading
+the same.
 
 `get_graph` deserves a specific warning: on a project of any real size, the
 full graph can be larger than what fits usefully in a conversation. Reach for

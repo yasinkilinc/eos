@@ -532,7 +532,31 @@ def cmd_compose(args: argparse.Namespace) -> int:
 
 
 def cmd_impact(args: argparse.Namespace) -> int:
-    print(json.dumps(inspector.impact(args.path, args.file), indent=2, ensure_ascii=False))
+    if args.include:
+        # Provenance lives in the index, so make sure it is not older than the
+        # scan it describes. Plain `eos impact` deliberately does not: it is
+        # also reached through an MCP call, where a rebuild is the wrong
+        # amount of work to do inside a request.
+        try:
+            index.refresh(args.path)
+        except (index.IndexBuildError, OSError, ValueError, sqlite3.Error) as exc:
+            print(f"warning: index may be stale ({type(exc).__name__}: {exc})", file=sys.stderr)
+
+    answer = inspector.impact(args.path, args.file, depth=args.depth)
+    if args.include:
+        try:
+            detail = inspector.why(args.path, args.file)
+        except ValueError as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            return 1
+        if "facts" in args.include:
+            answer["facts"] = detail["facts"]
+            answer["inbound_facts"] = detail["inbound"]
+        if "coverage" in args.include:
+            answer["coverage"] = detail["coverage"]
+        if "history" in args.include:
+            answer["history"] = inspector.file_history(args.path, args.file)
+    print(json.dumps(answer, indent=2, ensure_ascii=False))
     return 0
 
 
@@ -981,6 +1005,10 @@ def main(argv: list[str] | None = None) -> int:
     impact_p = sub.add_parser("impact", help="Analyze direct import impact for a file")
     add_path(impact_p)
     impact_p.add_argument("file", help="Project-relative file path")
+    impact_p.add_argument("--depth", type=int, default=1,
+                          help="How many hops to follow (1-5, default 1)")
+    impact_p.add_argument("--include", action="append", choices=("facts", "coverage", "history"),
+                          help="Add provenance, detector coverage, or this file's commits")
 
     why_p = sub.add_parser(
         "why", help="Where a fact came from, and which detectors found nothing")
