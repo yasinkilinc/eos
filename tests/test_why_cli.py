@@ -121,3 +121,51 @@ def test_why_reports_a_path_that_is_not_in_a_freshly_built_index(tmp_path):
 
     assert done.returncode == 1
     assert "No indexed node" in done.stderr, done.stderr
+
+
+def test_the_coverage_line_answers_for_the_file_that_was_asked_about(tmp_path):
+    """A project-wide tally is not an answer about one file.
+
+    The promise is that `why` separates "found nothing here" from "never
+    looked here". An eval session was told a file reached nothing, came here
+    for the reason, and got eleven global counters -- "looked at 377 file(s)"
+    -- which left it exactly where it started. It went back to reading source.
+    """
+    root = _scanned(tmp_path)
+
+    done = _run(["why", str(root), "pkg/helper.py"])
+
+    assert done.returncode == 0, done.stderr
+    lines = [line for line in done.stdout.splitlines() if "coverage:" in line]
+    assert lines, done.stdout
+    for line in lines:
+        assert any(mark in line for mark in
+                   ("here", "does not read files like this one",
+                    "records structure", "not derivable")), line
+
+
+def test_a_detector_that_does_not_read_this_language_says_so(tmp_path):
+    """"Found nothing" and "does not read this kind of file" are different
+    facts, and only one of them is about the file."""
+    root = _scanned(tmp_path)
+
+    done = _run(["why", str(root), "pkg/helper.py", "--format", "json"])
+
+    assert done.returncode == 0, done.stderr
+    answer = json.loads(done.stdout)
+    verdicts = {entry["detector"]: entry["applies_here"] for entry in answer["coverage"]}
+    assert verdicts, answer
+    assert set(verdicts.values()) <= {"yes", "no", "structural", "unknown"}, verdicts
+    for entry in answer["coverage"]:
+        assert "hits_here" in entry, entry
+
+
+def test_coverage_carries_no_per_file_verdict_without_a_subject(tmp_path):
+    """Asked about the project rather than a file, the honest answer is the
+    tally alone -- there is no file for a verdict to be about."""
+    root = _scanned(tmp_path)
+
+    answer = json.loads(_run(["why", str(root), "--format", "json"]).stdout)
+
+    assert answer["coverage"], answer
+    assert all("applies_here" not in entry for entry in answer["coverage"]), answer["coverage"]

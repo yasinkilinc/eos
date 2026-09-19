@@ -597,8 +597,22 @@ def cmd_why(args: argparse.Namespace) -> int:
     # answerable at the moment it is asked, not by reading a separate table.
     for entry in answer["coverage"]:
         found = f"{entry['hits']} in {entry['files_with_hits']} file(s)" if entry["hits"] else "nothing"
-        print(f"  coverage: {entry['detector']} looked at {entry['files_eligible']} file(s) "
-              f"for {entry['predicate']}, found {found}")
+        line = (f"  coverage: {entry['detector']} looked at {entry['files_eligible']} file(s) "
+                f"for {entry['predicate']}, found {found}")
+        # The whole question is about the one file that was asked about, and a
+        # project-wide count does not answer it. Say what happened here.
+        verdict = entry.get("applies_here")
+        if verdict == "yes" and entry.get("hits_here"):
+            line += f"; {entry['hits_here']} here"
+        elif verdict == "yes":
+            line += "; examined this file, found nothing here"
+        elif verdict == "no":
+            line += "; does not read files like this one"
+        elif verdict == "structural":
+            line += "; records structure, not file contents, so it has no per-file answer"
+        elif verdict == "unknown":
+            line += "; produced nothing anywhere, so whether it reads this file is not derivable"
+        print(line)
     return 0
 
 

@@ -587,6 +587,8 @@ def why(project_root: str | Path, subject: str | None = None,
                 "SELECT detector, predicate, files_eligible, files_with_hits, hits "
                 "FROM coverage ORDER BY detector, predicate").fetchall()
         ]
+        if node_id is not None:
+            _answer_for_this_file(conn, node_id, coverage)
         built_at = conn.execute("SELECT value FROM meta WHERE key = 'built_at'").fetchone()
     finally:
         conn.close()
@@ -599,6 +601,65 @@ def why(project_root: str | Path, subject: str | None = None,
         "coverage": coverage,
         "index_built_at": built_at[0] if built_at else None,
     }
+
+
+#: `subject` resolved for a fact, whether it is about a node or an edge.
+#: An edge's subject is "src|dst|kind|imported", so the file it belongs to is
+#: the part before the first separator.
+_FACT_OWNER = ("CASE WHEN f.subject_kind = 'edge' "
+               "THEN substr(f.subject, 1, instr(f.subject, '|') - 1) ELSE f.subject END")
+
+
+def _answer_for_this_file(conn, node_id: str, coverage: list[dict[str, Any]]) -> None:
+    """Turn project-wide coverage into a verdict about the file that was asked about.
+
+    The promise is that `why` separates "found nothing here" from "never
+    looked here", and a project-wide tally does not: "codes@1 looked at 403
+    file(s)" leaves a reader holding one file no better off than before. An
+    eval session hit exactly this -- it was told a file reached nothing, came
+    here for the reason, got eleven global counters, and went back to reading
+    source.
+
+    Nothing new is recorded to answer it. Whether a detector reads files like
+    this one is derivable: if it produced facts on other files of the same
+    language, it reads that language. When it has produced nothing anywhere,
+    that cannot be derived, and the verdict says so rather than guessing --
+    an unknown reported as a "no" is the failure this whole command exists to
+    prevent.
+    """
+    language = conn.execute("SELECT language FROM node WHERE id = ?", (node_id,)).fetchone()
+    language = language[0] if language else None
+
+    here: dict[tuple[str, str], int] = {}
+    for detector, predicate, count in conn.execute(
+            f"SELECT f.detector, f.predicate, COUNT(*) FROM fact f "
+            f"WHERE {_FACT_OWNER} = ? GROUP BY 1, 2", (node_id,)).fetchall():
+        here[(detector, predicate)] = count
+
+    reads: dict[str, set[str | None]] = {}
+    for detector, detected_language in conn.execute(
+            f"SELECT DISTINCT f.detector, n.language FROM fact f "
+            f"JOIN node n ON n.id = {_FACT_OWNER}").fetchall():
+        reads.setdefault(detector, set()).add(detected_language)
+
+    for entry in coverage:
+        found = here.get((entry["detector"], entry["predicate"]), 0)
+        entry["hits_here"] = found
+        languages = reads.get(entry["detector"])
+        if found:
+            entry["applies_here"] = "yes"
+        elif not languages and not entry["hits"]:
+            entry["applies_here"] = "unknown"
+        elif not languages or not any(languages):
+            # Everything it produced hangs off nodes with no language --
+            # folders, and anything else that is structure rather than file
+            # contents. Per-file is the wrong question to ask of it, and
+            # answering "no" would read as "it skipped your file".
+            entry["applies_here"] = "structural"
+        elif language and language in languages:
+            entry["applies_here"] = "yes"
+        else:
+            entry["applies_here"] = "no"
 
 
 def file_history(project_root: str | Path, relative_path: str, limit: int = 20) -> list[dict[str, Any]]:
