@@ -203,11 +203,43 @@ class Scanner:
             present_paths.add(rel_file)
             self._process_file(rel_file, self.root / rel_file, detected, project, full)
 
+        self._carry_cached_parents(project)
+
         if not full:
             self.cache.remove_missing(present_paths)
 
         self.cache.save()
         return project
+
+    def _carry_cached_parents(self, project: ProjectSemantic) -> None:
+        """Re-add parent files an earlier --with-parents scan already parsed.
+
+        The cache has kept them since that was fixed, but only the cache did.
+        Everything a reader sees is built from the ProjectSemantic a scan
+        returns, and a plain scan built that from the project's own files
+        alone -- so one scan without --with-parents silently dropped every
+        fact the parent contributed, with nothing anywhere saying so.
+
+        Measured on one service: `eos rules` answered 403 behaviour codes, a
+        plain scan ran, and the same command answered 70 -- confidently, with
+        `detector_ran` true and no warning. The parent is where most of the
+        refusals live, so two thirds of that system's rules stopped existing
+        between two runs of one command an hour apart, and any number quoted
+        from the first run was silently wrong afterwards.
+
+        Reading them back costs no parse and no disk: they are the same cache
+        entries the walk above reuses for unchanged files. A project with no
+        linked parent, or one never scanned with --with-parents, has no such
+        entries and pays nothing.
+        """
+        from core.links import PARENT_PREFIX
+
+        for key in list(self.cache._data):
+            if not key.startswith(PARENT_PREFIX):
+                continue
+            cached = self.cache.get_semantic(key)
+            if cached is not None:
+                project.add_file(cached)
 
     def scan_with_links(self, parent_roots: dict, full: bool = False) -> ProjectSemantic:
         """Like scan(), but also walks each linked parent root, storing its

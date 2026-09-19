@@ -174,3 +174,32 @@ def test_brain_does_not_claim_the_parents_entry_points_as_its_own(tmp_path):
 
     assert "- **Entry points:** 0" in architecture, architecture
     assert PARENT_PREFIX not in entry_points, entry_points
+
+
+def test_a_plain_scan_keeps_the_facts_the_parent_contributed(tmp_path):
+    """Keeping the parent in the cache was never the point -- keeping it in
+    the answers was.
+
+    The cache has survived a plain scan since Task 5, but everything a reader
+    sees is built from the ProjectSemantic the scan returns, and that was
+    built from the project's own files alone. Measured on one service: `eos
+    rules` answered 403 behaviour codes, a plain scan ran, and the same
+    command answered 70, confidently and with no warning. Most of the refusals
+    in an overlay codebase are the parent's.
+    """
+    import json
+
+    proj, parent = _fm_with_linked_parent(tmp_path)
+    (parent / "Rules.java").write_text(
+        "package com.upstream.orders;\npublic class Rules {\n"
+        '  public void check() { throw new ValidationException("PARENT_ONLY_CODE", "no"); }\n}\n',
+        encoding="utf-8")
+    assert _run(["scan", str(proj), "--full", "--with-parents"]).returncode == 0
+    before = json.loads(_run(["rules", str(proj), "--format", "json"]).stdout)
+    assert [c["code"] for c in before["codes"]] == ["PARENT_ONLY_CODE"], before
+
+    assert _run(["scan", str(proj)]).returncode == 0  # no --with-parents
+
+    after = json.loads(_run(["rules", str(proj), "--format", "json"]).stdout)
+    assert [c["code"] for c in after["codes"]] == ["PARENT_ONLY_CODE"], (
+        "a plain scan dropped the parent's rules; the answer silently halved")
