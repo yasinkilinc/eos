@@ -76,6 +76,7 @@ them. See [ADR-009](docs/decisions/009-ai-integration-layer.md).
 | `eos rules <path> [--untested] [--format json]` | Behaviour codes this project throws, and which no test names |
 | `eos trace <path> <file> [--depth N]` | What an entry point serves and reaches, and what is wired at run time |
 | `eos ask <path> [question] [arg]` | Run a question this project's index extensions provide; omit the name to list them |
+| `eos draft-test <path> <code> [--write]` | Draft a test for a behaviour code the suite does not assert |
 | `eos graph <path> [--type import\|all] [--output -]` | Export the generated project graph as JSON |
 | `eos index <path>` | Rebuild `.eos/data/eos.db` from notes, brain, graph, and git history |
 | `eos query <path> [sql \| --search "..."] [--limit N]` | Read-only SQL, or full-text search, against `eos.db` |
@@ -226,6 +227,28 @@ entry points, because a coordinator resolves the rest by name from
 configuration at run time. On that shape of system the call graph is a partial
 view by construction, and a trace that printed only what it could follow would
 look complete and be wrong. See ADR-017.
+
+### Drafting the test that is missing
+
+The gap worth acting on is narrow: a test already reaches the class that
+raises a refusal, and nothing checks that branch — 134 of 403 codes on one
+real service. The fixture exists, the mocks exist, the file exists. What is
+missing is one method.
+
+```bash
+eos draft-test . INVALID_TOPUP_CHAR_VALUE
+```
+
+The draft is written in the style of the file it would join, read off that
+file rather than taken from a table of defaults — same assertion library, same
+annotations. Every symbol it names is checked against the source first; if the
+class or method cannot be grounded it refuses instead of guessing, because a
+plausible guess in generated code survives review by looking right.
+
+It goes to stdout, or with `--write` to `.eos/data/candidates/`. Never into
+the source tree, and nothing here edits anything a build compiles. It says
+`DRAFT` inside the method, because the one thing it cannot know is the
+arrangement that drives the code down that branch.
 
 ### Indexing something only your project has
 

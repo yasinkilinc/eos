@@ -1,5 +1,7 @@
 package com.example.orders;
 
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+
 import org.junit.jupiter.api.Test;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
@@ -16,8 +18,8 @@ class ValidateAgeCommandTest {
 
     @Test
     void refusesWhenUnderage() {
-        CommandResult result = command.execute(new OrderContext(17));
         // Names the code, which is what makes this behaviour findable.
-        assertThat(result).hasMessageContaining("AGE_LIMIT");
+        assertThatThrownBy(() -> command.execute(new OrderContext(17)))
+                .hasMessageContaining("AGE_LIMIT");
     }
 }

@@ -643,6 +643,45 @@ def cmd_rules(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_draft_test(args: argparse.Namespace) -> int:
+    """Draft a test for a refusal the suite does not assert."""
+    from core import testgen
+
+    try:
+        index.refresh(args.path)
+    except (index.IndexBuildError, OSError, ValueError, sqlite3.Error) as exc:
+        print(f"warning: index may be stale ({type(exc).__name__}: {exc})", file=sys.stderr)
+    try:
+        draft = testgen.draft_for(args.path, args.code)
+    except ValueError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+
+    if args.format == "json":
+        print(json.dumps(draft.to_dict(), indent=2, ensure_ascii=False))
+        return 0 if draft.status == testgen.STATUS_DRAFT else 1
+
+    if draft.status != testgen.STATUS_DRAFT:
+        print(f"refused: {draft.refused}", file=sys.stderr)
+        return 1
+
+    where = "joins" if draft.test_exists else "would create"
+    print(f"# draft for {draft.code}")
+    print(f"# {where}: {draft.test_path}")
+    print(f"# thrown by:  {draft.source_ref}")
+    print(f"# style read from: {draft.style.get('source')}")
+    for fact in draft.grounded:
+        print(f"# grounded:  {fact}")
+    print()
+    print(draft.body)
+    if args.write:
+        target = testgen.write_draft(args.path, draft)
+        print(f"\nWritten to {target}", file=sys.stderr)
+    print("\n# Not compiled, not run, not reviewed. Make it fail for the right "
+          "reason before making it pass.", file=sys.stderr)
+    return 0
+
+
 def cmd_ask(args: argparse.Namespace) -> int:
     """Run a question this project's index extensions provide."""
     try:
@@ -1139,6 +1178,14 @@ def main(argv: list[str] | None = None) -> int:
     impact_p.add_argument("--include", action="append", choices=("facts", "coverage", "history"),
                           help="Add provenance, detector coverage, or this file's commits")
 
+    draft_p = sub.add_parser(
+        "draft-test", help="Draft a test for a behaviour code the suite does not assert")
+    add_path(draft_p)
+    draft_p.add_argument("code", help="The behaviour code, as `eos rules` lists it")
+    draft_p.add_argument("--write", action="store_true",
+                         help="Also save it under .eos/data/candidates/")
+    draft_p.add_argument("--format", choices=("text", "json"), default="text")
+
     ask_p = sub.add_parser(
         "ask", help="Run a question this project's index extensions provide")
     add_path(ask_p)
@@ -1259,6 +1306,7 @@ def main(argv: list[str] | None = None) -> int:
         "rules": cmd_rules,
         "trace": cmd_trace,
         "ask": cmd_ask,
+        "draft-test": cmd_draft_test,
         "mcp": cmd_mcp,
         "bench": cmd_bench,
         "ui": cmd_ui,
