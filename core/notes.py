@@ -1169,7 +1169,7 @@ def render_context_section(
     if remaining:
         lines.append(
             f"_{len(remaining)} more note(s) did not fit. "
-            'Read one with `eos note search "<query>"`._'
+            "Read one with `eos note show <project> <name>`._"
         )
         # The index obeys the same budget the bodies do. It is allowed to be
         # partial -- a truncated list still names notes the reader could not

@@ -119,9 +119,9 @@ This is the one thing nothing else substitutes for:
 
 The CLI spellings are given because without them this loop is unreachable to
 anyone not holding the MCP tools, and it is the step most worth not skipping.
-`eos note search` lists titles; `eos compose <project> "<task>"` returns the
-bodies of the notes that rank highest against a task, which is how to actually
-read what an earlier session wrote.
+`eos note search` lists titles; `eos note show <project> <name>` prints one
+in full; `eos compose <project> "<task>"` returns the bodies of the notes that
+rank highest against a task, which is how to read several at once.
 
 ---
 

@@ -1013,6 +1013,41 @@ def cmd_note_list(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_note_show(args: argparse.Namespace) -> int:
+    """Print one note in full, by file name or by part of its title.
+
+    `note search` and `note list` print titles, and until now nothing printed
+    a body: the only way to read what an earlier session wrote was to phrase a
+    `compose` task narrow enough to rank that note into the top few. Two
+    surfaces sent readers the wrong way about it -- compose's own truncation
+    footer told them to use `note search`, which returns titles -- and an eval
+    session tested that instruction against a near-verbatim title, got 29
+    loose matches and no body, and concluded the tool was contradicting
+    itself. It was.
+    """
+    recorded = notes.load_notes(args.path)
+    if not recorded:
+        print(_no_notes_here(args.path))
+        return 0
+    needle = args.name.casefold()
+    exact = [note for note in recorded if note.path.name.casefold() == needle]
+    matches = exact or [note for note in recorded
+                        if needle in note.path.name.casefold() or needle in note.title.casefold()]
+    if not matches:
+        print(f"No note matches {args.name!r} among {len(recorded)} recorded here. "
+              f"`eos note search {args.path} \"{args.name}\"` searches their contents.",
+              file=sys.stderr)
+        return 1
+    if len(matches) > 1:
+        # Printing the first would be a coin toss presented as an answer.
+        print(f"{len(matches)} notes match {args.name!r}; name one of them:", file=sys.stderr)
+        for note in matches[:10]:
+            print(f"  {note.path.name}\t{note.title}", file=sys.stderr)
+        return 1
+    print(matches[0].path.read_text(encoding="utf-8"))
+    return 0
+
+
 def cmd_note_search(args: argparse.Namespace) -> int:
     matches = notes.search_notes(args.path, args.query, limit=args.limit)
     for note in matches:
@@ -1182,6 +1217,7 @@ def cmd_note(args: argparse.Namespace) -> int:
         "add": cmd_note_add,
         "list": cmd_note_list,
         "search": cmd_note_search,
+        "show": cmd_note_show,
         "skip": cmd_note_skip,
         "amend": cmd_note_amend,
         "audit": cmd_note_audit,
@@ -1549,6 +1585,10 @@ def main(argv: list[str] | None = None) -> int:
     note_list_p = note_sub.add_parser("list", help="List notes")
     add_path(note_list_p)
     note_list_p.add_argument("--tag", help="Only notes carrying this tag")
+
+    note_show_p = note_sub.add_parser("show", help="Print one note in full")
+    add_path(note_show_p)
+    note_show_p.add_argument("name", help="Note file name, or part of its title")
 
     note_search_p = note_sub.add_parser("search", help="Search notes by relevance")
     add_path(note_search_p)

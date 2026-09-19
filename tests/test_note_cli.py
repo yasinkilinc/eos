@@ -414,3 +414,50 @@ def test_stale_notes_resolves_a_parent_scoped_entry_instead_of_reporting_it_remo
     assert stale[0]["issues"] == [
         {"scope": f"{links.PARENT_PREFIX}parent/src/Base.java", "reason": "changed"}
     ]
+
+
+def test_note_show_prints_one_note_in_full(tmp_path):
+    """Nothing printed a note's body. `note search` and `note list` print
+    titles, and compose's truncation footer told readers to use `note search`
+    to "read one" -- which returns titles. An eval session tested that
+    instruction against a near-verbatim title, got 29 loose matches and no
+    body, and reported the tool as contradicting itself. It was.
+    """
+    root = tmp_path / "project"
+    (root / ".eos").mkdir(parents=True)
+    assert _run(["note", "add", str(root), "--kind", "finding",
+                 "--title", "The cache keeps parents", "--body",
+                 "A plain scan used to drop them from every answer."]).returncode == 0
+
+    done = _run(["note", "show", str(root), "cache keeps parents"])
+
+    assert done.returncode == 0, done.stderr
+    assert "A plain scan used to drop them" in done.stdout, done.stdout
+
+
+def test_note_show_refuses_to_guess_between_matches(tmp_path):
+    """Printing the first of several would be a coin toss presented as an
+    answer."""
+    root = tmp_path / "project"
+    (root / ".eos").mkdir(parents=True)
+    for title, body in (("Parent links resolve at scan time", "Recorded at link time."),
+                        ("Parent classes index under a tagged key", "Stored with a prefix.")):
+        assert _run(["note", "add", str(root), "--kind", "finding",
+                     "--title", title, "--body", body]).returncode == 0
+
+    done = _run(["note", "show", str(root), "parent"])
+
+    assert done.returncode == 1
+    assert "name one of them" in done.stderr, done.stderr
+    assert "Parent links resolve" in done.stderr, done.stderr
+    assert "Parent classes index" in done.stderr, done.stderr
+
+
+def test_note_show_on_a_project_with_no_notes_says_where_it_looked(tmp_path):
+    root = tmp_path / "project"
+    (root / ".eos").mkdir(parents=True)
+
+    done = _run(["note", "show", str(root), "anything"])
+
+    assert done.returncode == 0, done.stderr
+    assert "No notes recorded here yet" in done.stdout, done.stdout
