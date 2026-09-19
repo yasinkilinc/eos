@@ -1188,6 +1188,49 @@ def _read_git_ref(repo: Path) -> str | None:
     return content[:7] if content else None
 
 
+def cmd_parent(args: argparse.Namespace) -> int:
+    """Real parent source for a symbol, from the command line.
+
+    This existed only as an MCP tool, and on an overlay codebase it is the
+    tool most often needed: the class that decides the behaviour is in the
+    parent, under a different name, and the project holds an override. Two
+    eval sessions ran out of road here -- one could not check whether a fraud
+    step enforces a limit, the other could not see what the dispatcher does
+    with the flags the controller sets -- and both said so as the point at
+    which the investigation stopped.
+    """
+    root = Path(args.path).resolve()
+    if not links.read_links(root):
+        print(f"No linked projects configured for {root.name}. "
+              f"Link one with: eos init {root} --link-parent /path/to/parent-project",
+              file=sys.stderr)
+        return 1
+
+    answer = inspector.get_parent_implementation(root, args.symbol, max_results=max(args.limit, 1))
+    if args.format == "json":
+        print(json.dumps(answer, indent=2, ensure_ascii=False))
+        return 0
+
+    matches = answer["matches"]
+    if not matches:
+        # Which of the two it is matters: a symbol that is not there and a
+        # parent that was never indexed are different problems with different
+        # fixes, and the same empty list.
+        print(f"No parent symbol matches {args.symbol!r}. If the parent has never been "
+              f"scanned here, run: eos scan {root} --with-parents")
+        return 0
+
+    for match in matches:
+        print(f"{match['name']}  ({match['kind']})  {match['path']}:{match['line']}")
+        if match["source"]:
+            for line in match["source"].splitlines():
+                print(f"    {line}")
+        else:
+            print("    (source not readable: the linked parent is missing on disk)")
+        print()
+    return 0
+
+
 def cmd_parents(args: argparse.Namespace) -> int:
     root = Path(args.path).resolve()
     configured = links.read_links(root)
@@ -1465,6 +1508,14 @@ def main(argv: list[str] | None = None) -> int:
     parents_p = sub.add_parser("parents", help="List configured parent-project links")
     add_path(parents_p)
 
+    parent_p = sub.add_parser(
+        "parent", help="Real source for a symbol from a linked parent project")
+    add_path(parent_p)
+    parent_p.add_argument("symbol", help="Symbol name, or part of one")
+    parent_p.add_argument("--limit", type=int, default=3,
+                          help="How many matches to show source for (default: 3)")
+    parent_p.add_argument("--format", choices=("text", "json"), default="text")
+
     note_p = sub.add_parser("note", help="Manage authored knowledge notes")
     note_sub = note_p.add_subparsers(dest="note_command", required=True)
 
@@ -1545,6 +1596,7 @@ def main(argv: list[str] | None = None) -> int:
         "mcp": cmd_mcp,
         "bench": cmd_bench,
         "ui": cmd_ui,
+        "parent": cmd_parent,
         "parents": cmd_parents,
         "note": cmd_note,
         "ai": cmd_ai,

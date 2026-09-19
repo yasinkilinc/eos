@@ -84,8 +84,9 @@ them. See [ADR-009](docs/decisions/009-ai-integration-layer.md).
 | `eos index <path>` | Rebuild `.eos/data/eos.db` from notes, brain, graph, and git history |
 | `eos query <path> [sql \| --search "..."] [--limit N]` | Read-only SQL, or full-text search, against `eos.db` |
 | `eos parents <path>` | List configured parent-project links |
+| `eos parent <path> <symbol> [--limit N]` | Real source for a symbol from a linked parent, inlined |
 | `eos note add\|list\|search\|skip\|amend\|audit <path> ...` | Manage authored knowledge notes (see below) |
-| `eos ai update <path>` | Refresh the AI integration surfaces for the current EOS version |
+| `eos ai update <path> [--no-agents-md]` | Refresh the AI integration surfaces for the current EOS version |
 | `eos mcp <path>` | Start the read-only stdio MCP server |
 | `eos bench <path> [--samples N]` | Measure EOS's own tools against baselines, on this project |
 | `eos ui [port] [--yes] [--no-install]` | Start the multi-project dashboard |

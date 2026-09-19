@@ -68,6 +68,7 @@ argument. Every command takes `--format json`.
 | `eos verify <code>` | Records what an adapter ran and what happened | After running a test, so the next session does not re-run it to find out |
 | `eos findings` | Every recorded run and what it was judged to be | Before re-testing something |
 | `eos ask [question] [value]` | Questions this project's index extensions provide; with no question, the list of them | First, on any project with extensions — it is where project-shaped answers live |
+| `eos parent <symbol>` | Real source from a linked parent, by symbol — the CLI form of `get_parent_implementation` | On an overlay codebase, whenever the class that decides the behaviour is not in this project |
 | `eos cost` | What EOS has cost this project per command | When deciding whether a habit is worth keeping |
 
 Two of these are worth a habit.
