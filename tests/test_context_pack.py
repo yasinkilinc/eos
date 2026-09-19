@@ -125,3 +125,39 @@ def test_a_task_still_reaches_the_note_ranking(tmp_path):
 
     assert "## Task" in context
     assert "Age limit rejects boundary values" in context, context[-1500:]
+
+
+def test_context_can_answer_without_writing_a_file(tmp_path):
+    """`eos context` generates a file, which is right for the pipeline that
+    regenerates the brain and wrong for a reader who only wants to look.
+
+    An eval session ran it under an instruction to modify nothing, was told
+    "Context written to ...", and had to go and check whether .eos/ was
+    ignored before it could say whether it had broken the rule. The surprise
+    was the problem, not the byte.
+    """
+    import subprocess
+    import sys
+    from pathlib import Path as _Path
+
+    repo = _Path(__file__).resolve().parents[1]
+    eos = [sys.executable, str(repo / "core" / "eos.py")]
+
+    def run(args):
+        return subprocess.run(eos + args, capture_output=True, text=True, encoding="utf-8")
+
+    root = tmp_path / "project"
+    (root / "src").mkdir(parents=True)
+    (root / "src" / "main.py").write_text("print(1)\n", encoding="utf-8")
+    assert run(["init", str(root), "--no-ai"]).returncode == 0
+    assert run(["scan", str(root), "--full"]).returncode == 0
+    written = root / ".eos" / "data" / "brain" / "llm_context.md"
+    before = written.read_text(encoding="utf-8") if written.exists() else None
+
+    done = run(["context", str(root), "--stdout"])
+
+    assert done.returncode == 0, done.stderr
+    assert len(done.stdout) > 200, "the context itself must go to stdout"
+    assert "Context written to" not in done.stdout, done.stdout
+    after = written.read_text(encoding="utf-8") if written.exists() else None
+    assert after == before, "--stdout must not touch the file"

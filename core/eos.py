@@ -520,6 +520,16 @@ def cmd_graph(args: argparse.Namespace) -> int:
 def cmd_context(args: argparse.Namespace) -> int:
     context = inspector.build_context(args.path, budget=args.budget)
     root = inspector.require_project(args.path)
+    if args.stdout:
+        # A reader asking what the context says should not have to write a
+        # file to find out. An eval session ran this under an instruction not
+        # to modify anything and then had to go and check whether .eos/ was
+        # ignored: the surprise was the problem, not the byte.
+        from core import telemetry
+
+        telemetry.declare_answer_size(len(context))
+        print(context)
+        return 0
     output_path = root / ".eos" / "data" / "brain" / "llm_context.md"
     output_path.write_text(context, encoding="utf-8")
     # The answer is the file, not the line about it. Without this the most
@@ -1397,9 +1407,13 @@ def main(argv: list[str] | None = None) -> int:
     graph_p.add_argument("--format", choices=("json",), default="json", help="Output format")
     graph_p.add_argument("--output", default=None, help="Output path, or '-' for stdout")
 
-    context_p = sub.add_parser("context", help="Generate an AI-oriented project context")
+    context_p = sub.add_parser(
+        "context",
+        help="Generate an AI-oriented project context (writes .eos/data/brain/llm_context.md)")
     add_path(context_p)
     context_p.add_argument("--budget", type=int, default=12000, help="Approximate token budget")
+    context_p.add_argument("--stdout", action="store_true",
+                           help="Print it instead of writing the file")
 
     compose_p = sub.add_parser("compose", help="Compose focused context for a task")
     add_path(compose_p)

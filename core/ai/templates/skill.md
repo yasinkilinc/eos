@@ -27,7 +27,7 @@ reason to call it.
 | `get_file` | Contents of one project-relative file | same as the file | **Read** — identical bytes, nothing gained by going through EOS |
 | `find_symbol` | Where a name is defined, across the whole index | low–medium | **Grep** — usually just as fast, and exact when you know the string |
 | `impact_analysis` | What a file reaches and what reaches it, to `depth` hops; `include` adds provenance, detector coverage and the file's commits | medium | **Grep** for the import string, if the project is small enough that this is quick by hand |
-| `get_context` | Project context; pass `task` to rank notes against it and `target` to anchor on a file | medium | **Read** the files it summarizes, when you only need one or two of them |
+| `get_context` | Project context; pass `task` to rank notes against it and `target` to anchor on a file. Over MCP it returns; the CLI `eos context` **writes** `.eos/data/brain/llm_context.md` unless you pass `--stdout` | medium | **Read** the files it summarizes, when you only need one or two of them |
 | `compose` | As an MCP tool, an alias of `get_context` with `task`/`target`, kept for one release. The CLI `eos compose <project> "<task>" [file]` is not redundant: `eos context` takes no task, so this is the only command-line way to rank notes against one | medium–high | `get_context` with `task`, over MCP only |
 | `get_graph` | The entire generated project graph | high, and grows with project size | almost never the right first call — see below |
 | `search_index` | Full-text search over notes, brain documents and index extensions | low | `search_notes`, when you only want authored findings |

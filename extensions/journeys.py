@@ -264,9 +264,22 @@ QUESTIONS = {
         """,
     },
     "unresolved-steps": {
-        "help": "Owned steps whose bean name matches no class indexed here.",
+        "help": ("Owned steps whose bean name matches no class in this index. "
+                 "`owner_matched_by` is how the step was attributed to this project; "
+                 "`bean_declared_in` is which project declares the bean. The class "
+                 "itself is not indexed here -- usually its project is not checked "
+                 "out, or the parent has not been scanned with --with-parents."),
+        # The two carried columns describe how the step was attributed to a
+        # *project*, and under their raw names they read as claims about the
+        # class -- which is the one thing this question says is missing. An
+        # eval session read `resolution = bean, candidates = <this project>`
+        # beside a null implementation, could not tell a formatting bug from a
+        # column it was misreading, and dropped the thread.
         "sql": """
-            SELECT DISTINCT bean_name, flow, resolution, candidates
+            SELECT DISTINCT bean_name, flow,
+                   resolution AS owner_matched_by,
+                   CASE WHEN candidates = '' THEN '(no indexed project declares this bean)'
+                        ELSE candidates END AS bean_declared_in
               FROM journey_step
              WHERE owned = 1 AND impl_path IS NULL
              ORDER BY bean_name
