@@ -222,7 +222,11 @@ def get_parent_implementation(root: str | Path, symbol: str, max_results: int = 
 
 
 def _node_for_path(graph: dict[str, Any], relative_path: str) -> dict[str, Any] | None:
-    normalized = relative_path.replace("\\", "/").lstrip("./")
+    # removeprefix, not lstrip: lstrip strips *characters*, so a path that
+    # legitimately begins with a dot lost it -- ".worktrees/x/Foo.java" became
+    # "worktrees/x/Foo.java", matched no node, and impact() raised
+    # "No graph node found for file". Every dot-prefixed path was affected.
+    normalized = relative_path.replace("\\", "/").removeprefix("./")
     for node in graph.get("nodes", []):
         if node.get("path") == normalized:
             return node

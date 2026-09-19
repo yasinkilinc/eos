@@ -43,6 +43,19 @@ DEFAULT_IGNORE = {
     ".pytest_cache",
     ".egg-info",
     ".tox",
+    # A per-ticket `git worktree` of the same repository, checked out inside it.
+    # Measured on a 255-file service: the worktree held a near-complete copy, so
+    # 687 of 6,040 graph nodes were duplicates of the real tree and every entry
+    # point was listed twice -- the worktree copy first, because it sorts before
+    # `src/`. Nothing here is the project: it is another checkout of it.
+    ".worktrees",
+    # Generated per-run state that no index should follow. `graphify-out` is an
+    # analysis tool's output living inside the project it analyses; the other two
+    # are scratch and log directories. All three are already excluded by the
+    # watcher (ui/watcher.py) -- the scanner never was.
+    "graphify-out",
+    ".scratch",
+    "logs",
 }
 
 

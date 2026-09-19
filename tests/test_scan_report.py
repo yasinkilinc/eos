@@ -89,3 +89,27 @@ def test_unignore_also_reaches_gitignore_rules(tmp_path):
     paths = set(Scanner(root, CacheStore(root / ".eos" / "data" / "cache"))._walk(root))
 
     assert "generated/stub.js" in paths, "unignore could not reach a .gitignore rule"
+
+
+def test_a_git_worktree_inside_the_project_is_not_indexed_twice(tmp_path):
+    """A per-ticket `git worktree` checked out inside the repository is another
+    checkout of the same code, not more code.
+
+    Measured on a 255-file service before this was excluded: the worktree held
+    406 .java files against src/'s 403, so 687 of 6,040 graph nodes were
+    duplicates and EntryPoints.md listed every controller twice -- the worktree
+    copy first, because ".worktrees" sorts before "src".
+    """
+    root = _copy(tmp_path)
+    worktree = root / ".worktrees" / "svc-PROJ-1"
+    shutil.copytree(root / "svc", worktree / "svc")
+
+    project = _scan(root)
+
+    indexed = [file.path for file in project.files]
+    assert not any(path.startswith(".worktrees/") for path in indexed), (
+        f"a worktree copy reached the model: {[p for p in indexed if p.startswith('.worktrees/')]}"
+    )
+    assert project.report.skipped_by_ignore.get(".worktrees", 0) >= 1, (
+        f"the exclusion was not reported; skipped_by_ignore={project.report.skipped_by_ignore}"
+    )
