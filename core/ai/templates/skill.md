@@ -47,6 +47,41 @@ full graph can be larger than what fits usefully in a conversation. Reach for
 for the whole graph — and if you do need the graph, treat it as something to
 filter or export, not to read end to end.
 
+## Commands the MCP tools do not cover
+
+These are CLI-only, and each answers something none of the tools above can.
+Run them with `eos <command> <project>`; every one takes `--format json`.
+
+| Command | What it answers | When it earns its cost |
+|---|---|---|
+| `eos rules [--untested]` | Which refusals this code can raise, and what the tests do about each | Before writing a test, and before claiming a behaviour is covered |
+| `eos trace <file>` | What an entry point serves and reaches — **and how much of the system no call graph can reach** | When asked "what does this endpoint do" on a system whose components are looked up by name |
+| `eos why <file>` | Where a fact came from: detector, origin, confidence, `path:line` — and which detectors found nothing | When an answer looks wrong or suspiciously empty |
+| `eos draft-test <code>` | A draft of the missing test, in the style of the file it would join | When `eos rules` says a refusal is `reachable` |
+| `eos verify <code>` | Records what an adapter ran and what happened | After running a test, so the next session does not re-run it to find out |
+| `eos findings` | Every recorded run and what it was judged to be | Before re-testing something |
+| `eos ask [question]` | Questions this project's index extensions provide | First, on any project with extensions — it is where project-shaped answers live |
+| `eos cost` | What EOS has cost this project per command | When deciding whether a habit is worth keeping |
+
+Two of these are worth a habit.
+
+**`eos rules --untested` before writing a test.** It separates four states, and
+the useful one is `reachable`: a test already reaches the class that raises the
+refusal and nothing asserts it. The fixture exists, so the missing work is one
+assertion — and `eos draft-test` writes the first version of it.
+
+**`eos why` when an answer is empty.** An empty impact result and a detector
+that never ran look identical. `why` is the only thing that separates them, and
+guessing wrong there wastes a whole investigation.
+
+## What this system will not tell you
+
+It records what was run; it does not conclude what a failure meant. A failing
+test can mean the rule is not enforced, the test is wrong, or the environment
+was — nothing in an exit code separates those, so `eos verify` stores a
+`verdict` only when a person passes one. Treat any claim of a defect that did
+not come from a person looking at a log as something this system did not make.
+
 ## Costs are shaped by the project, not fixed
 
 The "rough cost" column above is a shape, not a measurement of this codebase.

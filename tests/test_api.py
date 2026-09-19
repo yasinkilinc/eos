@@ -729,3 +729,30 @@ def test_graphify_queue_reports_state_published_by_the_watcher(client, monkeypat
         queue.stop()
 
     assert c.get("/api/graphify/queue").json() == {"enabled": False, "entries": []}
+
+
+def test_the_generated_skill_names_every_cli_command_an_agent_should_reach_for():
+    """A capability nothing tells an agent about stays unused.
+
+    Measured after eleven phases of work: eight new commands existed and not
+    one of them appeared in any file an agent loads. That is the same failure
+    this project already paid for once -- a schema with no tool stays empty,
+    and a tool nobody is told about stays uncalled.
+    """
+    from pathlib import Path
+
+    template = (Path(__file__).resolve().parents[1] / "core" / "ai" / "templates" / "skill.md")
+    text = template.read_text(encoding="utf-8")
+
+    for command in ("eos rules", "eos trace", "eos why", "eos draft-test",
+                    "eos verify", "eos findings", "eos ask", "eos cost"):
+        assert command in text, f"{command} is not mentioned in the skill an agent loads"
+
+
+def test_the_generated_skill_states_what_eos_will_not_conclude():
+    from pathlib import Path
+
+    template = (Path(__file__).resolve().parents[1] / "core" / "ai" / "templates" / "skill.md")
+    text = template.read_text(encoding="utf-8")
+
+    assert "does not conclude" in text or "will not tell you" in text.lower(), text[:400]
