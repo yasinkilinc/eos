@@ -51,6 +51,7 @@ from core.lib.config_io import ConfigIO
 from core.knowledge.builder import KnowledgeBuilder
 from core.scanner import Scanner
 from core.generators.markdown.brain import BrainGenerator
+from core.generators.json.evidence import EvidenceGenerator
 from core.generators.json.graph_index import GraphIndexGenerator
 from core.generators.ai.summary import AISummaryGenerator
 from core import index
@@ -184,6 +185,11 @@ def cmd_scan(args: argparse.Namespace) -> int:
     BrainGenerator(graph).generate(brain_dir)
     GraphIndexGenerator(graph).generate(brain_dir / "graph.json")
     AISummaryGenerator(graph).generate(brain_dir / "AI_SUMMARY.md")
+    # Written before last_scan.json, and its counts recorded there: that is what
+    # lets the index refuse a sidecar a killed scan left half-written, instead
+    # of confidently reporting provenance for edges from a previous graph.
+    evidence_counts = EvidenceGenerator(graph, project.report, VERSION).generate(
+        brain_dir / "evidence.jsonl")
 
     # Update metadata
     metadata = {
@@ -191,6 +197,8 @@ def cmd_scan(args: argparse.Namespace) -> int:
         "files_parsed": len(project.files),
         "nodes": len(graph.nodes),
         "edges": len(graph.edges),
+        "facts": evidence_counts["facts"],
+        "coverage": evidence_counts["coverage"],
     }
     (eos / "data" / "last_scan.json").write_text(json.dumps(metadata, indent=2), encoding="utf-8")
 
@@ -526,6 +534,49 @@ def cmd_compose(args: argparse.Namespace) -> int:
 def cmd_impact(args: argparse.Namespace) -> int:
     print(json.dumps(inspector.impact(args.path, args.file), indent=2, ensure_ascii=False))
     return 0
+
+
+def cmd_why(args: argparse.Namespace) -> int:
+    """Print where a fact came from, and what nothing looked for."""
+    try:
+        rebuilt = index.refresh(args.path)
+    except (index.IndexBuildError, OSError, ValueError, sqlite3.Error) as exc:
+        print(f"warning: index may be stale ({type(exc).__name__}: {exc})", file=sys.stderr)
+    else:
+        if rebuilt is not None:
+            print("note: index rebuilt from changed sources", file=sys.stderr)
+
+    try:
+        answer = inspector.why(args.path, args.subject, args.predicate, args.min_confidence)
+    except ValueError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+
+    if args.format == "json":
+        print(json.dumps(answer, indent=2, ensure_ascii=False))
+        return 0
+
+    if answer["subject"]:
+        print(answer["subject"])
+        for entry in answer["facts"]:
+            _print_fact(entry, "  ")
+        for entry in answer["inbound"]:
+            _print_fact(entry, "  <- ")
+        if not answer["facts"] and not answer["inbound"]:
+            print("  (no facts recorded)")
+    # Always: the question "did you not find it, or did you not look" has to be
+    # answerable at the moment it is asked, not by reading a separate table.
+    for entry in answer["coverage"]:
+        found = f"{entry['hits']} in {entry['files_with_hits']} file(s)" if entry["hits"] else "nothing"
+        print(f"  coverage: {entry['detector']} looked at {entry['files_eligible']} file(s) "
+              f"for {entry['predicate']}, found {found}")
+    return 0
+
+
+def _print_fact(entry: dict, prefix: str) -> None:
+    value = f"{entry['predicate']}={entry['object']}" if entry["object"] else entry["predicate"]
+    print(f"{prefix}{value:<44} {entry['origin']:<10} {entry['confidence']:.2f} "
+          f"{entry['detector']:<16} {entry['source_ref'] or ''}")
 
 
 def _split_csv(value: str | None) -> list[str] | None:
@@ -931,6 +982,15 @@ def main(argv: list[str] | None = None) -> int:
     add_path(impact_p)
     impact_p.add_argument("file", help="Project-relative file path")
 
+    why_p = sub.add_parser(
+        "why", help="Where a fact came from, and which detectors found nothing")
+    add_path(why_p)
+    why_p.add_argument("subject", nargs="?", help="Project-relative file path; omit for coverage only")
+    why_p.add_argument("--predicate", help="Only facts with this predicate")
+    why_p.add_argument("--min-confidence", type=float, dest="min_confidence",
+                       help="Only facts at or above this confidence")
+    why_p.add_argument("--format", choices=("text", "json"), default="text")
+
     mcp_p = sub.add_parser("mcp", help="Start the read-only stdio MCP server")
     add_path(mcp_p)
 
@@ -1017,6 +1077,7 @@ def main(argv: list[str] | None = None) -> int:
         "context": cmd_context,
         "compose": cmd_compose,
         "impact": cmd_impact,
+        "why": cmd_why,
         "mcp": cmd_mcp,
         "bench": cmd_bench,
         "ui": cmd_ui,

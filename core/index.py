@@ -31,7 +31,7 @@ from core import links
 from core import notes
 from core.lib.config_io import ConfigIO
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 # Bounds measured on the 18 FM repos: the longest history is 1,339 commits and
 # only one commit anywhere touches more than 200 files (430).
@@ -136,6 +136,60 @@ CREATE TABLE git_commit_ticket (
     PRIMARY KEY (sha, key)
 ) WITHOUT ROWID;
 CREATE INDEX git_commit_ticket_by_key ON git_commit_ticket(key);
+
+-- Provenance for derived facts. One generic table rather than columns on
+-- node/edge: those are 1:1 projections of graph.json, while one node carries a
+-- role, several annotations, a bean name and an endpoint. A new detector adds
+-- predicates here, not a schema change.
+--
+-- `subject` addresses a node by its id, or an edge as `src|dst|kind|imported` --
+-- the edge table's own key, because node.nid is assigned in graph.json
+-- iteration order and every rebuild renumbers it.
+--
+-- Note `origin` here is not `node.origin`: this one is how the fact was come by
+-- (extracted / documented / inferred / verified), that one is whether the file
+-- belongs to this project or a linked parent. Both names are load-bearing in
+-- queries people have already written, so neither was renamed.
+CREATE TABLE fact (
+    fid INTEGER PRIMARY KEY,
+    subject_kind TEXT NOT NULL,
+    subject TEXT NOT NULL,
+    predicate TEXT NOT NULL,
+    object TEXT,
+    origin TEXT NOT NULL,
+    confidence REAL NOT NULL,
+    detector TEXT NOT NULL,
+    source_ref TEXT,
+    observed_at TEXT NOT NULL
+);
+CREATE INDEX fact_by_subject ON fact(subject_kind, subject);
+CREATE INDEX fact_by_predicate ON fact(predicate, object);
+
+-- What each detector was asked about, whether or not it found anything. A
+-- project with no Java has no row for a Java detector ("not looked for"); a
+-- project with 2,652 Java files and hits = 0 has one ("looked, found nothing").
+-- Without the distinction both print as silence.
+--
+-- Counted per eligible file, so `hits` is what the detector produced *from
+-- files* -- the folders producer's 3,734 is one edge per file, not the 47,425
+-- folder-to-folder edges the directory tree itself contributes.
+CREATE TABLE coverage (
+    detector TEXT NOT NULL,
+    predicate TEXT NOT NULL,
+    files_eligible INTEGER NOT NULL,
+    files_with_hits INTEGER NOT NULL,
+    hits INTEGER NOT NULL,
+    PRIMARY KEY (detector, predicate)
+) WITHOUT ROWID;
+
+-- What the scan did not index, by the rule that excluded it. Printed by
+-- `eos scan` since it was written; kept here so a later reader can ask.
+CREATE TABLE scan_exclusion (
+    kind TEXT NOT NULL,
+    rule TEXT NOT NULL,
+    files INTEGER NOT NULL,
+    PRIMARY KEY (kind, rule)
+) WITHOUT ROWID;
 """
 
 # Same table name and columns either way, so `SELECT ... FROM search WHERE body
@@ -154,6 +208,7 @@ _COUNTS = {
     "nodes": "SELECT COUNT(*) FROM node",
     "edges": "SELECT COUNT(*) FROM edge",
     "commits": "SELECT COUNT(*) FROM git_commit",
+    "facts": "SELECT COUNT(*) FROM fact",
 }
 
 _GIT_FORMAT = "%x1e%H%x1f%P%x1f%aN%x1f%aE%x1f%aI%x1f%cI%x1f%s%x1f%b%x1d"
@@ -398,6 +453,7 @@ def _populate(conn: sqlite3.Connection, root: Path, sources: str) -> tuple[bool,
 
     build.notes_dir = _load_notes(build)
     _load_brain(build)
+    _load_evidence(build)
     for extension in usable:
         try:
             counts.update(extension.counts)
@@ -485,6 +541,7 @@ def _sources_digest(root: Path) -> str:
             add("note", path.name, _file_digest(path))
     data = root / ".eos" / "data"
     for path in (data / "last_scan.json", data / "brain" / "graph.json",
+                 data / "brain" / "evidence.jsonl",
                  *(data / "brain" / name for name in inspector.BRAIN_FILES)):
         # With mtimes: they decide whether _load_brain takes the scan as complete.
         add("brain", path.name, _file_digest(path), *_stat(path))
@@ -713,6 +770,88 @@ def _load_brain(build: BuildContext) -> None:
         ],
     )
     build.meta["with_parents"] = "1" if any(row[7] != "own" for row in node_rows) else "0"
+
+
+def _load_evidence(build: BuildContext) -> None:
+    """Stream .eos/data/brain/evidence.jsonl into fact / coverage / scan_exclusion.
+
+    Streamed, not loaded: structural extraction produces tens of thousands of
+    facts on a real service, and this runs inside every index build.
+
+    The header's counts are checked against last_scan.json's before a single
+    row is written. `eos scan` writes the sidecar before last_scan.json, so a
+    scan that died in between leaves counts that disagree -- and indexing it
+    anyway would leave `eos why` confidently citing provenance for edges that
+    belong to a previous graph, which is the one failure this file exists to
+    prevent.
+    """
+    data = build.root / ".eos" / "data"
+    path = data / "brain" / "evidence.jsonl"
+    if not path.exists():
+        return
+    last_scan_path = data / "last_scan.json"
+    try:
+        last_scan = json.loads(build.read(last_scan_path)[0]) if last_scan_path.exists() else {}
+    except (OSError, ValueError):
+        last_scan = {}
+    if not isinstance(last_scan, dict):
+        last_scan = {}
+
+    facts, coverage, exclusions = [], [], []
+    header = None
+    try:
+        with open(path, "r", encoding="utf-8") as handle:
+            for number, line in enumerate(handle, start=1):
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    row = json.loads(line)
+                except ValueError:
+                    build.issue("evidence", str(number), "unparseable line; skipped")
+                    continue
+                kind = row.get("type")
+                if kind == "header":
+                    header = row
+                elif kind == "fact":
+                    facts.append((row.get("subject_kind"), row.get("subject"), row.get("predicate"),
+                                  row.get("object"), row.get("origin"), row.get("confidence"),
+                                  row.get("detector"), row.get("source_ref"), row.get("observed_at")))
+                elif kind == "coverage":
+                    coverage.append((row.get("detector"), row.get("predicate"), row.get("files_eligible"),
+                                     row.get("files_with_hits"), row.get("hits")))
+                elif kind == "exclusion":
+                    exclusions.append((row.get("kind"), row.get("rule"), row.get("files")))
+    except OSError as exc:
+        build.issue("evidence", None, f"unreadable ({exc}); provenance not indexed")
+        return
+
+    if header is None:
+        build.issue("evidence", None, "no header line (scan interrupted); provenance not indexed")
+        return
+    claimed = (header.get("facts"), header.get("coverage"), header.get("exclusions"))
+    actual = (len(facts), len(coverage), len(exclusions))
+    if claimed != actual:
+        build.issue("evidence", None,
+                    f"header claims {claimed} fact/coverage/exclusion rows, file holds {actual} "
+                    "(scan interrupted); provenance not indexed")
+        return
+    if "facts" in last_scan and last_scan.get("facts") != len(facts):
+        build.issue("evidence", None,
+                    f"last_scan.json says {last_scan.get('facts')} facts, evidence.jsonl holds "
+                    f"{len(facts)} (scan interrupted); provenance not indexed")
+        return
+
+    build.conn.executemany(
+        "INSERT INTO fact(subject_kind, subject, predicate, object, origin, confidence, detector, "
+        "source_ref, observed_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)", facts)
+    build.conn.executemany(
+        "INSERT OR REPLACE INTO coverage(detector, predicate, files_eligible, files_with_hits, hits) "
+        "VALUES (?, ?, ?, ?, ?)", coverage)
+    build.conn.executemany(
+        "INSERT OR REPLACE INTO scan_exclusion(kind, rule, files) VALUES (?, ?, ?)", exclusions)
+    if header.get("generated_at"):
+        build.meta["evidence_generated_at"] = header["generated_at"]
 
 
 # --- history -----------------------------------------------------------------------

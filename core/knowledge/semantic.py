@@ -4,7 +4,7 @@ This is the first structured layer after parsing. It is intentionally
 language-agnostic so that all plugins map into the same shape.
 """
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 
 @dataclass
@@ -53,6 +53,13 @@ class FileSemantic:
     exports: List[Export] = field(default_factory=list)
     symbols: List[Symbol] = field(default_factory=list)
     doc: Optional[str] = None
+    parsed_at: Optional[str] = None
+    """When this file was actually parsed, UTC.
+
+    Not when the scan ran: an unchanged file is reused from the cache, so a
+    fact emitted today may have been observed several scans ago. Stamping every
+    fact with the current scan time would be exactly the kind of confident
+    wrong answer provenance exists to prevent."""
     role: Optional[str] = None
     """A role the plugin established from the source itself -- a Spring
     annotation, a shebang, an `if __name__ == "__main__"`.
@@ -81,6 +88,13 @@ class ScanReport:
     """Imports that named something the resolver could not find, by specifier
     kind. A whole style failing -- every `@/…` alias, say -- looked identical on
     stdout to a project that uses no aliases at all."""
+    coverage: Dict[tuple, Any] = field(default_factory=dict)
+    """(detector, predicate) -> evidence.Coverage.
+
+    What each detector was asked about, whether or not it found anything. A
+    detector that examined 2,652 files and produced nothing is a different
+    statement from a detector that was never asked, and without this they are
+    the same silence."""
 
     def note_ignored(self, reason: str, count: int = 1) -> None:
         self.skipped_by_ignore[reason] = self.skipped_by_ignore.get(reason, 0) + count
@@ -90,6 +104,16 @@ class ScanReport:
 
     def note_unresolved(self, kind: str) -> None:
         self.unresolved_imports[kind] = self.unresolved_imports.get(kind, 0) + 1
+
+    def note_coverage(self, detector: str, predicate: str, found: int) -> None:
+        """Account for one eligible file a detector examined for one predicate."""
+        from core.knowledge.evidence import Coverage  # local: semantic stays import-light
+
+        key = (detector, predicate)
+        entry = self.coverage.get(key)
+        if entry is None:
+            entry = self.coverage[key] = Coverage(detector=detector, predicate=predicate)
+        entry.record(found)
 
 
 @dataclass

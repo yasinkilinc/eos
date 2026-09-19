@@ -387,3 +387,76 @@ def build_context(root: str | Path, budget: int = 12000, task: str | None = None
 
 def compose(root: str | Path, task: str, target: str | None = None, budget: int = 12000) -> str:
     return build_context(root, budget=budget, task=task, target=target)
+
+
+def why(project_root: str | Path, subject: str | None = None,
+        predicate: str | None = None, min_confidence: float | None = None) -> dict[str, Any]:
+    """What is known about one file, how it came to be known, and what was not looked for.
+
+    The last part is the point. A reader who asks "does this service publish
+    events?" and gets nothing back cannot tell a service that publishes none
+    from a detector that never ran -- so every answer carries the coverage of
+    the detectors that were asked, including the ones that found nothing.
+
+    `subject` is a project-relative path. Omitted, the answer is the coverage
+    summary alone: what this project's scan looked at, and what it produced.
+    """
+    from core import index as _index
+
+    database = _index.db_path(project_root)
+    if not database.exists():
+        raise ValueError(f"No index at {database}. Run 'eos index' first.")
+
+    node_id = None
+    facts: list[dict[str, Any]] = []
+    inbound: list[dict[str, Any]] = []
+    conn = _index.connect_read_only(database)
+    try:
+        if subject:
+            normalized = subject.replace("\\", "/").removeprefix("./")
+            row = conn.execute("SELECT id, path FROM node WHERE path = ?", (normalized,)).fetchone()
+            if row is None:
+                raise ValueError(f"No indexed node for: {subject}")
+            node_id, normalized = row[0], row[1]
+
+            clauses = ["(subject = ? OR subject LIKE ? OR subject LIKE ?)"]
+            params: list[Any] = [node_id, f"{node_id}|%", f"%|{node_id}|%"]
+            if predicate:
+                clauses.append("predicate = ?")
+                params.append(predicate)
+            if min_confidence is not None:
+                clauses.append("confidence >= ?")
+                params.append(min_confidence)
+            rows = conn.execute(
+                "SELECT subject_kind, subject, predicate, object, origin, confidence, detector, "
+                f"source_ref, observed_at FROM fact WHERE {' AND '.join(clauses)} "
+                "ORDER BY predicate, object", params).fetchall()
+            columns = ("subject_kind", "subject", "predicate", "object", "origin",
+                       "confidence", "detector", "source_ref", "observed_at")
+            for values in rows:
+                entry = dict(zip(columns, values))
+                # An edge subject is "src|dst|kind|imported"; the fact is about
+                # this file either way, but the direction changes what it means.
+                if entry["subject_kind"] == "edge" and not entry["subject"].startswith(f"{node_id}|"):
+                    inbound.append(entry)
+                else:
+                    facts.append(entry)
+
+        coverage = [
+            dict(zip(("detector", "predicate", "files_eligible", "files_with_hits", "hits"), values))
+            for values in conn.execute(
+                "SELECT detector, predicate, files_eligible, files_with_hits, hits "
+                "FROM coverage ORDER BY detector, predicate").fetchall()
+        ]
+        built_at = conn.execute("SELECT value FROM meta WHERE key = 'built_at'").fetchone()
+    finally:
+        conn.close()
+
+    return {
+        "subject": subject,
+        "node_id": node_id,
+        "facts": facts,
+        "inbound": inbound,
+        "coverage": coverage,
+        "index_built_at": built_at[0] if built_at else None,
+    }

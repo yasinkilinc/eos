@@ -17,6 +17,7 @@ from typing import List, Set
 from core.knowledge.semantic import FileSemantic, ProjectSemantic
 from core.lib.cache_store import CacheStore
 from core.plugins.base import LanguagePlugin
+from core.knowledge.evidence import utc_now
 from core.plugins.registry import PluginRegistry
 
 
@@ -294,6 +295,10 @@ class Scanner:
             return (0, 0)
 
         file_sem = plugin.parse_file(storage_key, text)
+        # Stamped here, not when the facts are written: a file that does not
+        # change is reused from the cache on every later scan, so this is the
+        # last moment its contents were actually read.
+        file_sem.parsed_at = utc_now()
         project.add_file(file_sem)
         project.report.files_parsed += 1
         self.cache.update(storage_key, stat.st_mtime, stat.st_size, content_bytes)

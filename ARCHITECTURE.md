@@ -72,6 +72,7 @@ Reconciliation rule: scanner reads `.eos/id.txt` first, then queries `WHERE id=?
       EntryPoints.md
       AI_SUMMARY.md
       graph.json           # machine-readable graph (eos-ui reads this)
+      evidence.jsonl       # provenance sidecar, streamed into eos.db (ADR-014)
 ```
 
 ## Knowledge Pipeline
@@ -115,6 +116,20 @@ graph ─┼─→  .eos/data/eos.db  ←─ extension tables (same file, same q
  git  ─┘         meta.extensions records which extension wrote what
 ```
 
+## Provenance
+
+Every derived fact records how it came to be known: `origin` (extracted /
+documented / inferred / verified), `confidence`, the `detector` that produced
+it, the `source_ref` it was read from, and when it was observed. These live as
+rows in the index, never as fields in `graph.json` — that artifact is 25 MB on
+a real service and is returned whole by MCP. They travel in
+`.eos/data/brain/evidence.jsonl` and are queried from SQLite.
+
+Alongside them, `coverage` records what each detector was *asked* about. A
+detector with no row was never run; one with `hits = 0` ran and found nothing.
+Without that distinction the two print the same silence. `eos why <path>` shows
+both. Rationale: ADR-014.
+
 ## Update Mechanism
 
 Canonical source is this repository's `core/` folder. During `eos update`:
@@ -145,6 +160,7 @@ leave in every project's gitignored `.eos/` were never read.
 | `eos context <path>` | 0 | AI-oriented project context, budgeted |
 | `eos compose <path> <task>` | 0 | Focused context for one task |
 | `eos impact <path> <file>` | 0 | Direct import impact of a file |
+| `eos why <path> [file]` | — | Provenance of a file's facts, and which detectors found nothing (ADR-014) |
 | `eos mcp <path>` | 0 | Start the read-only stdio MCP server |
 | `eos bench <path>` | — | Measure EOS's own tools against baselines, on this project (ADR-011) |
 | `eos ui [port]` | 2–3 | Start the multi-project dashboard |

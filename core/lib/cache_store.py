@@ -22,7 +22,7 @@ from core.knowledge.semantic import Export, FileSemantic, Import, Symbol
 #
 # A mismatch drops the whole cache, which costs one full parse -- 1.7 s for
 # 4,000 files -- and is the only way to be sure no stale shape survives.
-_CACHE_FORMAT = 2
+_CACHE_FORMAT = 3
 
 _FORMAT_KEY = "__format__"
 
@@ -126,6 +126,7 @@ class CacheStore:
                 "language": file_sem.language,
                 "doc": file_sem.doc,
                 "role": file_sem.role,
+                "parsed_at": file_sem.parsed_at,
                 "imports": [asdict(i) for i in file_sem.imports],
                 "exports": [asdict(e) for e in file_sem.exports],
                 "symbols": [asdict(s) for s in file_sem.symbols],
@@ -144,6 +145,7 @@ class CacheStore:
                 language=data.get("language", "unknown"),
                 doc=data.get("doc"),
                 role=data.get("role"),
+                parsed_at=data.get("parsed_at"),
                 imports=[Import(**i) for i in data.get("imports", [])],
                 exports=[Export(**e) for e in data.get("exports", [])],
                 symbols=[Symbol(**s) for s in data.get("symbols", [])],

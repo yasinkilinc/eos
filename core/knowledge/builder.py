@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Dict, List, Set
 
 from .classifier import Classifier
+from .evidence import CERTAIN, EXTRACTED, Fact, detector, edge_subject, utc_now
 from .model import Dependency, KnowledgeGraph, KnowledgeNode
 from .semantic import FileSemantic, Import, ProjectSemantic
 
@@ -102,9 +103,27 @@ class KnowledgeBuilder:
         # 2. Tech stack detection (minimal heuristic).
         graph.tech_stack = self._detect_tech_stack(project)
 
+        # Folder-hierarchy edges are a projection of the path, not a detection,
+        # so they carry no per-edge fact: on a real service they are 47,425 of
+        # 64,479 edges and a provenance row saying "read from the path" for each
+        # would be megabytes of noise. The coverage row exists so their absence
+        # from the fact table is a stated decision rather than a silent gap.
+        folder_edges: Dict[str, int] = {}
+        for edge in graph.edges:
+            if edge.kind == "folder-hierarchy":
+                folder_edges[edge.source_id] = folder_edges.get(edge.source_id, 0) + 1
+        folder_detector = detector("folders")
+        for file in project.files:
+            project.report.note_coverage(
+                folder_detector, "folder-hierarchy",
+                folder_edges.get(self._file_node_id(file.path), 0))
+
         # 3. Edges: imports between files.
+        import_detector = detector("imports")
+        observed = utc_now()
         for file in project.files:
             source_id = self._file_node_id(file.path)
+            resolved_here = 0
             for imp in file.imports:
                 kind = "relative" if imp.is_relative else "absolute"
                 if imp.is_relative:
@@ -157,6 +176,22 @@ class KnowledgeBuilder:
                                 metadata={"imported": imp.name},
                             )
                         )
+                        resolved_here += 1
+                        # Provenance for the edge just added. The subject is the
+                        # edge's own identity, not a surrogate id: the index
+                        # renumbers node ids on every rebuild, so a stored
+                        # number would silently come to mean another file.
+                        graph.add_fact(Fact(
+                            subject_kind="edge",
+                            subject=edge_subject(source_id, target_id, "import", imp.name or ""),
+                            predicate="import-edge",
+                            object=imp.module,
+                            origin=EXTRACTED,
+                            confidence=CERTAIN,
+                            detector=import_detector,
+                            source_ref=f"{file.path}:{imp.line}" if imp.line else file.path,
+                            observed_at=file.parsed_at or observed,
+                        ))
                     # Resolved to a real file EOS does not parse -- 401 .scss
                     # imports on the CSR frontend. That is already reported as
                     # an unindexed language; counting it again as an unresolved
@@ -170,6 +205,11 @@ class KnowledgeBuilder:
                 # resolve, so it is not counted.
                 if kind != "absolute" or file.language not in ("javascript", "typescript"):
                     project.report.note_unresolved(kind)
+
+            # Every parsed file is eligible, including the ones that produced
+            # nothing: "no import edges anywhere" and "the import detector never
+            # ran" must not read the same.
+            project.report.note_coverage(import_detector, "import-edge", resolved_here)
 
         return graph
 

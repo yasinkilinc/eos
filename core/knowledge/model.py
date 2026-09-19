@@ -38,12 +38,23 @@ class KnowledgeGraph:
     languages: List[str] = field(default_factory=list)
     tech_stack: List[str] = field(default_factory=list)
     entry_points: List[str] = field(default_factory=list)
+    facts: List[Any] = field(default_factory=list)
+    """Provenance for the nodes and edges above (core.knowledge.evidence.Fact).
+
+    Deliberately NOT part of to_dict(): graph.json is 25,466,819 bytes for
+    6,040 nodes and 72,139 edges on a real service, and MCP get_graph returns
+    it whole. Per-edge provenance would add ~10.6 MB raw. Facts travel in
+    .eos/data/brain/evidence.jsonl and are queried from SQLite instead.
+    """
 
     def add_node(self, node: KnowledgeNode) -> None:
         self.nodes.append(node)
 
     def add_edge(self, edge: Dependency) -> None:
         self.edges.append(edge)
+
+    def add_fact(self, fact: Any) -> None:
+        self.facts.append(fact)
 
     def get_node(self, node_id: str) -> Optional[KnowledgeNode]:
         for node in self.nodes:

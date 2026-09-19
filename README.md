@@ -72,6 +72,7 @@ them. See [ADR-009](docs/decisions/009-ai-integration-layer.md).
 | `eos context <path> [--budget N]` | Generate an AI-oriented project context, budgeted in approximate tokens |
 | `eos compose <path> <task> [target] [--budget N]` | Compose focused context for one task, optionally anchored on a file |
 | `eos impact <path> <file>` | Direct import impact of a file |
+| `eos why <path> [file] [--predicate P] [--format json]` | Provenance of a file's facts, and which detectors found nothing |
 | `eos graph <path> [--type import\|all] [--output -]` | Export the generated project graph as JSON |
 | `eos index <path>` | Rebuild `.eos/data/eos.db` from notes, brain, graph, and git history |
 | `eos query <path> [sql \| --search "..."] [--limit N]` | Read-only SQL, or full-text search, against `eos.db` |
@@ -127,6 +128,26 @@ Bitbucket's merge-commit body format (`Merge in <project> from <source> to
 own pattern here to get source-branch extraction for free. It is matched
 line-by-line against the commit body (`re.MULTILINE`), not the whole body at
 once.
+
+### Where a fact came from
+
+Every derived fact records how it came to be known — `origin` (extracted,
+documented, inferred, verified), `confidence`, the detector that produced it,
+and the `path:line` it was read from. `eos why` prints them:
+
+```bash
+eos why . src/main/java/com/example/OrderService.java
+```
+
+The last lines of that answer are the ones worth reading. `coverage` records
+what each detector was *asked* about, so a detector that examined 2,652 files
+and produced nothing is distinguishable from one that never ran — otherwise
+"this project has no message producers" and "nobody looked for message
+producers" print the same silence.
+
+Provenance is not part of `graph.json`: that artifact reaches 25 MB on a real
+service and is returned whole over MCP. Facts travel in
+`.eos/data/brain/evidence.jsonl` and are queried from `eos.db`. See ADR-014.
 
 ### Indexing something only your project has
 
