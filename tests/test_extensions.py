@@ -171,3 +171,92 @@ def test_a_project_with_no_extensions_configured_is_untouched(tmp_path):
     assert result.counts["notes"] == 1
     assert dict(_rows(result.path, "SELECT key, value FROM meta")).get("extensions") is None
     assert extensions.load_all(root) == []
+
+
+QUESTIONING = EXTENSION + '''
+QUESTIONS = {
+    "big-widgets": {
+        "help": "Widgets whose description is longer than a given size.",
+        "sql": "SELECT name, size FROM widget WHERE size > ? ORDER BY name",
+    },
+    "all-widgets": {
+        "help": "Every widget.",
+        "sql": "SELECT name FROM widget ORDER BY name",
+    },
+}
+'''
+
+
+def test_an_extension_can_ship_a_named_question(tmp_path):
+    """The alternative was a SQL snippet in a document. The useful questions on
+    a project-shaped artifact are joins between an extension's tables and the
+    core facts, and nobody types a four-way join twice."""
+    from core import inspector
+
+    root = _project(tmp_path, extension_body=QUESTIONING)
+    index.build(root)
+
+    available = inspector.questions(root)
+    assert set(available) == {"big-widgets", "all-widgets"}, available
+    assert available["big-widgets"]["extension"] == "widgets_ext"
+
+    columns, rows = inspector.ask(root, "all-widgets")
+    assert columns == ["name"] and [row[0] for row in rows] == ["hinge", "spring"]
+
+
+def test_a_question_that_takes_an_argument_gets_one(tmp_path):
+    from core import inspector
+
+    root = _project(tmp_path, extension_body=QUESTIONING)
+    index.build(root)
+
+    _, rows = inspector.ask(root, "big-widgets", "14")
+
+    assert [row[0] for row in rows] == ["spring"], rows
+
+
+def test_a_question_that_needs_an_argument_says_so(tmp_path):
+    from core import inspector
+
+    root = _project(tmp_path, extension_body=QUESTIONING)
+    index.build(root)
+
+    with pytest.raises(ValueError, match="needs an argument"):
+        inspector.ask(root, "big-widgets")
+
+
+def test_an_unknown_question_lists_the_known_ones(tmp_path):
+    from core import inspector
+
+    root = _project(tmp_path, extension_body=QUESTIONING)
+    index.build(root)
+
+    with pytest.raises(ValueError, match="all-widgets"):
+        inspector.ask(root, "no-such-question")
+
+
+def test_a_question_cannot_write(tmp_path):
+    """Questions run on the same read-only connection every other reader uses."""
+    from core import inspector
+
+    body = EXTENSION + '''
+QUESTIONS = {"bad": {"help": "", "sql": "DELETE FROM widget"}}
+'''
+    root = _project(tmp_path, extension_body=body)
+    index.build(root)
+
+    with pytest.raises(sqlite3.DatabaseError):
+        inspector.ask(root, "bad")
+    assert _rows(index.db_path(root), "SELECT COUNT(*) FROM widget") == [(2,)]
+
+
+def test_a_malformed_question_is_refused_by_name(tmp_path):
+    from core import inspector
+
+    body = EXTENSION + '''
+QUESTIONS = {"broken": {"help": "no sql here"}}
+'''
+    root = _project(tmp_path, extension_body=body)
+
+    with pytest.raises(extensions.ExtensionError, match="broken"):
+        inspector.questions(root)

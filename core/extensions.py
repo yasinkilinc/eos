@@ -23,6 +23,17 @@ Paths are resolved against the project root. A module may define any of:
         dict[str, str] -- label -> `SELECT COUNT(*) ...`, reported by
         `eos index` next to the core counts.
 
+    QUESTIONS
+        dict[str, dict] -- name -> {"help": str, "sql": str}, runnable as
+        `eos ask <name>`. This is how an extension ships a first-class answer
+        rather than a table someone has to know how to join. A `?` in the SQL
+        takes one positional argument from the command line.
+
+        It exists because the alternative was a SQL snippet in a document: the
+        useful questions on a project-shaped artifact are usually joins between
+        the extension's own tables and the core facts, and nobody types those
+        twice.
+
     sources(root, notes_dir) -> Iterable[Sequence]
         The files and facts this extension reads, as field tuples. They are
         hashed into the index's staleness digest *before* the build reads
@@ -80,6 +91,17 @@ class Extension:
     @property
     def schema(self) -> str:
         return getattr(self.module, "SCHEMA", "") or ""
+
+    @property
+    def questions(self) -> dict:
+        questions = getattr(self.module, "QUESTIONS", None) or {}
+        if not isinstance(questions, dict):
+            raise ExtensionError(f"{self.path}: QUESTIONS must be a dict of name -> {{help, sql}}")
+        for name, entry in questions.items():
+            if not isinstance(entry, dict) or "sql" not in entry:
+                raise ExtensionError(
+                    f"{self.path}: QUESTIONS[{name!r}] must be a dict with at least 'sql'")
+        return questions
 
     @property
     def counts(self) -> dict:

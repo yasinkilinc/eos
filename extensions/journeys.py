@@ -119,7 +119,8 @@ CREATE TABLE journey_step (
     owner TEXT,
     resolution TEXT NOT NULL,
     candidates TEXT NOT NULL,
-    owned INTEGER NOT NULL
+    owned INTEGER NOT NULL,
+    impl_path TEXT
 );
 CREATE INDEX journey_step_by_flow ON journey_step(env, bi, flow, state, phase, sort_id);
 CREATE TABLE flow_step (
@@ -153,7 +154,68 @@ CREATE TABLE journey_doc (
 );
 """
 
-COUNTS = {"journey steps": "SELECT COUNT(*) FROM journey_step WHERE owned = 1"}
+COUNTS = {
+    "journey steps": "SELECT COUNT(*) FROM journey_step WHERE owned = 1",
+    "steps resolved to a class": "SELECT COUNT(*) FROM journey_step WHERE owned = 1 AND impl_path IS NOT NULL",
+}
+
+# The questions this extension exists to answer. They are joins between its own
+# step table and the core facts -- the class a step's bean name registers, the
+# behaviour codes that class can throw, and whether any test names them -- and
+# nobody types a four-way join twice, which is why they ship as questions
+# rather than as SQL in a document.
+QUESTIONS = {
+    "flow-steps": {
+        "help": "Steps of one flow in order, with the class each bean resolves to. Takes a flow name.",
+        "sql": """
+            SELECT s.sort_id, s.state, s.phase, s.bean_name, s.resolution,
+                   COALESCE(s.impl_path, '(not resolved here)') AS implementation
+              FROM journey_step s
+             WHERE s.owned = 1 AND s.flow = ?
+             ORDER BY s.env, s.sort_id
+        """,
+    },
+    "flow-rules": {
+        "help": "Behaviour codes the steps of one flow can raise, and whether a test names each. Takes a flow name.",
+        "sql": """
+            SELECT f.object AS code,
+                   s.bean_name AS raised_by_step,
+                   f.source_ref,
+                   CASE WHEN EXISTS (
+                       SELECT 1 FROM fact t JOIN node tn ON tn.id = t.subject
+                        WHERE t.object = f.object
+                          AND t.predicate IN ('names-code', 'throws-code')
+                          AND (tn.path LIKE 'src/test/%' OR tn.path LIKE '%/src/test/%')
+                   ) THEN 'named by a test' ELSE 'no test names it' END AS tested
+              FROM journey_step s
+              JOIN node n ON n.path = s.impl_path
+              JOIN fact f ON f.subject = n.id AND f.predicate = 'throws-code'
+             WHERE s.owned = 1 AND s.flow = ?
+             GROUP BY f.object, s.bean_name, f.source_ref
+             ORDER BY tested DESC, f.object
+        """,
+    },
+    "flows": {
+        "help": "Every flow this project runs steps for, with how many steps resolve to a class.",
+        "sql": """
+            SELECT flow, bi, COUNT(*) AS steps,
+                   SUM(CASE WHEN impl_path IS NOT NULL THEN 1 ELSE 0 END) AS resolved
+              FROM journey_step
+             WHERE owned = 1
+             GROUP BY flow, bi
+             ORDER BY steps DESC
+        """,
+    },
+    "unresolved-steps": {
+        "help": "Owned steps whose bean name matches no class indexed here.",
+        "sql": """
+            SELECT DISTINCT bean_name, flow, resolution, candidates
+              FROM journey_step
+             WHERE owned = 1 AND impl_path IS NULL
+             ORDER BY bean_name
+        """,
+    },
+}
 
 _CHAIN_COLUMNS = (
     "cmd_config_id", "bi", "flow", "state", "phase", "sort_id", "bean_name", "cmd_short_code",
@@ -265,6 +327,44 @@ def load(build) -> None:
     build.meta["journeys_dir"] = str(journeys)
     _load_docs(build, journeys)
     _load_snapshots(build, journeys, repo.parent, settings)
+    _resolve_implementations(build)
+
+
+def _resolve_implementations(build) -> None:
+    """Attach each owned step to the file that registers its bean name.
+
+    The core scanner already records, per file, the name a stereotype
+    annotation registers a class under (`bean-name` facts). That is the same
+    string a coordinator looks the step up by, so the join needs no Java
+    parsing at all -- which is the clearest evidence the line between core and
+    an extension is drawn in the right place.
+
+    A bean matching no indexed class stays NULL rather than being guessed at:
+    the step may run in a service that is not checked out here, and that is a
+    different statement from "this step has no implementation".
+    """
+    try:
+        rows = build.conn.execute(
+            "SELECT f.object, n.path FROM fact f JOIN node n ON n.id = f.subject "
+            "WHERE f.predicate = 'bean-name'").fetchall()
+    except Exception as exc:  # noqa: BLE001 - an index without provenance predates this
+        build.issue("journey", None, f"bean names unavailable ({exc}); steps not resolved to classes")
+        return
+    if not rows:
+        return
+    by_bean: dict[str, str] = {}
+    for bean, path in rows:
+        # First wins, and the overlay sorts before a linked parent, so a
+        # project's own class beats the one it overrides.
+        by_bean.setdefault(bean, path)
+        lowered = bean[:1].lower() + bean[1:]
+        by_bean.setdefault(lowered, path)
+
+    beans = {row[0] for row in build.conn.execute(
+        "SELECT DISTINCT bean_name FROM journey_step WHERE owned = 1 AND bean_name IS NOT NULL")}
+    updates = [(by_bean[bean], bean) for bean in beans if bean in by_bean]
+    build.conn.executemany(
+        "UPDATE journey_step SET impl_path = ? WHERE bean_name = ? AND owned = 1", updates)
 
 
 # --- documents ---------------------------------------------------------------------

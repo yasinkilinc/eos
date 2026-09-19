@@ -75,6 +75,7 @@ them. See [ADR-009](docs/decisions/009-ai-integration-layer.md).
 | `eos why <path> [file] [--predicate P] [--format json]` | Provenance of a file's facts, and which detectors found nothing |
 | `eos rules <path> [--untested] [--format json]` | Behaviour codes this project throws, and which no test names |
 | `eos trace <path> <file> [--depth N]` | What an entry point serves and reaches, and what is wired at run time |
+| `eos ask <path> [question] [arg]` | Run a question this project's index extensions provide; omit the name to list them |
 | `eos graph <path> [--type import\|all] [--output -]` | Export the generated project graph as JSON |
 | `eos index <path>` | Rebuild `.eos/data/eos.db` from notes, brain, graph, and git history |
 | `eos query <path> [sql \| --search "..."] [--limit N]` | Read-only SQL, or full-text search, against `eos.db` |
@@ -200,8 +201,20 @@ extensions = ["tools/eos-ext/flows.py"]
 ```
 
 A module may define `SCHEMA` (its tables), `COUNTS` (numbers `eos index`
-prints), `sources(root, notes_dir)` (what it reads, hashed for staleness) and
+prints), `QUESTIONS` (named answers, runnable as `eos ask`),
+`sources(root, notes_dir)` (what it reads, hashed for staleness) and
 `load(build)` (the rows). The contract is documented in `core/extensions.py`.
+
+`QUESTIONS` is what turns a table into an answer. The useful questions about a
+project-shaped artifact are usually joins between the extension's own rows and
+the core facts — which class a configured step resolves to, which behaviour
+codes it can raise, whether a test names any of them — and nobody types a
+four-way join twice:
+
+```bash
+eos ask .                      # list the questions this project provides
+eos ask . flow-rules TOP_UP
+```
 
 `extensions/journeys.py` in this repository is the reference implementation
 and is usable as-is. It indexes journey documents and exported step-chain

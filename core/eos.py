@@ -633,6 +633,44 @@ def cmd_rules(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_ask(args: argparse.Namespace) -> int:
+    """Run a question this project's index extensions provide."""
+    try:
+        available = inspector.questions(args.path)
+    except Exception as exc:  # noqa: BLE001 - a misconfigured extension, reported in one line
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+
+    if not args.name:
+        if not available:
+            print("No extension provides a question here. `eos why` reports "
+                  "which extensions ran at all.")
+            return 0
+        for name in sorted(available):
+            entry = available[name]
+            print(f"{name:<24} {entry['help'] or entry['sql'].split(chr(10))[0]}")
+            print(f"{'':<24} from {entry['extension']}")
+        return 0
+
+    try:
+        index.refresh(args.path)
+    except (index.IndexBuildError, OSError, ValueError, sqlite3.Error) as exc:
+        print(f"warning: index may be stale ({type(exc).__name__}: {exc})", file=sys.stderr)
+    try:
+        columns, rows = inspector.ask(args.path, args.name, args.argument)
+    except (ValueError, sqlite3.Error) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+
+    if args.format == "json":
+        print(json.dumps([dict(zip(columns, row)) for row in rows], indent=2, ensure_ascii=False))
+        return 0
+    print("\t".join(columns))
+    for row in rows:
+        print("\t".join("" if value is None else str(value) for value in row))
+    return 0
+
+
 def cmd_trace(args: argparse.Namespace) -> int:
     """What an entry point reaches, and what the call graph cannot see from it."""
     try:
@@ -1091,6 +1129,13 @@ def main(argv: list[str] | None = None) -> int:
     impact_p.add_argument("--include", action="append", choices=("facts", "coverage", "history"),
                           help="Add provenance, detector coverage, or this file's commits")
 
+    ask_p = sub.add_parser(
+        "ask", help="Run a question this project's index extensions provide")
+    add_path(ask_p)
+    ask_p.add_argument("name", nargs="?", help="Question name; omit to list them")
+    ask_p.add_argument("argument", nargs="?", help="Value for a question that takes one")
+    ask_p.add_argument("--format", choices=("text", "json"), default="text")
+
     trace_p = sub.add_parser(
         "trace", help="What an entry point reaches, and what is wired at run time")
     add_path(trace_p)
@@ -1203,6 +1248,7 @@ def main(argv: list[str] | None = None) -> int:
         "why": cmd_why,
         "rules": cmd_rules,
         "trace": cmd_trace,
+        "ask": cmd_ask,
         "mcp": cmd_mcp,
         "bench": cmd_bench,
         "ui": cmd_ui,

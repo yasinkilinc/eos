@@ -703,3 +703,41 @@ def _runtime_wired(conn) -> dict[str, Any]:
         "uncalled": len(uncalled),
         "examples": [{"path": path, "bean": named[path]} for path in uncalled[:5]],
     }
+
+
+def questions(project_root: str | Path) -> dict[str, dict[str, Any]]:
+    """Named questions this project's index extensions provide."""
+    from core import extensions as _extensions
+    from core import index as _index
+
+    root = _index._project(project_root)
+    found: dict[str, dict[str, Any]] = {}
+    for extension in _extensions.load_all(root):
+        for name, entry in extension.questions.items():
+            found[name] = {"help": entry.get("help", ""), "sql": entry["sql"],
+                           "extension": extension.name}
+    return found
+
+
+def ask(project_root: str | Path, name: str, argument: str | None = None) -> tuple[list[str], list[tuple]]:
+    """Run one extension-provided question against the index."""
+    from core import index as _index
+
+    available = questions(project_root)
+    entry = available.get(name)
+    if entry is None:
+        raise ValueError(
+            f"No question named {name!r}. Available: {', '.join(sorted(available)) or 'none'}")
+    sql = entry["sql"]
+    wanted = sql.count("?")
+    if wanted and argument is None:
+        raise ValueError(f"Question {name!r} needs an argument: {entry['help'] or sql}")
+    database = _index.db_path(project_root)
+    if not database.is_file():
+        raise ValueError(f"No index at {database}. Run 'eos index' first.")
+    conn = _index.connect_read_only(database)
+    try:
+        cursor = conn.execute(sql, tuple([argument] * wanted))
+        return [column[0] for column in cursor.description], cursor.fetchall()
+    finally:
+        conn.close()
