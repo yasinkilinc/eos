@@ -74,17 +74,33 @@ def test_records_are_append_only_and_survive_a_rescan(tmp_path):
 
 def test_a_passing_run_is_the_top_of_the_coverage_ladder(tmp_path):
     """The only rung that observed the behaviour rather than inferring it from
-    structure."""
+    structure -- and only where a test names the code."""
     root = _scanned(tmp_path)
     before = inspector.rules(root)
-    assert {e["code"]: e["coverage"] for e in before["codes"]}["AGE_IMPLAUSIBLE"] == "reachable"
+    assert {e["code"]: e["coverage"] for e in before["codes"]}["AGE_LIMIT"] == "asserted"
 
-    verification.record(root, "AGE_IMPLAUSIBLE", "passed", "mvn test", exit_code=0)
+    verification.record(root, "AGE_LIMIT", "passed", "mvn test", exit_code=0)
 
     after = inspector.rules(root)
     graded = {e["code"]: e["coverage"] for e in after["codes"]}
-    assert graded["AGE_IMPLAUSIBLE"] == "verified", after["coverage"]
+    assert graded["AGE_LIMIT"] == "verified", after["coverage"]
     assert after["coverage"]["verified"] == 1
+
+
+def test_a_passing_run_of_a_test_that_never_names_the_code_does_not_verify_it(tmp_path):
+    """Found by running the first real gap: a 16-test class that passes and
+    never mentions the code it was picked for. A green neighbour must not
+    promote a refusal nobody asserted."""
+    root = _scanned(tmp_path)
+    # AGE_IMPLAUSIBLE is reachable -- the test holds the class and never
+    # asserts this code.
+    verification.record(root, "AGE_IMPLAUSIBLE", "passed", "mvn test", exit_code=0)
+
+    graded = {e["code"]: e["coverage"] for e in inspector.rules(root)["codes"]}
+
+    assert graded["AGE_IMPLAUSIBLE"] == "reachable", (
+        f"a passing run promoted a code no test names: {graded}"
+    )
 
 
 def test_a_failing_run_does_not_demote_the_static_reading(tmp_path):

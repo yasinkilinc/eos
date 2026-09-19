@@ -38,8 +38,13 @@ or `errored` — what the run did. `verdict` is one of five conclusions a person
 may reach, and **EOS never writes one**. A failing run with no verdict prints
 the reason it has none, once, at the moment it is recorded.
 
-**A passing run is the top rung of the ladder** (`verified`), because it is the
-only rung that observed anything. **A failing run does not demote the static
+**A passing run is the top rung of the ladder** (`verified`) — but only where
+a test also names the code. Without that condition a green run of a
+neighbouring test promotes a refusal nobody asserted, and it is not
+hypothetical: the first real gap tried here was a 16-test class that passes
+and never mentions the code it was picked for, which is exactly the
+`reachable` state. Making the rung conditional is safe by construction; a
+warning would have relied on somebody reading it. **A failing run does not demote the static
 reading**: the test existing and the test passing are different facts, and the
 failure is read in `eos findings` rather than by deleting what analysis found.
 

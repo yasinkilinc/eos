@@ -730,10 +730,19 @@ _COVERAGE_ORDER = {"none": 0, "named": 1, "reachable": 2, "asserted": 3, "verifi
 def _coverage_of(reached: bool, named: bool, outcome: str | None) -> str:
     # A recorded passing run outranks every static signal, because it is the
     # only one that observed the behaviour rather than inferring it from
-    # structure. A failing run does not demote the static reading: the test
-    # existing and the test passing are different facts, and `eos findings`
-    # is where the failure is read.
-    if outcome == "passed":
+    # structure -- but only where a test actually names the code.
+    #
+    # Without that condition a green run of a neighbouring test promotes a
+    # refusal nobody asserted. It is not hypothetical: the first real run
+    # tried here was a 16-test class that passes and never mentions the code
+    # it was picked for, which is precisely the `reachable` state. Making the
+    # rung conditional is safe by construction; a warning would have relied on
+    # somebody reading it.
+    #
+    # A failing run does not demote the static reading: the test existing and
+    # the test passing are different facts, and `eos findings` is where the
+    # failure is read.
+    if outcome == "passed" and reached and named:
         return "verified"
     if reached and named:
         return "asserted"
