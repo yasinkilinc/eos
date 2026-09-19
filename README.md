@@ -243,11 +243,15 @@ missing is one method.
 eos draft-test . INVALID_TOPUP_CHAR_VALUE
 ```
 
-The draft is written in the style of the file it would join, read off that
-file rather than taken from a table of defaults — same assertion library, same
-annotations. Every symbol it names is checked against the source first; if the
-class or method cannot be grounded it refuses instead of guessing, because a
-plausible guess in generated code survives review by looking right.
+What you get is a skeleton, not a finished test: the right method name, the
+assertion library the neighbouring tests use, the code to assert and the call
+site — with the arrangement that drives the code down that branch left to you,
+marked in the body. It cannot know that part, and a reviewer told otherwise
+would trust it.
+
+Every symbol it names is checked against the source first; if the class or
+method cannot be grounded it refuses instead of guessing, because a plausible
+guess in generated code survives review by looking right.
 
 It goes to stdout, or with `--write` to `.eos/data/candidates/`. Never into
 the source tree, and nothing here edits anything a build compiles. It says

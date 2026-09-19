@@ -149,7 +149,10 @@ def test_rules_without_an_index_says_how_to_build_one(tmp_path):
         inspector.rules(root)
 
 
-def test_a_project_with_no_codes_answers_rather_than_failing(tmp_path):
+def test_a_project_the_detector_does_not_apply_to_says_so(tmp_path):
+    """Three empty answers, three different reasons. A project with no Java is
+    not a project whose scan is too old, and neither is a Java project that
+    raises no coded refusals."""
     root = tmp_path / "py"
     root.mkdir()
     (root / "main.py").write_text("print(1)\n", encoding="utf-8")
@@ -159,9 +162,47 @@ def test_a_project_with_no_codes_answers_rather_than_failing(tmp_path):
     done = _run(["rules", str(root)])
 
     assert done.returncode == 0, done.stderr
-    assert "eos why" in done.stdout, (
-        "an empty answer must point at the command that says whether anything looked"
-    )
+    assert "this project has none indexed" in done.stdout, done.stdout
+
+
+def test_a_scan_too_old_to_have_looked_says_to_rescan(tmp_path):
+    """Measured on a real service: a fresh session ran `eos rules`, got "no
+    codes found", was told nothing actionable, and guessed at a rescan.
+    Rebuilding the index cannot invent facts a scan never wrote."""
+    import sqlite3
+    from core import index
+
+    root = _scanned(tmp_path)
+    conn = sqlite3.connect(index.db_path(root))
+    try:
+        conn.execute("DELETE FROM fact WHERE predicate LIKE '%-code%'")
+        conn.execute("DELETE FROM coverage WHERE detector LIKE 'codes@%'")
+        conn.commit()
+    finally:
+        conn.close()
+
+    done = _run(["rules", str(root)])
+
+    assert done.returncode == 1
+    assert "eos scan" in done.stderr, done.stderr
+    assert "eos index" in done.stderr, "it must say which command does not help"
+
+
+def test_a_java_project_that_raises_no_coded_refusals_is_not_an_error(tmp_path):
+    root = tmp_path / "plain"
+    src = root / "src" / "main" / "java" / "com" / "example"
+    src.mkdir(parents=True)
+    (root / "pom.xml").write_text("<project/>\n", encoding="utf-8")
+    (src / "Quiet.java").write_text(
+        "package com.example;\npublic class Quiet { public int two() { return 2; } }\n",
+        encoding="utf-8")
+    assert _run(["init", str(root), "--no-ai"]).returncode == 0
+    assert _run(["scan", str(root), "--full"]).returncode == 0
+
+    done = _run(["rules", str(root)])
+
+    assert done.returncode == 0, done.stderr
+    assert "found no behaviour codes" in done.stdout, done.stdout
 
 
 def test_the_listing_is_bounded_but_the_tally_is_not(tmp_path):

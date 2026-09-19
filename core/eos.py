@@ -619,8 +619,20 @@ def cmd_rules(args: argparse.Namespace) -> int:
         return 0
 
     if not answer["codes"]:
-        print("No thrown behaviour codes found. `eos why` reports whether the "
-              "detector ran at all.")
+        if not answer.get("detector_ran") and not answer.get("detector_applies"):
+            print("Nothing here raises a refusal identified by a constant: the detector "
+                  "reads Java, and this project has none indexed.")
+            return 0
+        if not answer.get("detector_ran"):
+            # Actionable, not a pointer. The scan output this index was built
+            # from predates behaviour-code extraction, and rebuilding the index
+            # cannot invent facts a scan never wrote.
+            print("This project's scan output predates behaviour-code extraction, so "
+                  "nothing looked for them. Run `eos scan` (not `eos index`: rebuilding "
+                  "the index re-reads the same scan output).", file=sys.stderr)
+            return 1
+        print("The detector ran and found no behaviour codes: nothing here raises a "
+              "refusal identified by a constant. `eos why` shows what it examined.")
         return 0
     marks = {"none": "!", "named": "~", "reachable": "-", "asserted": " ", "verified": "+"}
     # Bounded by default, and the bound is not a style choice. Telemetry on its

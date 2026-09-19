@@ -276,7 +276,12 @@ class KnowledgeBuilder:
         """
         code_detector = detector("codes")
         for file in project.files:
-            if not (file.thrown or file.codes):
+            # Every file a plugin can read codes from is eligible, including
+            # the ones that produced none. Counting only the files with hits
+            # made "no Java was looked at" and "Java was looked at and raises
+            # no coded refusals" produce the same empty coverage -- which is
+            # the distinction this table exists for.
+            if file.language != "java":
                 continue
             node_id = self._file_node_id(file.path)
             for thrown in file.thrown:
@@ -297,7 +302,7 @@ class KnowledgeBuilder:
                         observed_at=file.parsed_at or observed,
                     ))
             thrown_here = {t.code for t in file.thrown}
-            for code in file.codes:
+            for code in (file.codes or ()):
                 if code in thrown_here:
                     continue
                 graph.add_fact(Fact(

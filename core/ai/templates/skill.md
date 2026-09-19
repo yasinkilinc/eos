@@ -57,7 +57,7 @@ Run them with `eos <command> <project>`; every one takes `--format json`.
 | `eos rules [--untested]` | Which refusals this code can raise, and what the tests do about each | Before writing a test, and before claiming a behaviour is covered |
 | `eos trace <file>` | What an entry point serves and reaches — **and how much of the system no call graph can reach** | When asked "what does this endpoint do" on a system whose components are looked up by name |
 | `eos why <file>` | Where a fact came from: detector, origin, confidence, `path:line` — and which detectors found nothing | When an answer looks wrong or suspiciously empty |
-| `eos draft-test <code>` | A draft of the missing test, in the style of the file it would join | When `eos rules` says a refusal is `reachable` |
+| `eos draft-test <code>` | The skeleton of the missing test -- the right method name, assertion library and code to assert -- with the arrangement left to you | When `eos rules` says a refusal is `reachable`, to start from the file's own conventions rather than a blank line |
 | `eos verify <code>` | Records what an adapter ran and what happened | After running a test, so the next session does not re-run it to find out |
 | `eos findings` | Every recorded run and what it was judged to be | Before re-testing something |
 | `eos ask [question]` | Questions this project's index extensions provide | First, on any project with extensions — it is where project-shaped answers live |

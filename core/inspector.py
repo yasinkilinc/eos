@@ -647,6 +647,18 @@ def rules(project_root: str | Path, untested_only: bool = False) -> dict[str, An
         if not _index.has_tables(conn, ("fact",)):
             raise ValueError(f"{_index.db_path(project_root)} predates provenance. "
                              "Run 'eos index' to rebuild it.")
+        # Whether the detector ever ran here, before reading what it produced.
+        # A brain written by an older engine has no code facts and no coverage
+        # row for them, and the two are different statements -- an empty answer
+        # that does not say which is the failure this whole design exists to
+        # prevent. Measured: a fresh session hit exactly this, was told nothing
+        # actionable, and guessed at a rescan.
+        looked = conn.execute(
+            "SELECT 1 FROM coverage WHERE detector LIKE 'codes@%' LIMIT 1").fetchone()
+        # No coverage row and no Java either means the detector does not apply
+        # here, which is a different answer from a scan too old to have run it.
+        applicable = conn.execute(
+            "SELECT 1 FROM node WHERE language = 'java' LIMIT 1").fetchone()
         thrown = conn.execute(
             "SELECT f.object, n.path, f.source_ref FROM fact f JOIN node n ON n.id = f.subject "
             "WHERE f.predicate = 'throws-code' ORDER BY f.object, n.path").fetchall()
@@ -714,6 +726,8 @@ def rules(project_root: str | Path, untested_only: bool = False) -> dict[str, An
         "total": len(found),
         "untested": tally["none"],
         "coverage": tally,
+        "detector_ran": bool(looked),
+        "detector_applies": bool(applicable),
     }
 
 

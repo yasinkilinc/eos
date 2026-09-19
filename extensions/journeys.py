@@ -215,6 +215,43 @@ QUESTIONS = {
                                     WHEN 'reachable' THEN 2 ELSE 3 END, f.object
         """,
     },
+    "flow-untested": {
+        "help": "Only the refusals of one flow that no test asserts, worst first. Takes a flow name.",
+        # Asked for by the first session to use flow-rules: it had to run the
+        # full question and eyeball the coverage column. The states a reader
+        # acts on are `none` (no test at all) and `reachable` (the class is
+        # under test and this branch is not asserted), and separating them is
+        # the difference between writing a test and adding a line to one.
+        "sql": """
+            SELECT coverage, code, raised_by_step, source_ref FROM (
+                SELECT CASE
+                         WHEN reached.path IS NOT NULL AND named.code IS NOT NULL THEN 'asserted'
+                         WHEN reached.path IS NOT NULL THEN 'reachable'
+                         WHEN named.code IS NOT NULL THEN 'named'
+                         ELSE 'none'
+                       END AS coverage,
+                       f.object AS code, s.bean_name AS raised_by_step, f.source_ref
+                  FROM journey_step s
+                  JOIN node n ON n.path = s.impl_path
+                  JOIN fact f ON f.subject = n.id AND f.predicate = 'throws-code'
+                  LEFT JOIN (
+                       SELECT DISTINCT d.path FROM edge e
+                         JOIN node sn ON sn.nid = e.src JOIN node d ON d.nid = e.dst
+                        WHERE e.kind IN ('calls', 'new', 'field', 'import')
+                          AND (sn.path LIKE 'src/test/%' OR sn.path LIKE '%/src/test/%')
+                  ) reached ON reached.path = s.impl_path
+                  LEFT JOIN (
+                       SELECT DISTINCT t.object AS code FROM fact t JOIN node tn ON tn.id = t.subject
+                        WHERE t.predicate IN ('names-code', 'throws-code')
+                          AND (tn.path LIKE 'src/test/%' OR tn.path LIKE '%/src/test/%')
+                  ) named ON named.code = f.object
+                 WHERE s.owned = 1 AND s.flow = ?
+                 GROUP BY f.object, s.bean_name, f.source_ref, coverage
+            )
+             WHERE coverage IN ('none', 'named', 'reachable')
+             ORDER BY CASE coverage WHEN 'none' THEN 0 WHEN 'named' THEN 1 ELSE 2 END, code
+        """,
+    },
     "flows": {
         "help": "Every flow this project runs steps for, with how many steps resolve to a class.",
         "sql": """
