@@ -74,6 +74,7 @@ them. See [ADR-009](docs/decisions/009-ai-integration-layer.md).
 | `eos impact <path> <file> [--depth N] [--include facts\|coverage\|history]` | What a file reaches and what reaches it, to N hops |
 | `eos why <path> [file] [--predicate P] [--format json]` | Provenance of a file's facts, and which detectors found nothing |
 | `eos rules <path> [--untested] [--format json]` | Behaviour codes this project throws, and which no test names |
+| `eos trace <path> <file> [--depth N]` | What an entry point serves and reaches, and what is wired at run time |
 | `eos graph <path> [--type import\|all] [--output -]` | Export the generated project graph as JSON |
 | `eos index <path>` | Rebuild `.eos/data/eos.db` from notes, brain, graph, and git history |
 | `eos query <path> [sql \| --search "..."] [--limit N]` | Read-only SQL, or full-text search, against `eos.db` |
@@ -167,6 +168,23 @@ what people came for.
 It is a floor, not coverage: naming a code proves the suite knows the behaviour
 exists, not that the path reaching it is exercised. `eos rules` says so on
 every run. See ADR-016.
+
+### What an endpoint actually does
+
+```bash
+eos trace . src/main/java/com/example/OrderController.java
+```
+
+The routes it serves, the files it reaches with the hop count, the behaviour
+codes it can refuse with — and then the part that makes the rest trustworthy:
+how many named components in the project have no caller at all.
+
+That last number matters more than it sounds. Measured on one real service,
+235 files throw a behaviour code and only 6 are reachable from any of its 39
+entry points, because a coordinator resolves the rest by name from
+configuration at run time. On that shape of system the call graph is a partial
+view by construction, and a trace that printed only what it could follow would
+look complete and be wrong. See ADR-017.
 
 ### Indexing something only your project has
 

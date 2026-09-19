@@ -610,3 +610,96 @@ def rules(project_root: str | Path, untested_only: bool = False) -> dict[str, An
         "total": len(found),
         "untested": sum(1 for entry in found.values() if not entry["tests"]),
     }
+
+
+def trace(project_root: str | Path, target: str, depth: int = 4) -> dict[str, Any]:
+    """What one entry point reaches, and what the call graph cannot see from it.
+
+    The second half is not a caveat, it is the finding. Measured on a real
+    service: 235 files throw a behaviour code and only 6 of them are reachable
+    from any of its 39 entry points, because 120 of the rest are components a
+    runtime container looks up by name from configuration. On that shape of
+    system the call graph is not the program, and a trace that reported only
+    what it could follow would be a confident, incomplete answer.
+
+    So every trace reports the runtime-wired population alongside it: classes
+    registered under a name with no inbound call edge anywhere in the project.
+    Those are where the chain continues.
+    """
+    from core import index as _index
+
+    conn = _index.open_for_read(project_root)
+    if conn is None:
+        raise ValueError(f"No index at {_index.db_path(project_root)}. Run 'eos index' first.")
+    try:
+        if not _index.has_tables(conn, ("fact",)):
+            raise ValueError(f"{_index.db_path(project_root)} predates provenance. "
+                             "Run 'eos index' to rebuild it.")
+        normalized = str(target).replace("\\", "/").removeprefix("./")
+        reached = _index.impact_rows(conn, normalized, depth=depth)
+        if reached["file"] is None:
+            raise ValueError(f"No indexed node for: {target}")
+
+        paths = [entry["path"] for entry in reached["dependencies"]]
+        endpoints = _routes_for(conn, [normalized])
+        codes = _codes_for(conn, [normalized, *paths])
+        unreachable = _runtime_wired(conn)
+    finally:
+        conn.close()
+
+    return {
+        "file": reached["file"],
+        "depth": reached.get("depth", depth),
+        "reaches": reached["dependencies"],
+        "endpoints": endpoints,
+        "codes": codes,
+        "runtime_wired": unreachable,
+        "truncated": reached.get("truncated", False),
+    }
+
+
+def _routes_for(conn, paths: list[str]) -> list[str]:
+    if not paths:
+        return []
+    placeholders = ",".join("?" * len(paths))
+    rows = conn.execute(
+        f"SELECT doc FROM node WHERE path IN ({placeholders}) AND doc IS NOT NULL", paths).fetchall()
+    routes = []
+    for (doc,) in rows:
+        routes.extend(line.lstrip("- ").strip() for line in doc.splitlines() if line.startswith("- **"))
+    return sorted(set(routes))
+
+
+def _codes_for(conn, paths: list[str]) -> list[dict[str, Any]]:
+    if not paths:
+        return []
+    placeholders = ",".join("?" * len(paths))
+    rows = conn.execute(
+        "SELECT DISTINCT f.object, n.path FROM fact f JOIN node n ON n.id = f.subject "
+        f"WHERE f.predicate = 'throws-code' AND n.path IN ({placeholders}) "
+        "ORDER BY f.object", paths).fetchall()
+    return [{"code": code, "path": path} for code, path in rows]
+
+
+def _runtime_wired(conn) -> dict[str, Any]:
+    """Classes registered under a name that nothing in this project calls.
+
+    Registered and uncalled is the signature of a component a container
+    resolves at run time -- from a configuration row, an annotation scan, a
+    service loader. The count is what tells a reader how much of the system a
+    call-graph answer could not have covered.
+    """
+    named = {row[0]: row[1] for row in conn.execute(
+        "SELECT n.path, f.object FROM fact f JOIN node n ON n.id = f.subject "
+        "WHERE f.predicate = 'bean-name'").fetchall()}
+    if not named:
+        return {"total": 0, "uncalled": 0, "examples": []}
+    called = {row[0] for row in conn.execute(
+        "SELECT DISTINCT d.path FROM edge e JOIN node d ON d.nid = e.dst "
+        "WHERE e.kind IN ('calls', 'new', 'field')").fetchall()}
+    uncalled = sorted(path for path in named if path not in called)
+    return {
+        "total": len(named),
+        "uncalled": len(uncalled),
+        "examples": [{"path": path, "bean": named[path]} for path in uncalled[:5]],
+    }

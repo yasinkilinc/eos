@@ -633,6 +633,51 @@ def cmd_rules(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_trace(args: argparse.Namespace) -> int:
+    """What an entry point reaches, and what the call graph cannot see from it."""
+    try:
+        index.refresh(args.path)
+    except (index.IndexBuildError, OSError, ValueError, sqlite3.Error) as exc:
+        print(f"warning: index may be stale ({type(exc).__name__}: {exc})", file=sys.stderr)
+    try:
+        answer = inspector.trace(args.path, args.file, depth=args.depth)
+    except ValueError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+
+    if args.format == "json":
+        print(json.dumps(answer, indent=2, ensure_ascii=False))
+        return 0
+
+    print(answer["file"])
+    for route in answer["endpoints"]:
+        print(f"  serves {route}")
+    print(f"  reaches {len(answer['reaches'])} file(s) within {answer['depth']} hop(s)"
+          + (" (truncated)" if answer["truncated"] else ""))
+    for entry in answer["reaches"][:10]:
+        print(f"    {entry['depth']}  {entry['path']}")
+    if len(answer["reaches"]) > 10:
+        print(f"    … and {len(answer['reaches']) - 10} more")
+
+    if answer["codes"]:
+        print(f"  can refuse with {len(answer['codes'])} behaviour code(s): "
+              f"{', '.join(c['code'] for c in answer['codes'][:6])}")
+    else:
+        print("  no behaviour code is reachable by call edges from here")
+
+    # Printed every time, not only when it is inconvenient. A trace that
+    # reported only what it could follow would be a confident, incomplete
+    # answer on any system whose components are looked up by name.
+    wired = answer["runtime_wired"]
+    if wired["uncalled"]:
+        print(f"\n  {wired['uncalled']} of {wired['total']} named component(s) in this project "
+              "have no caller at all: they are resolved at run time, so no call-graph "
+              "answer -- including this one -- can follow the chain through them.")
+        for example in wired["examples"][:3]:
+            print(f"    {example['bean']}  {example['path']}")
+    return 0
+
+
 def _print_fact(entry: dict, prefix: str) -> None:
     value = f"{entry['predicate']}={entry['object']}" if entry["object"] else entry["predicate"]
     print(f"{prefix}{value:<44} {entry['origin']:<10} {entry['confidence']:.2f} "
@@ -1046,6 +1091,13 @@ def main(argv: list[str] | None = None) -> int:
     impact_p.add_argument("--include", action="append", choices=("facts", "coverage", "history"),
                           help="Add provenance, detector coverage, or this file's commits")
 
+    trace_p = sub.add_parser(
+        "trace", help="What an entry point reaches, and what is wired at run time")
+    add_path(trace_p)
+    trace_p.add_argument("file", help="Project-relative file path")
+    trace_p.add_argument("--depth", type=int, default=4, help="How many hops to follow (1-5)")
+    trace_p.add_argument("--format", choices=("text", "json"), default="text")
+
     rules_p = sub.add_parser(
         "rules", help="Behaviour codes this project throws, and which have no test")
     add_path(rules_p)
@@ -1150,6 +1202,7 @@ def main(argv: list[str] | None = None) -> int:
         "impact": cmd_impact,
         "why": cmd_why,
         "rules": cmd_rules,
+        "trace": cmd_trace,
         "mcp": cmd_mcp,
         "bench": cmd_bench,
         "ui": cmd_ui,

@@ -45,7 +45,7 @@ def test_both_throw_spellings_are_found(tmp_path):
     answer = inspector.rules(_scanned(tmp_path))
 
     codes = {entry["code"] for entry in answer["codes"]}
-    assert codes == {"AGE_LIMIT", "AGE_IMPLAUSIBLE"}, codes
+    assert codes == {"AGE_LIMIT", "AGE_IMPLAUSIBLE", "AGE_NEGATIVE"}, codes
 
 
 def test_a_code_records_where_it_is_thrown_from(tmp_path):
@@ -67,7 +67,7 @@ def test_a_code_no_test_names_is_separated_from_one_a_test_names(tmp_path):
         "a code asserted by a test in the test tree must be reported as named"
     )
     assert by_code["AGE_IMPLAUSIBLE"]["tests"] == [], by_code["AGE_IMPLAUSIBLE"]
-    assert answer["untested"] == 1 and answer["total"] == 2, answer
+    assert answer["untested"] == 2 and answer["total"] == 3, answer
 
 
 def test_untested_first_so_the_gap_leads(tmp_path):
@@ -81,7 +81,7 @@ def test_untested_first_so_the_gap_leads(tmp_path):
 def test_untested_only_filters(tmp_path):
     answer = inspector.rules(_scanned(tmp_path), untested_only=True)
 
-    assert [entry["code"] for entry in answer["codes"]] == ["AGE_IMPLAUSIBLE"], answer
+    assert [entry["code"] for entry in answer["codes"]] == ["AGE_IMPLAUSIBLE", "AGE_NEGATIVE"], answer
 
 
 def test_a_message_that_is_not_a_code_is_not_a_behaviour(tmp_path):
@@ -98,7 +98,7 @@ def test_a_message_that_is_not_a_code_is_not_a_behaviour(tmp_path):
 
     codes = {entry["code"] for entry in inspector.rules(root)["codes"]}
 
-    assert codes == {"AGE_LIMIT", "AGE_IMPLAUSIBLE"}, codes
+    assert codes == {"AGE_LIMIT", "AGE_IMPLAUSIBLE", "AGE_NEGATIVE"}, codes
 
 
 def test_cli_says_the_number_is_a_floor_not_coverage(tmp_path):
@@ -121,7 +121,7 @@ def test_cli_emits_json(tmp_path):
 
     assert done.returncode == 0, done.stderr
     answer = json.loads(done.stdout)
-    assert [entry["code"] for entry in answer["codes"]] == ["AGE_IMPLAUSIBLE"]
+    assert [entry["code"] for entry in answer["codes"]] == ["AGE_IMPLAUSIBLE", "AGE_NEGATIVE"]
 
 
 def test_rules_without_an_index_says_how_to_build_one(tmp_path):

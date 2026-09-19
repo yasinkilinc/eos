@@ -213,7 +213,57 @@ class KnowledgeBuilder:
 
         self._add_type_edges(project, graph, node_ids, observed)
         self._add_code_facts(project, graph, observed)
+        self._add_annotation_facts(project, graph, observed)
         return graph
+
+    # Annotations that name a component for a runtime container to look up.
+    # Their unnamed argument is an identity, not a label: a configured chain
+    # resolves a step to a class by exactly this string, which is why a class
+    # carrying one can be reachable at run time while having no caller at all.
+    _NAMING_ANNOTATIONS = frozenset({
+        "@Component", "@Service", "@Repository", "@Controller", "@RestController",
+        "@Qualifier", "@Named", "@Bean",
+    })
+
+    def _add_annotation_facts(self, project: ProjectSemantic, graph: KnowledgeGraph,
+                              observed: str) -> None:
+        """Type-level annotations, and the names they register a class under.
+
+        Only annotations on a type: a `@DisplayName` on a test method is a
+        label for a human, and counting it would bury the handful that decide
+        how a class is wired.
+        """
+        annotation_detector = detector("annotations")
+        for file in project.files:
+            if not file.annotations:
+                continue
+            node_id = self._file_node_id(file.path)
+            types = {symbol.name.rsplit(".", 1)[-1] for symbol in file.symbols
+                     if symbol.kind != "method"}
+            produced = named = 0
+            for annotation in file.annotations:
+                if not annotation.target or annotation.target not in types:
+                    continue
+                produced += 1
+                graph.add_fact(Fact(
+                    subject_kind="node", subject=node_id, predicate="annotation",
+                    object=f"{annotation.name}|{annotation.target}",
+                    origin=EXTRACTED, confidence=CERTAIN, detector=annotation_detector,
+                    source_ref=f"{file.path}:{annotation.line}" if annotation.line else file.path,
+                    observed_at=file.parsed_at or observed,
+                ))
+                value = annotation.values.get("")
+                if value and annotation.name in self._NAMING_ANNOTATIONS:
+                    named += 1
+                    graph.add_fact(Fact(
+                        subject_kind="node", subject=node_id, predicate="bean-name",
+                        object=value, origin=EXTRACTED, confidence=CERTAIN,
+                        detector=annotation_detector,
+                        source_ref=f"{file.path}:{annotation.line}" if annotation.line else file.path,
+                        observed_at=file.parsed_at or observed,
+                    ))
+            project.report.note_coverage(annotation_detector, "annotation", produced)
+            project.report.note_coverage(annotation_detector, "bean-name", named)
 
     def _add_code_facts(self, project: ProjectSemantic, graph: KnowledgeGraph,
                         observed: str) -> None:
