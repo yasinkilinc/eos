@@ -385,6 +385,13 @@ def connect_read_only(path: str | Path) -> sqlite3.Connection:
     return conn
 
 
+def has_tables(conn: sqlite3.Connection, names: tuple[str, ...]) -> bool:
+    """Whether this index carries the given tables -- an older one may not."""
+    present = {row[0] for row in conn.execute(
+        "SELECT name FROM sqlite_master WHERE type = 'table'")}
+    return set(names) <= present
+
+
 def open_for_read(project_root: str | Path) -> sqlite3.Connection | None:
     """The project's index, opened read-only, or None when there is not one.
 

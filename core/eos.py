@@ -597,6 +597,42 @@ def cmd_why(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_rules(args: argparse.Namespace) -> int:
+    """List the behaviour identifiers this project throws, and what names them."""
+    try:
+        index.refresh(args.path)
+    except (index.IndexBuildError, OSError, ValueError, sqlite3.Error) as exc:
+        print(f"warning: index may be stale ({type(exc).__name__}: {exc})", file=sys.stderr)
+    try:
+        answer = inspector.rules(args.path, untested_only=args.untested)
+    except ValueError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+
+    if args.format == "json":
+        print(json.dumps(answer, indent=2, ensure_ascii=False))
+        return 0
+
+    if not answer["codes"]:
+        print("No thrown behaviour codes found. `eos why` reports whether the "
+              "detector ran at all.")
+        return 0
+    for entry in answer["codes"]:
+        mark = " " if entry["tests"] else "!"
+        where = ", ".join(entry["where"][:2]) or "?"
+        print(f"{mark} {entry['code']:<44} {where}")
+        for reference in entry["thrown_at"][:3]:
+            print(f"    thrown at {reference}")
+        if entry["tests"]:
+            print(f"    named by {len(entry['tests'])} test file(s): "
+                  f"{', '.join(Path(p).name for p in entry['tests'][:2])}")
+        else:
+            print("    named by no test")
+    print(f"\n{answer['untested']} of {answer['total']} code(s) are named by no test "
+          "(a floor, not coverage: naming a code is not exercising the path to it).")
+    return 0
+
+
 def _print_fact(entry: dict, prefix: str) -> None:
     value = f"{entry['predicate']}={entry['object']}" if entry["object"] else entry["predicate"]
     print(f"{prefix}{value:<44} {entry['origin']:<10} {entry['confidence']:.2f} "
@@ -1010,6 +1046,13 @@ def main(argv: list[str] | None = None) -> int:
     impact_p.add_argument("--include", action="append", choices=("facts", "coverage", "history"),
                           help="Add provenance, detector coverage, or this file's commits")
 
+    rules_p = sub.add_parser(
+        "rules", help="Behaviour codes this project throws, and which have no test")
+    add_path(rules_p)
+    rules_p.add_argument("--untested", action="store_true",
+                         help="Only codes no test names")
+    rules_p.add_argument("--format", choices=("text", "json"), default="text")
+
     why_p = sub.add_parser(
         "why", help="Where a fact came from, and which detectors found nothing")
     add_path(why_p)
@@ -1106,6 +1149,7 @@ def main(argv: list[str] | None = None) -> int:
         "compose": cmd_compose,
         "impact": cmd_impact,
         "why": cmd_why,
+        "rules": cmd_rules,
         "mcp": cmd_mcp,
         "bench": cmd_bench,
         "ui": cmd_ui,

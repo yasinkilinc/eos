@@ -73,6 +73,7 @@ them. See [ADR-009](docs/decisions/009-ai-integration-layer.md).
 | `eos compose <path> <task> [target] [--budget N]` | Compose focused context for one task, optionally anchored on a file |
 | `eos impact <path> <file> [--depth N] [--include facts\|coverage\|history]` | What a file reaches and what reaches it, to N hops |
 | `eos why <path> [file] [--predicate P] [--format json]` | Provenance of a file's facts, and which detectors found nothing |
+| `eos rules <path> [--untested] [--format json]` | Behaviour codes this project throws, and which no test names |
 | `eos graph <path> [--type import\|all] [--output -]` | Export the generated project graph as JSON |
 | `eos index <path>` | Rebuild `.eos/data/eos.db` from notes, brain, graph, and git history |
 | `eos query <path> [sql \| --search "..."] [--limit N]` | Read-only SQL, or full-text search, against `eos.db` |
@@ -148,6 +149,24 @@ producers" print the same silence.
 Provenance is not part of `graph.json`: that artifact reaches 25 MB on a real
 service and is returned whole over MCP. Facts travel in
 `.eos/data/brain/evidence.jsonl` and are queried from `eos.db`. See ADR-014.
+
+### What this code refuses to do, and what no test names
+
+Most systems identify a refusal with a constant — `AGE_LIMIT`, not "too
+young". That constant is what the API returns, what a test asserts, and what a
+ticket quotes, so it can be read out of the source rather than inferred:
+
+```bash
+eos rules . --untested
+```
+
+Each code is listed with the class and method that throws it, the exception
+type, and the test files that name it. Untested codes lead, because the gap is
+what people came for.
+
+It is a floor, not coverage: naming a code proves the suite knows the behaviour
+exists, not that the path reaching it is exercised. `eos rules` says so on
+every run. See ADR-016.
 
 ### Indexing something only your project has
 

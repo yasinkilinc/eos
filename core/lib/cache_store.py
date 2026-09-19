@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Any, Dict, Optional
 
 from core.knowledge.semantic import (
-    Annotation, Call, Export, Field, FileSemantic, Import, Symbol, TypeRef,
+    Annotation, Call, Export, Field, FileSemantic, Import, Symbol, Thrown, TypeRef,
 )
 
 
@@ -24,7 +24,7 @@ from core.knowledge.semantic import (
 #
 # A mismatch drops the whole cache, which costs one full parse -- 1.7 s for
 # 4,000 files -- and is the only way to be sure no stale shape survives.
-_CACHE_FORMAT = 4
+_CACHE_FORMAT = 5
 
 _FORMAT_KEY = "__format__"
 
@@ -137,6 +137,8 @@ class CacheStore:
                 "fields": [asdict(f) for f in file_sem.fields],
                 "type_refs": [asdict(r) for r in file_sem.type_refs],
                 "calls": [asdict(c) for c in file_sem.calls],
+                "thrown": [asdict(x) for x in file_sem.thrown],
+                "codes": list(file_sem.codes),
             }
         if isinstance(file_sem, dict):
             return file_sem
@@ -161,6 +163,8 @@ class CacheStore:
                 fields=[Field(**f) for f in data.get("fields", [])],
                 type_refs=[TypeRef(**r) for r in data.get("type_refs", [])],
                 calls=[Call(**c) for c in data.get("calls", [])],
+                thrown=[Thrown(**x) for x in data.get("thrown", [])],
+                codes=list(data.get("codes", [])),
             )
         except Exception:
             return None

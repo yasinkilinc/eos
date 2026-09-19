@@ -3,8 +3,8 @@ package com.example.orders;
 import org.springframework.stereotype.Component;
 
 /**
- * Package-private on purpose, and the whole class body sits inside a Javadoc
- * example below that contains a closing brace: } and the word class.
+ * Package-private on purpose, and this Javadoc contains a closing brace } and
+ * the word class, neither of which ends anything.
  */
 @Component("validateAgeCommand")
 class ValidateAgeCommand implements OrderCommand {
@@ -18,7 +18,11 @@ class ValidateAgeCommand implements OrderCommand {
     @Override
     public CommandResult execute(OrderContext context) {
         if (!policy.permits(context.age())) {
-            return new CommandResult(false, "AGE_LIMIT");
+            throw ValidationException.of("AGE_LIMIT", "too young");
+        }
+        if (context.age() > 120) {
+            // No test names this one -- which is the whole point of `eos rules`.
+            throw new ValidationException("AGE_IMPLAUSIBLE", "check the input");
         }
         return new CommandResult(true, null);
     }

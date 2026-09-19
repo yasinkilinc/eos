@@ -17,5 +17,7 @@ class ValidateAgeCommandTest {
     @Test
     void refusesWhenUnderage() {
         CommandResult result = command.execute(new OrderContext(17));
+        // Names the code, which is what makes this behaviour findable.
+        assertThat(result).hasMessageContaining("AGE_LIMIT");
     }
 }

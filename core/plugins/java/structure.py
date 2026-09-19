@@ -21,7 +21,7 @@ from __future__ import annotations
 
 import re
 
-from core.knowledge.semantic import Annotation, Call, Field, Symbol, TypeRef
+from core.knowledge.semantic import Annotation, Call, Field, Symbol, Thrown, TypeRef
 from core.plugins.java.lexer import Source, lex
 
 _PACKAGE = re.compile(r"^\s*package\s+([\w.]+)\s*;", re.MULTILINE)
@@ -65,6 +65,8 @@ class JavaStructure:
         self.fields: list[Field] = []
         self.type_refs: list[TypeRef] = []
         self.calls: list[Call] = []
+        self.thrown: list[Thrown] = []
+        self.codes: list[str] = []
 
 
 def parse(text: str) -> JavaStructure:
@@ -83,7 +85,74 @@ def parse(text: str) -> JavaStructure:
             out.imports[simple] = qualified
 
     _walk(out, masked)
+    _read_codes(out)
     return out
+
+
+# A constant that identifies a behaviour: SCREAMING_SNAKE with at least one
+# underscore. The underscore is what separates an identifier from prose -- a
+# thrown "Something went wrong" is a message, "AGE_LIMIT" is a name the rest of
+# the organisation uses for the same refusal.
+_CODE = re.compile(r"^[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+$")
+_THROW = re.compile(r"\bthrow\b")
+_THROWN_TYPE = re.compile(r"\bthrow\s+(?:new\s+)?([A-Za-z_$][\w$.]*)")
+
+
+def _read_codes(out: JavaStructure) -> None:
+    """Code-shaped literals, and the ones a `throw` carries.
+
+    A throw's code is its first code-shaped literal before the statement ends.
+    Bounded by the terminator rather than by a character count, so a multi-line
+    throw is read and the next statement's literal is never stolen.
+    """
+    masked, source = out.source.masked, out.source
+    seen: set[str] = set()
+    for at in sorted(source.literals):
+        value = source.literals[at]
+        if _CODE.match(value) and value not in seen:
+            seen.add(value)
+            out.codes.append(value)
+
+    for match in _THROW.finditer(masked):
+        end = masked.find(";", match.end())
+        end = len(masked) if end == -1 else end
+        code = next((source.literals[at] for at in sorted(source.literals)
+                     if match.end() < at < end and _CODE.match(source.literals[at])), None)
+        if code is None:
+            continue
+        kind = _THROWN_TYPE.match(masked, match.start())
+        owner, method = _owner_at(out, match.start())
+        out.thrown.append(Thrown(
+            code=code,
+            exception=_exception_name(kind.group(1)) if kind else None,
+            owner=owner, method=method, line=source.line_of(match.start()),
+        ))
+
+
+def _exception_name(chain: str) -> str | None:
+    """The type in a throw expression, from either spelling.
+
+    `throw new ValidationException(...)` names it outright; `throw
+    ValidationException.of(...)` is a factory call, so the last segment is the
+    method and the type is the last segment that begins with a capital.
+    """
+    for part in reversed(chain.split(".")):
+        if part[:1].isupper():
+            return part
+    return None
+
+
+def _owner_at(out: JavaStructure, offset: int) -> tuple[str | None, str | None]:
+    """The innermost type and method whose body contains this offset."""
+    owner = method = None
+    for symbol in out.symbols:
+        start = out.source.line_of(offset)
+        if symbol.line <= start <= (symbol.end_line or symbol.line):
+            if symbol.kind == "method":
+                method = symbol.name
+            else:
+                owner = symbol.name
+    return owner, method
 
 
 def _walk(out: JavaStructure, masked: str) -> None:

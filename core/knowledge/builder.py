@@ -212,7 +212,53 @@ class KnowledgeBuilder:
             project.report.note_coverage(import_detector, "import-edge", resolved_here)
 
         self._add_type_edges(project, graph, node_ids, observed)
+        self._add_code_facts(project, graph, observed)
         return graph
+
+    def _add_code_facts(self, project: ProjectSemantic, graph: KnowledgeGraph,
+                        observed: str) -> None:
+        """Record the behaviour identifiers this project throws, and names.
+
+        Two predicates, deliberately separate. `throws-code` is where a refusal
+        is raised; `names-code` is anywhere the same constant appears -- which
+        is how a test asserting that refusal is found without any inference
+        about what the test means.
+        """
+        code_detector = detector("codes")
+        for file in project.files:
+            if not (file.thrown or file.codes):
+                continue
+            node_id = self._file_node_id(file.path)
+            for thrown in file.thrown:
+                where = ".".join(part for part in (thrown.owner, thrown.method) if part)
+                graph.add_fact(Fact(
+                    subject_kind="node", subject=node_id, predicate="throws-code",
+                    object=thrown.code, origin=EXTRACTED, confidence=CERTAIN,
+                    detector=code_detector,
+                    source_ref=f"{file.path}:{thrown.line}" if thrown.line else file.path,
+                    observed_at=file.parsed_at or observed,
+                ))
+                if where:
+                    graph.add_fact(Fact(
+                        subject_kind="node", subject=node_id, predicate="throws-code-at",
+                        object=f"{thrown.code}|{where}|{thrown.exception or ''}",
+                        origin=EXTRACTED, confidence=CERTAIN, detector=code_detector,
+                        source_ref=f"{file.path}:{thrown.line}" if thrown.line else file.path,
+                        observed_at=file.parsed_at or observed,
+                    ))
+            thrown_here = {t.code for t in file.thrown}
+            for code in file.codes:
+                if code in thrown_here:
+                    continue
+                graph.add_fact(Fact(
+                    subject_kind="node", subject=node_id, predicate="names-code",
+                    object=code, origin=EXTRACTED, confidence=CERTAIN,
+                    detector=code_detector, source_ref=file.path,
+                    observed_at=file.parsed_at or observed,
+                ))
+            project.report.note_coverage(code_detector, "throws-code", len(file.thrown))
+            project.report.note_coverage(code_detector, "names-code",
+                                         len([c for c in file.codes if c not in thrown_here]))
 
     # Relations read off declarations, not off import statements. On a Java
     # codebase the two barely overlap: measured on one service, 142 of 143

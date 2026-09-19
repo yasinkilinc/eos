@@ -99,6 +99,26 @@ class TypeRef:
 
 
 @dataclass
+class Thrown:
+    """A code-shaped string literal thrown from this file.
+
+    On a system whose refusals are identified by a constant -- and most are --
+    this is the closest thing to a business rule that can be read out of the
+    source rather than inferred from it. The code is the identifier the rest of
+    the organisation uses for the behaviour: it reaches the API response, the
+    test that asserts the refusal, and the ticket that reports it.
+
+    What it is *not* is a statement that the rule is correct or intended. It is
+    extracted, not verified.
+    """
+    code: str
+    exception: Optional[str] = None
+    owner: Optional[str] = None
+    method: Optional[str] = None
+    line: int = 0
+
+
+@dataclass
 class Call:
     """A method call resolved to the declared type of its receiver.
 
@@ -128,6 +148,12 @@ class FileSemantic:
     fields: List[Field] = field(default_factory=list)
     type_refs: List[TypeRef] = field(default_factory=list)
     calls: List[Call] = field(default_factory=list)
+    thrown: List[Thrown] = field(default_factory=list)
+    codes: List[str] = field(default_factory=list)
+    """Every code-shaped literal in the file, thrown or not.
+
+    A test asserting a refusal names the code without throwing it, so both
+    sides are needed to answer "is this behaviour tested at all"."""
     parsed_at: Optional[str] = None
     """When this file was actually parsed, UTC.
 

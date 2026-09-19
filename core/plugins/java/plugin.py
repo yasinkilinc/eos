@@ -101,6 +101,8 @@ class JavaPlugin(LanguagePlugin):
         file_sem.fields = parsed.fields
         file_sem.type_refs = parsed.type_refs
         file_sem.calls = parsed.calls
+        file_sem.thrown = parsed.thrown
+        file_sem.codes = parsed.codes
 
         for symbol in parsed.symbols:
             if symbol.kind == "method":

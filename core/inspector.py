@@ -550,3 +550,63 @@ def file_history(project_root: str | Path, relative_path: str, limit: int = 20) 
     finally:
         conn.close()
     return [dict(zip(("sha", "authored_at", "author", "subject"), row)) for row in rows]
+
+
+def rules(project_root: str | Path, untested_only: bool = False) -> dict[str, Any]:
+    """The behaviour identifiers this project throws, and whether a test names one.
+
+    A refusal identified by a constant is the closest thing to a business rule
+    that can be read out of source rather than inferred from it: the code is
+    what the API returns, what a test asserts, and what a ticket quotes. So the
+    question "which behaviours are not covered at all" has a deterministic
+    answer -- is this code named anywhere under a test path -- with no
+    judgement about what any test means.
+
+    It is a floor, not coverage. A test naming the code proves the code is
+    known to the suite, not that the path reaching it is exercised.
+    """
+    from core import index as _index
+
+    conn = _index.open_for_read(project_root)
+    if conn is None:
+        raise ValueError(f"No index at {_index.db_path(project_root)}. Run 'eos index' first.")
+    try:
+        if not _index.has_tables(conn, ("fact",)):
+            raise ValueError(f"{_index.db_path(project_root)} predates provenance. "
+                             "Run 'eos index' to rebuild it.")
+        thrown = conn.execute(
+            "SELECT f.object, n.path, f.source_ref FROM fact f JOIN node n ON n.id = f.subject "
+            "WHERE f.predicate = 'throws-code' ORDER BY f.object, n.path").fetchall()
+        detail = {}
+        for row in conn.execute(
+                "SELECT object FROM fact WHERE predicate = 'throws-code-at'").fetchall():
+            code, _, rest = row[0].partition("|")
+            where, _, exception = rest.partition("|")
+            detail.setdefault(code, set()).add((where, exception))
+        named = conn.execute(
+            "SELECT DISTINCT f.object, n.path FROM fact f JOIN node n ON n.id = f.subject "
+            "WHERE f.predicate IN ('names-code', 'throws-code')").fetchall()
+    finally:
+        conn.close()
+
+    mentions: dict[str, set[str]] = {}
+    for code, path in named:
+        if is_test_path(path):
+            mentions.setdefault(code, set()).add(path)
+
+    found: dict[str, dict[str, Any]] = {}
+    for code, path, source_ref in thrown:
+        entry = found.setdefault(code, {"code": code, "thrown_at": [], "where": [], "tests": []})
+        entry["thrown_at"].append(source_ref or path)
+    for code, entry in found.items():
+        entry["where"] = sorted(where for where, _ in detail.get(code, ()))
+        entry["exceptions"] = sorted({ex for _, ex in detail.get(code, ()) if ex})
+        entry["tests"] = sorted(mentions.get(code, ()))
+    ordered = sorted(found.values(), key=lambda entry: (bool(entry["tests"]), entry["code"]))
+    if untested_only:
+        ordered = [entry for entry in ordered if not entry["tests"]]
+    return {
+        "codes": ordered,
+        "total": len(found),
+        "untested": sum(1 for entry in found.values() if not entry["tests"]),
+    }
