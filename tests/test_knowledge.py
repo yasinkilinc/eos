@@ -234,6 +234,25 @@ def test_render_context_section_falls_back_to_recent_notes_without_a_query(tmp_p
     assert "Cache warms on boot" in section
 
 
+def test_render_context_section_puts_generated_notes_behind_authored_ones(tmp_path):
+    proj = _project(tmp_path)
+    # Written first, so recency alone would put the generated note ahead.
+    notes.add_note(proj, kind="finding", title="Retry storm on timeout",
+                   body="The client retries a timeout four times.")
+    notes.add_note(proj, kind="finding", title="Endpoint inventory for orders",
+                   body="A generated listing of every order endpoint. " * 10,
+                   source=sorted(notes.GENERATOR_SOURCES)[0])
+
+    # Wide enough for the authored note's body and a title line, not for the
+    # generated note's body.
+    section = notes.render_context_section(proj, query=None, max_chars=300)
+
+    assert "### Retry storm on timeout" in section, section
+    assert "### Endpoint inventory for orders" not in section, section
+    # ...and the one that lost the slot is still named, not silently dropped.
+    assert "- Endpoint inventory for orders" in section, section
+
+
 def test_render_context_section_drops_the_lowest_ranked_notes_over_budget_and_says_so(tmp_path):
     proj = _project(tmp_path)
     # Titles and bodies vary per note: normalized_title_key masks digits to a
@@ -248,9 +267,15 @@ def test_render_context_section_drops_the_lowest_ranked_notes_over_budget_and_sa
     # not all ten.
     section = notes.render_context_section(proj, query=None, max_chars=200)
 
-    assert "omitted" in section.lower(), section
-    included_titles = [f"Finding about {topic}" for topic in topics if f"Finding about {topic}" in section]
-    assert 0 < len(included_titles) < 10, "budget must neither admit everything nor nothing"
+    assert "did not fit" in section.lower(), section
+    # Full-body inclusions are what the budget rations; the titles of what did
+    # not fit are listed after them, so count bodies by their "### " heading
+    # rather than by title text, which now appears in both tiers.
+    bodies = section.count("### ")
+    assert 0 < bodies < 10, "budget must neither admit everything nor nothing"
+    # The index of what did not fit obeys the budget too: at this size there is
+    # no room to name them, so it collapses to a count rather than overrunning.
+    assert "more_" in section, section
 
 
 def test_add_note_allows_prose_that_merely_mentions_credentials(tmp_path):

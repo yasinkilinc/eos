@@ -1104,6 +1104,11 @@ def search_notes(project_root: str | Path, query: str, limit: int | None = None)
     return ranked[:limit] if limit else ranked
 
 
+# How many titles to list for notes that did not fit. Sized so the index costs
+# roughly one note's worth of characters.
+_OMITTED_TITLE_LIMIT = 25
+
+
 def _render_note(note: Note) -> str:
     header = f"### {note.title} ({note.kind})"
     meta_bits = []
@@ -1125,8 +1130,8 @@ def render_context_section(
     `eos context` has no task to score against) the most recently written
     notes lead, on the theory that recency is the next best signal absent a
     query. Either way, notes are dropped whole once the budget is spent, and
-    the count is reported so a trimmed context does not look like a complete
-    one.
+    the ones that did not fit are listed by title, so a trimmed context does
+    not look like a complete one.
     """
     if query:
         candidates = search_notes(project_root, query)
@@ -1134,6 +1139,14 @@ def render_context_section(
         candidates = list(reversed(load_notes(project_root)))
     if not candidates:
         return ""
+
+    # Hand-written findings lead. Without this a bulk-generated inventory entry
+    # outranks a trap someone learned the hard way purely by being newer, and
+    # since the budget fits one or two full notes it can take the only slot.
+    # Measured on a 64-note service 2026-09-18: 23 of the 64 were generated.
+    # With a query, relevance already decides the order and must not be undone.
+    if not query:
+        candidates.sort(key=is_generated)
 
     lines = ["## Accumulated Knowledge"]
     included = 0
@@ -1145,12 +1158,37 @@ def render_context_section(
         lines.append(entry)
         included += 1
 
-    dropped = len(candidates) - included
-    if dropped:
-        lines.append(f"_{dropped} more note(s) omitted to stay within the context budget._")
+    # Titles for what did not fit, not just a count. A note the reader cannot
+    # see the existence of cannot be asked for, and the budget fits only one or
+    # two full notes against a corpus of sixty -- so the old
+    # "63 more note(s) omitted" line hid the entire corpus behind a number.
+    # A title line is ~80 characters against a note's ~3,000, so the index is
+    # affordable where the bodies are not; it is capped and reports its own
+    # remainder so a trimmed list still says what it left out.
+    remaining = candidates[included:]
+    if remaining:
+        lines.append(
+            f"_{len(remaining)} more note(s) did not fit. "
+            'Read one with `eos note search "<query>"`._'
+        )
+        # The index obeys the same budget the bodies do. It is allowed to be
+        # partial -- a truncated list still names notes the reader could not
+        # otherwise know exist -- but it may not be the thing that blows the
+        # budget, which would make a small context larger than a large one.
+        listed = 0
+        for note in remaining[:_OMITTED_TITLE_LIMIT]:
+            entry = f"- {note.title}"
+            if len("\n\n".join(lines + [entry])) > max_chars:
+                break
+            lines.append(entry)
+            listed += 1
+        if len(remaining) > listed:
+            tail = f"- _…and {len(remaining) - listed} more_"
+            if len("\n\n".join(lines + [tail])) <= max_chars or listed == 0:
+                lines.append(tail)
 
     # No hard truncation here: slicing the joined text by character count can
-    # as easily eat the "N more note(s) omitted" line above as it can eat note
+    # as easily eat the "N more note(s) did not fit" line above as it can eat note
     # prose, which would silently hide exactly the fact this function exists
     # to report. A note whose own rendering exceeds max_chars is the one
     # allowed overage — one full note beats a mid-sentence cut or a lost
