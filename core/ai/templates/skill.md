@@ -68,7 +68,8 @@ Two of these are worth a habit.
 **`eos rules --untested` before writing a test.** It separates four states, and
 the useful one is `reachable`: a test already reaches the class that raises the
 refusal and nothing asserts it. The fixture exists, so the missing work is one
-assertion — and `eos draft-test` writes the first version of it.
+assertion — and `eos draft-test` drafts the skeleton to start it from, with
+the arrangement left to you.
 
 **`eos why` when an answer is empty.** An empty impact result and a detector
 that never ran look identical. `why` is the only thing that separates them, and

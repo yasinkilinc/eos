@@ -758,7 +758,7 @@ def cmd_findings(args: argparse.Namespace) -> int:
         return 0
     if not records:
         print("No run has been recorded here. `eos verify` records one; "
-              "`eos draft-test` writes the test to run.")
+              "`eos draft-test` drafts a skeleton to start the test from.")
         return 0
     for entry in reversed(records):
         verdict = entry.verdict or ("-" if entry.outcome == verification.PASSED else "no verdict yet")
@@ -948,18 +948,48 @@ def cmd_note_add(args: argparse.Namespace) -> int:
     return 0
 
 
+def _no_notes_here(path: str) -> str:
+    """The sentence for a project that has recorded nothing yet.
+
+    Printing nothing is the one answer a reader cannot act on: an empty list
+    and a misconfigured notes directory look identical on a terminal, and
+    every FM service points [knowledge] dir somewhere outside the service, so
+    "looking in the wrong place" is not hypothetical. Name the place."""
+    return (f"No notes recorded here yet ({notes.notes_dir(path)}). "
+            "`eos note add` records the first one.")
+
+
 def cmd_note_list(args: argparse.Namespace) -> int:
-    matches = notes.load_notes(args.path)
-    if args.tag:
-        matches = [note for note in matches if args.tag in note.tags]
+    recorded = notes.load_notes(args.path)
+    matches = [note for note in recorded if args.tag in note.tags] if args.tag else recorded
     for note in matches:
         print(f"{note.path.name}\t{note.kind}\t{note.title}")
+    if matches:
+        return 0
+    if not recorded:
+        print(_no_notes_here(args.path))
+        return 0
+    tags = sorted({tag for note in recorded for tag in note.tags})
+    print(f"{len(recorded)} note(s) recorded, none tagged {args.tag!r}. "
+          + (f"Tags in use: {', '.join(tags)}." if tags else "No note carries a tag."))
     return 0
 
 
 def cmd_note_search(args: argparse.Namespace) -> int:
-    for note in notes.search_notes(args.path, args.query, limit=args.limit):
+    matches = notes.search_notes(args.path, args.query, limit=args.limit)
+    for note in matches:
         print(f"{note.path.name}\t{note.kind}\t{note.title}")
+    if matches:
+        return 0
+    recorded = notes.load_notes(args.path)
+    if not recorded:
+        print(_no_notes_here(args.path))
+        return 0
+    # It searched and found none, which is a finding -- and a different one
+    # from having had nothing to search. A session that cannot tell those
+    # apart re-derives from source what an earlier session already paid for.
+    print(f"Searched {len(recorded)} note(s); none match {args.query!r}. "
+          f"`eos note list {args.path}` lists every one of them.")
     return 0
 
 
@@ -1100,7 +1130,12 @@ def cmd_note_audit(args: argparse.Namespace) -> int:
             print(f"  {_title(item)!r} ({_note_path(item)})  (source: {item['source']})")
         print("  Fix: regenerate them; do not edit these by hand.")
     if not handwritten and not generated:
-        print("No stale notes.")
+        # How many were examined, not just that none failed. "No stale notes."
+        # reads the same whether it checked forty notes or found the knowledge
+        # directory empty, and those call for opposite next actions.
+        checked = len(notes.load_notes(args.path))
+        print(f"Checked {checked} note(s); every scoped path still matches what "
+              "the note recorded." if checked else _no_notes_here(args.path))
     return 0
 
 
@@ -1386,6 +1421,13 @@ def main(argv: list[str] | None = None) -> int:
     ui_p = sub.add_parser("ui", help="Start the multi-project dashboard")
     ui_sub = ui_p.add_subparsers(dest="ui_command")
     ui_p.set_defaults(ui_command="start", yes=False, port=None, no_install=False)
+    # `eos ui` already means `eos ui start`, so the start flags have to parse
+    # on the bare form too -- the README documents `eos ui --yes` and it exited
+    # 2 with `unrecognized arguments`, which is a document sending a reader
+    # into an argparse error.
+    ui_p.add_argument("--yes", action="store_true", help="Install missing packages without asking")
+    ui_p.add_argument("--no-install", dest="no_install", action="store_true",
+                      help="Report missing packages and stop")
     ui_start_p = ui_sub.add_parser("start", help="Start the dashboard")
     ui_start_p.add_argument("port", nargs="?", type=int, default=None)
     ui_start_p.add_argument("--yes", action="store_true", help="Install missing packages without asking")
