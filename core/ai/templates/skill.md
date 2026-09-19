@@ -28,7 +28,7 @@ reason to call it.
 | `find_symbol` | Where a name is defined, across the whole index | low–medium | **Grep** — usually just as fast, and exact when you know the string |
 | `impact_analysis` | What a file reaches and what reaches it, to `depth` hops; `include` adds provenance, detector coverage and the file's commits | medium | **Grep** for the import string, if the project is small enough that this is quick by hand |
 | `get_context` | Project context; pass `task` to rank notes against it and `target` to anchor on a file | medium | **Read** the files it summarizes, when you only need one or two of them |
-| `compose` | Alias of `get_context` with `task`/`target`, kept for one release | medium–high | `get_context` with `task` |
+| `compose` | As an MCP tool, an alias of `get_context` with `task`/`target`, kept for one release. The CLI `eos compose <project> "<task>" [file]` is not redundant: `eos context` takes no task, so this is the only command-line way to rank notes against one | medium–high | `get_context` with `task`, over MCP only |
 | `get_graph` | The entire generated project graph | high, and grows with project size | almost never the right first call — see below |
 | `search_index` | Full-text search over notes, brain documents and index extensions | low | `search_notes`, when you only want authored findings |
 | `get_parent_implementation` | Real source from a linked parent project, by symbol | low–medium | doing it by hand when the parent's names differ from this project's, which is the case it exists for |
@@ -50,7 +50,14 @@ filter or export, not to read end to end.
 ## Commands the MCP tools do not cover
 
 These are CLI-only, and each answers something none of the tools above can.
-Run them with `eos <command> <project>`; every one takes `--format json`.
+
+`<project>` is a **path**, not a project name, and it comes before the
+command's own arguments: `eos <command> <project> [arguments]`. Inside the
+project, that path is `.` — `eos rules .`, `eos why . <file>`,
+`eos ask . <question> [value]`. Passing the project's name instead appends it
+to the working directory and fails with "No .eos directory found at
+.../<name>/<name>", which reads like a broken tool rather than a wrong
+argument. Every command takes `--format json`.
 
 | Command | What it answers | When it earns its cost |
 |---|---|---|
@@ -60,7 +67,7 @@ Run them with `eos <command> <project>`; every one takes `--format json`.
 | `eos draft-test <code>` | The skeleton of the missing test -- the right method name, assertion library and code to assert -- with the arrangement left to you | When `eos rules` says a refusal is `reachable`, to start from the file's own conventions rather than a blank line |
 | `eos verify <code>` | Records what an adapter ran and what happened | After running a test, so the next session does not re-run it to find out |
 | `eos findings` | Every recorded run and what it was judged to be | Before re-testing something |
-| `eos ask [question]` | Questions this project's index extensions provide | First, on any project with extensions — it is where project-shaped answers live |
+| `eos ask [question] [value]` | Questions this project's index extensions provide; with no question, the list of them | First, on any project with extensions — it is where project-shaped answers live |
 | `eos cost` | What EOS has cost this project per command | When deciding whether a habit is worth keeping |
 
 Two of these are worth a habit.
@@ -99,13 +106,21 @@ here, not elsewhere. Prefer it over the table above whenever the two disagree
 
 This is the one thing nothing else substitutes for:
 
-1. **Before** starting on a question — `search_notes` for the subject. An
-   earlier session may have already paid for the discovery, and re-deriving
-   it from source is real cost paid twice.
+1. **Before** starting on a question — `search_notes` for the subject
+   (`eos note search <project> "<query>"`). An earlier session may have
+   already paid for the discovery, and re-deriving it from source is real
+   cost paid twice.
 2. **After** learning something that would not be re-derived by the next
    `eos scan` — a non-obvious cause, a measured cost, a constraint that isn't
-   visible in the code itself — `add_note`. A finding that lives only in this
+   visible in the code itself — `add_note` (`eos note add <project> --kind
+   finding --title "..." --body "..."`). A finding that lives only in this
    conversation is a finding the next one pays for again.
+
+The CLI spellings are given because without them this loop is unreachable to
+anyone not holding the MCP tools, and it is the step most worth not skipping.
+`eos note search` lists titles; `eos compose <project> "<task>"` returns the
+bodies of the notes that rank highest against a task, which is how to actually
+read what an earlier session wrote.
 
 ---
 

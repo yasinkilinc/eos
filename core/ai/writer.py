@@ -60,7 +60,17 @@ def _write_mcp(root: Path) -> Path:
     return path
 
 
-def write_all(root: Path, version: str) -> list[Path]:
+def write_all(root: Path, version: str, agents_md: bool = True) -> list[Path]:
+    """Write every integration surface for `version`.
+
+    `agents_md=False` leaves AGENTS.md alone. It is the one surface EOS does
+    not own: in a repository whose AGENTS.md is tracked and governed by
+    someone else, refreshing the skill for a new engine version should not
+    also modify a committed file. Without the option the choice is between a
+    stale skill and a dirty working tree, and the stale skill wins by default
+    -- measured on one service, whose generated skill sat two engine versions
+    behind while the engine itself was current.
+    """
     root = Path(root)
     written: list[Path] = []
 
@@ -76,8 +86,9 @@ def write_all(root: Path, version: str) -> list[Path]:
 
     written.append(_write_mcp(root))
 
-    agents_md = root / "AGENTS.md"
-    upsert_block(agents_md, _render("agents_section.md", version))
-    written.append(agents_md)
+    if agents_md:
+        path = root / "AGENTS.md"
+        upsert_block(path, _render("agents_section.md", version))
+        written.append(path)
 
     return written

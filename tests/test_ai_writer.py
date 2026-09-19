@@ -69,3 +69,24 @@ def test_ai_update_command_dispatches_without_keyerror(tmp_path, capsys):
     assert rc == 0
     assert (tmp_path / ".mcp.json").exists()
     assert (tmp_path / "AGENTS.md").exists()
+
+
+def test_no_agents_md_refreshes_the_skill_without_touching_a_tracked_file(tmp_path):
+    """The skill has to be refreshable on its own.
+
+    Where AGENTS.md is tracked and governed elsewhere, an engine upgrade that
+    can only refresh the skill by also modifying a committed file will not be
+    run -- and the skill then sits at whatever version it was generated under
+    while the engine moves on. Observed: a generated skill two engine versions
+    behind, describing a command in words the current engine had corrected.
+    """
+    from core import eos as eos_cli
+
+    house = tmp_path / "AGENTS.md"
+    house.write_text("# House rules\n", encoding="utf-8")
+
+    rc = eos_cli.main(["ai", "update", "--path", str(tmp_path), "--no-agents-md"])
+
+    assert rc == 0
+    assert house.read_text(encoding="utf-8") == "# House rules\n", "AGENTS.md was modified"
+    assert "0." in (tmp_path / ".claude" / "skills" / "eos" / "SKILL.md").read_text(encoding="utf-8")

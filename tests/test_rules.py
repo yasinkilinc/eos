@@ -229,3 +229,34 @@ def test_limit_zero_still_lists_everything(tmp_path):
     assert done.returncode == 0, done.stderr
     assert done.stdout.count("thrown at") == 3, done.stdout
     assert "more, least covered first" not in done.stdout
+
+
+def test_untested_filtering_everything_out_is_not_the_same_as_finding_nothing(tmp_path):
+    """The filter emptying the list is a different fact from the detector
+    finding nothing, and the message has to say which.
+
+    Measured: a session ran `eos rules --untested`, was told the project raises
+    no coded refusals, re-ran it four ways believing the command was broken,
+    and settled it only by dropping the flag and seeing the codes it had just
+    been told did not exist."""
+    root = _scanned(tmp_path)
+
+    all_codes = _run(["rules", str(root)])
+    assert all_codes.returncode == 0, all_codes.stderr
+    assert "AGE_LIMIT" in all_codes.stdout
+
+    # Name every code in a test file, so nothing is left for --untested.
+    test_dir = root / "src" / "test" / "java" / "com" / "example"
+    test_dir.mkdir(parents=True, exist_ok=True)
+    (test_dir / "AllCodesTest.java").write_text(
+        'package com.example;\npublic class AllCodesTest {\n'
+        '  void t() { String a = "AGE_LIMIT", b = "AGE_IMPLAUSIBLE", c = "AGE_NEGATIVE"; }\n}\n',
+        encoding="utf-8")
+    assert _run(["scan", str(root), "--full"]).returncode == 0
+
+    done = _run(["rules", str(root), "--untested"])
+
+    assert done.returncode == 0, done.stderr
+    assert "found no behaviour codes" not in done.stdout, (
+        "the filter emptied the list; the detector found three codes")
+    assert "--untested" in done.stdout, done.stdout

@@ -631,6 +631,20 @@ def cmd_rules(args: argparse.Namespace) -> int:
                   "nothing looked for them. Run `eos scan` (not `eos index`: rebuilding "
                   "the index re-reads the same scan output).", file=sys.stderr)
             return 1
+        if args.untested and answer.get("total"):
+            # The filter emptied the list, not the detector -- and saying "found
+            # no behaviour codes" when 70 are indexed is the same silence-versus-
+            # absence failure one level up. A session hit exactly this: it read
+            # the answer as the command being broken for this project, re-ran it
+            # four ways, and only settled it by running the unflagged form and
+            # finding the codes it had just been told did not exist.
+            tally = answer.get("coverage", {})
+            graded = ", ".join(f"{count} {grade}" for grade, count in tally.items() if count)
+            print(f"All {answer['total']} behaviour code(s) here are named by at least "
+                  f"one test, so --untested matches none of them ({graded}). "
+                  "Drop --untested to see them, or read the grades: only `none` means "
+                  "no test names the code at all.")
+            return 0
         print("The detector ran and found no behaviour codes: nothing here raises a "
               "refusal identified by a constant. `eos why` shows what it examined.")
         return 0
@@ -1249,7 +1263,7 @@ def cmd_ai(args: argparse.Namespace) -> int:
     from core.ai import writer
 
     root = Path(args.path).resolve()
-    for path in writer.write_all(root, VERSION):
+    for path in writer.write_all(root, VERSION, agents_md=not args.no_agents_md):
         print(f"  {path.relative_to(root)}")
     return 0
 
@@ -1487,6 +1501,8 @@ def main(argv: list[str] | None = None) -> int:
     ai_sub = ai_p.add_subparsers(dest="ai_command", required=True)
     ai_update_p = ai_sub.add_parser("update", help="Refresh the integration files for this EOS version")
     add_path(ai_update_p)
+    ai_update_p.add_argument("--no-agents-md", dest="no_agents_md", action="store_true",
+                             help="Leave AGENTS.md alone (for a repository that tracks it)")
 
     args = parser.parse_args(argv)
 
