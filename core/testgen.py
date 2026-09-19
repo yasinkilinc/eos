@@ -37,6 +37,11 @@ STATUS_DRAFT = "draft"
 _PACKAGE = re.compile(r"^\s*package\s+([\w.]+)\s*;", re.MULTILINE)
 _IMPORT = re.compile(r"^\s*import\s+(?:static\s+)?([\w.]+(?:\.\*)?)\s*;", re.MULTILINE)
 _CLASS_OPEN = re.compile(r"\b(?:class|interface|enum|record)\s+(\w+)")
+# `throw new X("CODE", ...)` and `throw X.of("CODE", ...)`, the two spellings
+# the code detector already looks for, read back here for the exception type
+# and for whether the code is an argument rather than part of the message.
+_THROW_SITE = re.compile(
+    r"throw\s+(?:new\s+)?(\w+)(?:\s*\.\s*of)?\s*\(\s*(?:\"(?P<literal>[A-Z0-9_]+)\")?", re.MULTILINE)
 
 
 @dataclasses.dataclass
@@ -73,6 +78,7 @@ def draft_for(project_root: str | Path, code: str) -> Draft:
             "SELECT object FROM fact WHERE predicate = 'throws-code-at' "
             "AND object LIKE ?", (f"{code}|%",)).fetchall()
         reached = _tests_reaching(conn, [row[0] for row in sites])
+        class_files = _class_files(conn, project_root)
     finally:
         conn.close()
 
@@ -112,11 +118,78 @@ def draft_for(project_root: str | Path, code: str) -> Draft:
                      style=style, grounded=grounded,
                      refused="; ".join(missing))
 
+    # Can a test actually call the method that raises it? Private says no, and
+    # so does protected or package-private from a test in another package. A
+    # draft that names an inaccessible method does not compile, and a reviewer
+    # who trusted the word "draft" finds that out only after wiring it up.
+    subject = (root / path).read_text(encoding="utf-8", errors="replace")
+    visibility = _declared_visibility(subject, method) if method else None
+    call_method, note = method, None
+    if visibility == "private" or (
+            visibility in ("protected", "package")
+            and style.get("package") and style["package"] != _package_of(subject)):
+        entry = _public_entry(subject, exclude=method)
+        if entry is None:
+            return Draft(code=code, status="refused", thrown_by=path, method=where,
+                         source_ref=source_ref, test_path=test_path, test_exists=bool(tests),
+                         style=style, grounded=grounded,
+                         refused=f"{method} is {visibility} and {owner} exposes no method a "
+                                 f"test can call, so there is no way in from a test")
+        call_method, note = entry, (
+            f"{method} is {visibility}, so the branch is driven through {entry}")
+        grounded.append(f"method {entry} is public in {path}")
+
+    shape = _throw_shape(root, path, source_ref, code)
+    accessor = _accessor_for(root, class_files, shape["exception"])
+    if shape["exception"]:
+        grounded.append(f"{code} is raised as {shape['exception']} at {source_ref}")
+    if accessor:
+        grounded.append(f"{shape['exception']}.{accessor}() returns the code")
+
     return Draft(
         code=code, status=STATUS_DRAFT, thrown_by=path, method=where, source_ref=source_ref,
         test_path=test_path, test_exists=bool(tests), style=style, grounded=grounded,
-        body=_render(code, owner, method, style, bool(tests)),
+        body=_render(code, owner, call_method, style, bool(tests),
+                     shape=shape, accessor=accessor, note=note),
     )
+
+
+def _package_of(source: str) -> str | None:
+    found = _PACKAGE.search(source)
+    return found.group(1) if found else None
+
+
+def _class_files(conn, project_root: str | Path) -> dict[str, Path]:
+    """Class name -> the file declaring it, linked parents included.
+
+    Only used to ground an exception's accessor, which is the one symbol a
+    draft needs that is routinely defined outside the project: on an overlay
+    codebase the exception type comes from the parent, and refusing to look
+    there would mean never grounding it at all.
+    """
+    from core import links
+
+    root = Path(project_root).expanduser().resolve()
+    roots = {label: links.resolve_link_path(root, link)
+             for label, link in links.read_links(root).items()}
+    files: dict[str, Path] = {}
+    try:
+        rows = conn.execute("SELECT path FROM node WHERE path LIKE '%.java'").fetchall()
+    except Exception:
+        return files
+    for (path,) in rows:
+        name = Path(path).stem
+        if name in files:
+            continue
+        if path.startswith(links.PARENT_PREFIX):
+            label, _, rest = path[len(links.PARENT_PREFIX):].partition("/")
+            parent_root = roots.get(label)
+            if parent_root is None:
+                continue
+            files[name] = parent_root / rest
+        else:
+            files[name] = root / path
+    return files
 
 
 def _tests_reaching(conn, paths: list[str]) -> dict[str, set[str]]:
@@ -182,6 +255,117 @@ def _style_of(root: Path, test_path: str | None, subject: Path) -> dict[str, Any
     return style
 
 
+def _declared_visibility(source: str, method: str) -> str | None:
+    """`public`, `protected`, `private` or `package` for a declared method.
+
+    None when no declaration is found -- the method is called in this file but
+    declared elsewhere, which is not something to guess about.
+    """
+    pattern = re.compile(
+        r"^[ \t]*(?P<mods>(?:@\w+\s+)*(?:public|protected|private|static|final|synchronized|"
+        r"abstract|native|default|\s)*?)(?:<[^>]+>\s+)?[\w.<>\[\],?]+\s+"
+        rf"{re.escape(method)}\s*\(", re.MULTILINE)
+    found = pattern.search(source)
+    if not found:
+        return None
+    mods = found.group("mods")
+    for level in ("private", "protected", "public"):
+        if re.search(rf"\b{level}\b", mods):
+            return level
+    return "package"
+
+
+def _public_entry(source: str, exclude: str) -> str | None:
+    """A method a test in any package can call, preferring `execute`.
+
+    The refusal being drafted for is raised somewhere; if the raising method
+    cannot be called from a test, the branch has to be driven through one that
+    can. Nothing else in the class is a candidate: a test that calls a method
+    it has no access to does not compile, and a draft that does not compile is
+    worse than no draft, because it reads as though someone checked.
+    """
+    public = re.findall(r"^[ \t]*public\s+(?:static\s+|final\s+|synchronized\s+)*"
+                        r"(?:<[^>]+>\s+)?[\w.<>\[\],?]+\s+(\w+)\s*\(", source, re.MULTILINE)
+    candidates = [name for name in public if name != exclude]
+    if not candidates:
+        return None
+    return "execute" if "execute" in candidates else candidates[0]
+
+
+def _throw_shape(root: Path, path: str, source_ref: str | None, code: str) -> dict[str, Any]:
+    """The exception type at the throw site, and where the code actually is.
+
+    `hasMessageContaining(code)` is only a correct assertion when the code is
+    in the message. In the shape this detector finds most often it is the
+    first argument -- `ValidationException.of("CODE", "human text")` -- and the
+    message never contains it, so a draft asserting the message fails for a
+    reason that has nothing to do with the behaviour under test.
+    """
+    shape: dict[str, Any] = {"exception": None, "code_in_message": True}
+    line_no = 0
+    if source_ref and ":" in source_ref:
+        try:
+            line_no = int(source_ref.rsplit(":", 1)[1])
+        except ValueError:
+            line_no = 0
+    try:
+        lines = (root / path).read_text(encoding="utf-8", errors="replace").splitlines()
+    except OSError:
+        return shape
+    if not line_no:
+        return shape
+    # The `throw` may sit a line or two above the line the fact records, and
+    # the arguments below it; read a small window rather than one line.
+    window = "\n".join(lines[max(0, line_no - 4):line_no + 4])
+    found = _THROW_SITE.search(window)
+    if found:
+        shape["exception"] = found.group(1)
+        if found.group("literal") == code:
+            shape["code_in_message"] = False
+    return shape
+
+
+def _accessor_for(root: Path, paths: dict[str, Path], exception: str | None) -> str | None:
+    """The no-argument accessor an exception exposes its code through.
+
+    Grounded in the exception's own source, including a linked parent's, or
+    not offered at all. Guessing `getCode()` on a class that does not have it
+    is exactly the kind of plausible symbol this module refuses to emit.
+    """
+    seen: set[str] = set()
+    current = exception
+    # Three hops up the hierarchy. On this codebase the accessor is on the
+    # exception's grandparent, not on the type the throw site names, so
+    # stopping at the class itself grounds nothing and the draft falls back to
+    # an assertion that passes for any exception of that type.
+    for _ in range(3):
+        if not current or current in seen:
+            return None
+        seen.add(current)
+        source_path = paths.get(current)
+        if source_path is None:
+            return None
+        try:
+            source = source_path.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            return None
+        for name in ("getCode", "getErrorCode", "code", "errorCode"):
+            if re.search(rf"^[ \t]*public\s+[\w.<>\[\]]+\s+{name}\s*\(\s*\)", source, re.MULTILINE):
+                return name
+        # Lombok's @Getter is a fact in the source, not a convention: the class
+        # carries the annotation and the field carries the name, and both are
+        # checkable. Missing them means grounding nothing on a codebase that
+        # generates most of its accessors.
+        if "@Getter" in source:
+            for field, name in (("code", "getCode"), ("errorCode", "getErrorCode")):
+                if re.search(rf"^[ \t]*(?:private|protected|public)?\s*(?:final\s+)?"
+                             rf"String\s+{field}\s*[;=]", source, re.MULTILINE):
+                    return name
+        extends = re.search(r"\bclass\s+\w+(?:<[^>]+>)?\s+extends\s+(\w+)", source)
+        current = extends.group(1) if extends else None
+    return None
+
+
 def _ground(root: Path, path: str, owner: str, method: str,
             style: dict[str, Any]) -> tuple[list[str], list[str]]:
     """Check every symbol the draft would name against the source itself."""
@@ -205,29 +389,52 @@ def _ground(root: Path, path: str, owner: str, method: str,
     return grounded, missing
 
 
-def _render(code: str, owner: str, method: str, style: dict[str, Any], joining: bool) -> str:
+def _render(code: str, owner: str, method: str, style: dict[str, Any], joining: bool,
+            shape: dict[str, Any] | None = None, accessor: str | None = None,
+            note: str | None = None) -> str:
     """The draft itself: one test method, in the style of its neighbours."""
     assertions = style.get("assertions") or "assertj"
+    shape = shape or {"exception": None, "code_in_message": True}
+    thrown_type = shape.get("exception") or "Exception"
+    in_message = shape.get("code_in_message", True)
     name = f"raises{_camel(code)}"
     display = f'    @DisplayName("raises {code}")\n' if style.get("display_name") else ""
     call = f"{_lower(owner)}.{method}(/* arrange the input that makes this fail */)" if method \
         else f"{_lower(owner)}.execute(/* arrange the input that makes this fail */)"
 
     if assertions == "junit":
-        body = (f"        Exception thrown = assertThrows(Exception.class, () ->\n"
-                f"                {call});\n"
-                f'        assertTrue(thrown.getMessage().contains("{code}")\n'
-                f'                || String.valueOf(thrown).contains("{code}"));')
+        body = (f"        {thrown_type} thrown = assertThrows({thrown_type}.class, () ->\n"
+                f"                {call});\n")
+        if in_message:
+            body += f'        assertTrue(thrown.getMessage().contains("{code}"));'
+        elif accessor:
+            body += f'        assertEquals("{code}", thrown.{accessor}());'
+        else:
+            body += (f"        // The code is an argument to {thrown_type}, not part of the\n"
+                     f"        // message. Assert it with this type's own accessor:\n"
+                     f'        // assertEquals("{code}", thrown.<accessor>());')
     else:
         body = (f"        assertThatThrownBy(() ->\n"
-                f"                {call})\n"
-                f'                .hasMessageContaining("{code}");')
+                f"                {call})\n")
+        if in_message:
+            body += f'                .hasMessageContaining("{code}");'
+        elif accessor:
+            body += (f"                .isInstanceOf({thrown_type}.class)\n"
+                     f"                .extracting(thrown -> (({thrown_type}) thrown).{accessor}())\n"
+                     f'                .isEqualTo("{code}");')
+        else:
+            body += (f"                .isInstanceOf({thrown_type}.class);\n"
+                     f"        // The code is an argument to {thrown_type}, not part of the\n"
+                     f"        // message. Assert it with this type's own accessor, or the\n"
+                     f"        // test passes for any {thrown_type} at all.")
 
+    why = (f"        // {note}.\n" if note else "")
     method_text = (f"{display}    @Test\n"
                    f"    void {name}() {{\n"
                    f"        // DRAFT -- not compiled, not run, not reviewed.\n"
                    f"        // The class is already reached by this test; what is missing is\n"
                    f"        // the arrangement that drives it down the branch raising {code}.\n"
+                   f"{why}"
                    f"{body}\n"
                    f"    }}")
     if joining:

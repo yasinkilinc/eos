@@ -149,3 +149,73 @@ def test_without_an_index_it_says_how_to_build_one(tmp_path):
 
     with pytest.raises(ValueError, match="eos index"):
         testgen.draft_for(root, "ANY_CODE")
+
+
+def test_a_code_passed_as_an_argument_is_not_asserted_through_the_message(tmp_path):
+    """`ValidationException.of("CODE", "human text")` puts the code in an
+    argument and never in the message, so `hasMessageContaining(code)` fails
+    for a reason that has nothing to do with the behaviour under test.
+
+    Measured on a real service: the draft asserted the message, and the
+    message read "Invalid numeric value for 'topUpAmount'".
+    """
+    draft = testgen.draft_for(_scanned(tmp_path), "AGE_IMPLAUSIBLE")
+
+    assert draft.status == testgen.STATUS_DRAFT, draft.refused
+    assert 'hasMessageContaining("AGE_IMPLAUSIBLE")' not in draft.body, draft.body
+    assert "ValidationException" in draft.body, draft.body
+    assert ".code()" in draft.body, "the accessor is declared in the fixture and must be used"
+    assert '.isEqualTo("AGE_IMPLAUSIBLE")' in draft.body, draft.body
+    assert any("code()" in line for line in draft.grounded), draft.grounded
+
+
+def test_a_private_method_is_driven_through_a_public_entry(tmp_path):
+    """A draft that names a private method does not compile, and a reviewer
+    told "draft" finds that out only after wiring it up.
+
+    Measured: the draft called `fmTopUpValidationCommand.parseBigDecimal(...)`
+    on a private method, while the file's existing tests drive the same throw
+    through the public `execute`.
+    """
+    root = _scanned(tmp_path)
+    pkg = root / "src" / "main" / "java" / "com" / "example" / "orders"
+    (pkg / "CheckLimitCommand.java").write_text(
+        "package com.example.orders;\n"
+        "public class CheckLimitCommand {\n"
+        "    public CommandResult execute(OrderContext context) {\n"
+        "        parseAmount(context);\n"
+        "        return new CommandResult(true, null);\n"
+        "    }\n"
+        "    private void parseAmount(OrderContext context) {\n"
+        '        throw ValidationException.of("LIMIT_UNPARSEABLE", "not a number");\n'
+        "    }\n"
+        "}\n", encoding="utf-8")
+    assert _run(["scan", str(root), "--full"]).returncode == 0
+
+    draft = testgen.draft_for(root, "LIMIT_UNPARSEABLE")
+
+    assert draft.status == testgen.STATUS_DRAFT, draft.refused
+    assert "parseAmount(" not in draft.body, (
+        "the draft calls a private method; it cannot compile\n" + draft.body)
+    assert ".execute(" in draft.body, draft.body
+    assert "parseAmount is private" in draft.body, "it must say why it went in another way"
+
+
+def test_a_class_with_no_way_in_is_refused_rather_than_drafted(tmp_path):
+    """Refusing is the documented behaviour when a symbol cannot be grounded,
+    and "there is no callable entry point" is that case, not a special one."""
+    root = _scanned(tmp_path)
+    pkg = root / "src" / "main" / "java" / "com" / "example" / "orders"
+    (pkg / "SealedCommand.java").write_text(
+        "package com.example.orders;\n"
+        "public class SealedCommand {\n"
+        "    private void onlyWayIn() {\n"
+        '        throw ValidationException.of("SEALED_OFF", "no");\n'
+        "    }\n"
+        "}\n", encoding="utf-8")
+    assert _run(["scan", str(root), "--full"]).returncode == 0
+
+    draft = testgen.draft_for(root, "SEALED_OFF")
+
+    assert draft.status == "refused", draft.body
+    assert "no way in from a test" in draft.refused, draft.refused
