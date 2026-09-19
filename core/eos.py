@@ -522,6 +522,11 @@ def cmd_context(args: argparse.Namespace) -> int:
     root = inspector.require_project(args.path)
     output_path = root / ".eos" / "data" / "brain" / "llm_context.md"
     output_path.write_text(context, encoding="utf-8")
+    # The answer is the file, not the line about it. Without this the most
+    # expensive call in the system is recorded as the cheapest.
+    from core import telemetry
+
+    telemetry.declare_answer_size(len(context))
     print(f"Context written to {output_path} ({len(context)} characters)")
     return 0
 
@@ -686,6 +691,34 @@ def cmd_verify(args: argparse.Namespace) -> int:
         print("  no verdict recorded. A failing run does not say which of a wrong rule, "
               f"a wrong test or a bad environment it was -- pass --verdict when you know "
               f"({', '.join(verification.VERDICTS)}).", file=sys.stderr)
+    return 0
+
+
+def cmd_cost(args: argparse.Namespace) -> int:
+    """What EOS has cost this project, per command."""
+    from core import telemetry
+
+    if not telemetry.enabled(args.path):
+        print("Telemetry is off. Turn it on with [telemetry] enabled = true in "
+              f"{Path(args.path) / '.eos' / 'config.toml'} — it records the command, "
+              "the flag names, the milliseconds and the size of the answer, never "
+              "what was asked.")
+        return 0
+
+    report = telemetry.summary(args.path)
+    if args.format == "json":
+        print(json.dumps(report, indent=2, ensure_ascii=False))
+        return 0
+    if not report["calls"]:
+        print("Telemetry is on, and nothing has been recorded yet.")
+        return 0
+
+    print(f"{report['calls']} call(s) since {report['since']}, "
+          f"~{report['tokens']} token(s) returned in total (estimated at 4 chars each)")
+    print(f"{'command':<16}{'calls':>7}{'median ms':>11}{'median tok':>12}{'rebuilds':>10}{'failed':>8}")
+    for row in report["commands"]:
+        print(f"{row['command']:<16}{row['calls']:>7}{row['median_ms']:>11}"
+              f"{row['median_tokens']:>12}{row['rebuilt']:>10}{row['failed']:>8}")
     return 0
 
 
@@ -1270,6 +1303,10 @@ def main(argv: list[str] | None = None) -> int:
         help="What a person concluded. Never filled in automatically.")
     verify_p.add_argument("--note", help="One line of context for the run")
 
+    cost_p = sub.add_parser("cost", help="What EOS has cost this project, per command")
+    add_path(cost_p)
+    cost_p.add_argument("--format", choices=("text", "json"), default="text")
+
     findings_p = sub.add_parser("findings", help="Recorded runs and what they were judged to be")
     add_path(findings_p)
     findings_p.add_argument("--failed-only", action="store_true", dest="failed_only")
@@ -1406,6 +1443,7 @@ def main(argv: list[str] | None = None) -> int:
         "draft-test": cmd_draft_test,
         "verify": cmd_verify,
         "findings": cmd_findings,
+        "cost": cmd_cost,
         "mcp": cmd_mcp,
         "bench": cmd_bench,
         "ui": cmd_ui,
@@ -1413,7 +1451,49 @@ def main(argv: list[str] | None = None) -> int:
         "note": cmd_note,
         "ai": cmd_ai,
     }
-    return commands[args.command](args)
+    handler = commands[args.command]
+    path = getattr(args, "path", None)
+    if path is None or args.command in ("init", "ui", "mcp", "cost"):
+        # init has no project yet, ui and mcp are long-running rather than one
+        # answer, and cost reading itself would be a call that changes what it
+        # reports.
+        return handler(args)
+
+    from core import telemetry
+
+    # Flag *names*, never their values: a search query, a task or a note body
+    # is whatever somebody typed, and a log that captured them would be a
+    # liability in every project EOS touches.
+    flags = [f"--{name.replace('_', '-')}" for name, value in vars(args).items()
+             if name not in ("command", "path", "func") and value not in (None, False)]
+    with telemetry.Timer(path, args.command, flags) as timer:
+        # A pass-through counter, not a buffer. Buffering stdout and replaying
+        # it broke the escaping a non-UTF-8 terminal needs -- measured by the
+        # test that exists for it -- and a statistic may not change what a
+        # command prints.
+        counter = _CountingStream(sys.stdout)
+        sys.stdout = counter
+        try:
+            code = handler(args)
+        finally:
+            sys.stdout = counter.wrapped
+            timer.chars = counter.chars
+    return code
+
+
+class _CountingStream:
+    """Forwards everything to the real stream and counts the characters."""
+
+    def __init__(self, wrapped):
+        self.wrapped = wrapped
+        self.chars = 0
+
+    def write(self, text):
+        self.chars += len(text)
+        return self.wrapped.write(text)
+
+    def __getattr__(self, name):
+        return getattr(self.wrapped, name)
 
 
 if __name__ == "__main__":

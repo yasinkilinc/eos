@@ -79,6 +79,7 @@ them. See [ADR-009](docs/decisions/009-ai-integration-layer.md).
 | `eos draft-test <path> <code> [--write]` | Draft a test for a behaviour code the suite does not assert |
 | `eos verify <path> <code> --outcome … --command …` | Record what an adapter ran, and what happened |
 | `eos findings <path> [--failed-only]` | Recorded runs and what they were judged to be |
+| `eos cost <path>` | What EOS has cost this project, per command (off by default) |
 | `eos graph <path> [--type import\|all] [--output -]` | Export the generated project graph as JSON |
 | `eos index <path>` | Rebuild `.eos/data/eos.db` from notes, brain, graph, and git history |
 | `eos query <path> [sql \| --search "..."] [--limit N]` | Read-only SQL, or full-text search, against `eos.db` |
