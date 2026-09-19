@@ -58,30 +58,46 @@ def test_a_code_records_where_it_is_thrown_from(tmp_path):
     assert any(ref.endswith(".java:20") or ".java:" in ref for ref in limit["thrown_at"]), limit
 
 
-def test_a_code_no_test_names_is_separated_from_one_a_test_names(tmp_path):
+def test_coverage_is_graded_not_binary(tmp_path):
+    """Three states the fixture produces on purpose, because a tested/untested
+    answer buries the middle one -- and on a real service the middle one is 134
+    of 403 codes: the class is exercised and this refusal is not asserted."""
     answer = inspector.rules(_scanned(tmp_path))
 
     by_code = {entry["code"]: entry for entry in answer["codes"]}
 
-    assert by_code["AGE_LIMIT"]["tests"], (
-        "a code asserted by a test in the test tree must be reported as named"
+    # The test holds it as an @InjectMocks field and asserts the string.
+    assert by_code["AGE_LIMIT"]["coverage"] == "asserted", by_code["AGE_LIMIT"]
+    # Same class, so the suite runs it -- but nothing checks this branch.
+    assert by_code["AGE_IMPLAUSIBLE"]["coverage"] == "reachable", by_code["AGE_IMPLAUSIBLE"]
+    # Thrown by a component nothing calls and no test names.
+    assert by_code["AGE_NEGATIVE"]["coverage"] == "none", by_code["AGE_NEGATIVE"]
+    assert answer["coverage"] == {"none": 1, "named": 0, "reachable": 1, "asserted": 1}, answer
+    assert answer["untested"] == 1 and answer["total"] == 3, answer
+
+
+def test_reaching_a_class_is_recorded_separately_from_naming_a_code(tmp_path):
+    answer = inspector.rules(_scanned(tmp_path))
+    by_code = {entry["code"]: entry for entry in answer["codes"]}
+
+    implausible = by_code["AGE_IMPLAUSIBLE"]
+    assert implausible["reached_by"] and not implausible["tests"], (
+        f"reaching and naming must stay distinguishable: {implausible}"
     )
-    assert by_code["AGE_IMPLAUSIBLE"]["tests"] == [], by_code["AGE_IMPLAUSIBLE"]
-    assert answer["untested"] == 2 and answer["total"] == 3, answer
 
 
 def test_untested_first_so_the_gap_leads(tmp_path):
     answer = inspector.rules(_scanned(tmp_path))
 
-    assert answer["codes"][0]["code"] == "AGE_IMPLAUSIBLE", (
-        f"the untested code must sort first: {[e['code'] for e in answer['codes']]}"
+    assert answer["codes"][0]["code"] == "AGE_NEGATIVE", (
+        f"the least covered code must sort first: {[e['code'] for e in answer['codes']]}"
     )
 
 
 def test_untested_only_filters(tmp_path):
     answer = inspector.rules(_scanned(tmp_path), untested_only=True)
 
-    assert [entry["code"] for entry in answer["codes"]] == ["AGE_IMPLAUSIBLE", "AGE_NEGATIVE"], answer
+    assert [entry["code"] for entry in answer["codes"]] == ["AGE_NEGATIVE"], answer
 
 
 def test_a_message_that_is_not_a_code_is_not_a_behaviour(tmp_path):
@@ -101,15 +117,15 @@ def test_a_message_that_is_not_a_code_is_not_a_behaviour(tmp_path):
     assert codes == {"AGE_LIMIT", "AGE_IMPLAUSIBLE", "AGE_NEGATIVE"}, codes
 
 
-def test_cli_says_the_number_is_a_floor_not_coverage(tmp_path):
+def test_cli_prints_the_ladder_and_says_it_is_still_a_floor(tmp_path):
     root = _scanned(tmp_path)
 
     done = _run(["rules", str(root)])
 
     assert done.returncode == 0, done.stderr
-    assert "AGE_IMPLAUSIBLE" in done.stdout
-    assert "named by no test" in done.stdout
-    assert "not coverage" in done.stdout, (
+    for state in ("asserted", "reachable", "named", "none"):
+        assert state in done.stdout, f"{state} missing from:\n{done.stdout}"
+    assert "Still a floor" in done.stdout, (
         f"a number this quotable must carry what it does not mean:\n{done.stdout}"
     )
 
@@ -121,7 +137,7 @@ def test_cli_emits_json(tmp_path):
 
     assert done.returncode == 0, done.stderr
     answer = json.loads(done.stdout)
-    assert [entry["code"] for entry in answer["codes"]] == ["AGE_IMPLAUSIBLE", "AGE_NEGATIVE"]
+    assert [entry["code"] for entry in answer["codes"]] == ["AGE_NEGATIVE"]
 
 
 def test_rules_without_an_index_says_how_to_build_one(tmp_path):

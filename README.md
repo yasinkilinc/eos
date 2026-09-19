@@ -166,9 +166,22 @@ Each code is listed with the class and method that throws it, the exception
 type, and the test files that name it. Untested codes lead, because the gap is
 what people came for.
 
-It is a floor, not coverage: naming a code proves the suite knows the behaviour
-exists, not that the path reaching it is exercised. `eos rules` says so on
-every run. See ADR-016.
+Coverage is graded in four states, because a tested/untested answer buries the
+interesting one:
+
+| state | meaning |
+|---|---|
+| `asserted` | a test reaches the throwing class **and** names the code |
+| `reachable` | the class is exercised, this refusal is not asserted |
+| `named` | the code appears in a test, nothing touches the class |
+| `none` | no test reaches the class or names the code |
+
+On one real service: 51 / 134 / 9 / 209. `reachable` is a third of the corpus —
+the code runs under test and nobody checks that branch — and it is the cheapest
+gap to close, because the fixture already exists.
+
+Still a floor: reaching a class is not exercising the branch that raises the
+code. `eos rules` says so on every run. See ADR-016.
 
 ### What an endpoint actually does
 

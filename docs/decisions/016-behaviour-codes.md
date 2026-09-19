@@ -55,8 +55,24 @@ something it is not.
 - Question 6 of the brief ("which important behaviours are not tested") has a
   deterministic answer today, with no model in the loop and no new entity type
   whose schema could sit empty.
-- It is a floor. A path-level answer needs the test-to-code mapping of a later
-  phase; this one is honest about being the cheap half.
+- It is a floor, and the floor was raised once already. The first version
+  answered "does a test name this code", which is binary and buries the
+  interesting case. Since declaration-site edges exist (ADR-015), the suite's
+  relationship to a refusal is graded in four states:
+
+  | state | meaning | measured |
+  |---|---|---|
+  | `asserted` | a test reaches the throwing class **and** names the code | 51 |
+  | `reachable` | the class is exercised, this refusal is not asserted | 134 |
+  | `named` | the code appears in a test, nothing touches the class | 9 |
+  | `none` | no test reaches the class or names the code | 209 |
+
+  `reachable` is the state a binary answer cannot express, and it is a third of
+  the corpus: the code runs under test and nobody checks this branch. It is
+  also the cheapest gap to close, because the fixture already exists.
+
+  Still a floor: reaching a class is not exercising the branch that raises the
+  code. Closing that needs execution, not static analysis.
 - A project whose refusals are not identified by constants gets an empty
   answer, and `eos rules` points at `eos why` — which reports whether the
   detector ran at all. Empty because nothing was found and empty because

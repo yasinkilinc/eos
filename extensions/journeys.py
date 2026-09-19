@@ -176,23 +176,43 @@ QUESTIONS = {
         """,
     },
     "flow-rules": {
-        "help": "Behaviour codes the steps of one flow can raise, and whether a test names each. Takes a flow name.",
+        "help": "Behaviour codes the steps of one flow can raise, graded by what the tests do. Takes a flow name.",
+        # Four states, not two. "reached" means a test file has an edge into
+        # the class that throws the code -- the suite runs it at all -- while
+        # "named" only means the constant appears in a test. A binary answer
+        # buries the middle case, which on one service is 134 of 403 codes:
+        # the class is exercised and this particular refusal is not asserted.
         "sql": """
             SELECT f.object AS code,
                    s.bean_name AS raised_by_step,
                    f.source_ref,
-                   CASE WHEN EXISTS (
-                       SELECT 1 FROM fact t JOIN node tn ON tn.id = t.subject
-                        WHERE t.object = f.object
-                          AND t.predicate IN ('names-code', 'throws-code')
-                          AND (tn.path LIKE 'src/test/%' OR tn.path LIKE '%/src/test/%')
-                   ) THEN 'named by a test' ELSE 'no test names it' END AS tested
+                   CASE
+                     WHEN reached.path IS NOT NULL AND named.code IS NOT NULL THEN 'asserted'
+                     WHEN reached.path IS NOT NULL THEN 'reachable'
+                     WHEN named.code IS NOT NULL THEN 'named'
+                     ELSE 'none'
+                   END AS coverage
               FROM journey_step s
               JOIN node n ON n.path = s.impl_path
               JOIN fact f ON f.subject = n.id AND f.predicate = 'throws-code'
+              LEFT JOIN (
+                   SELECT DISTINCT d.path
+                     FROM edge e
+                     JOIN node sn ON sn.nid = e.src
+                     JOIN node d ON d.nid = e.dst
+                    WHERE e.kind IN ('calls', 'new', 'field', 'import')
+                      AND (sn.path LIKE 'src/test/%' OR sn.path LIKE '%/src/test/%')
+              ) reached ON reached.path = s.impl_path
+              LEFT JOIN (
+                   SELECT DISTINCT t.object AS code
+                     FROM fact t JOIN node tn ON tn.id = t.subject
+                    WHERE t.predicate IN ('names-code', 'throws-code')
+                      AND (tn.path LIKE 'src/test/%' OR tn.path LIKE '%/src/test/%')
+              ) named ON named.code = f.object
              WHERE s.owned = 1 AND s.flow = ?
-             GROUP BY f.object, s.bean_name, f.source_ref
-             ORDER BY tested DESC, f.object
+             GROUP BY f.object, s.bean_name, f.source_ref, coverage
+             ORDER BY CASE coverage WHEN 'none' THEN 0 WHEN 'named' THEN 1
+                                    WHEN 'reachable' THEN 2 ELSE 3 END, f.object
         """,
     },
     "flows": {

@@ -617,19 +617,29 @@ def cmd_rules(args: argparse.Namespace) -> int:
         print("No thrown behaviour codes found. `eos why` reports whether the "
               "detector ran at all.")
         return 0
+    marks = {"none": "!", "named": "~", "reachable": "-", "asserted": " "}
     for entry in answer["codes"]:
-        mark = " " if entry["tests"] else "!"
         where = ", ".join(entry["where"][:2]) or "?"
-        print(f"{mark} {entry['code']:<44} {where}")
+        print(f"{marks[entry['coverage']]} {entry['code']:<40} {entry['coverage']:<10} {where}")
         for reference in entry["thrown_at"][:3]:
             print(f"    thrown at {reference}")
+        if entry["reached_by"]:
+            print(f"    reached by {len(entry['reached_by'])} test file(s): "
+                  f"{', '.join(Path(p).name for p in entry['reached_by'][:2])}")
         if entry["tests"]:
             print(f"    named by {len(entry['tests'])} test file(s): "
                   f"{', '.join(Path(p).name for p in entry['tests'][:2])}")
-        else:
-            print("    named by no test")
-    print(f"\n{answer['untested']} of {answer['total']} code(s) are named by no test "
-          "(a floor, not coverage: naming a code is not exercising the path to it).")
+        if not entry["reached_by"] and not entry["tests"]:
+            print("    no test reaches the class or names the code")
+
+    tally = answer["coverage"]
+    print(f"\n{answer['total']} code(s):")
+    print(f"  asserted   {tally['asserted']:>4}  a test reaches the class and names the code")
+    print(f"  reachable  {tally['reachable']:>4}  the class is exercised, this refusal is not asserted")
+    print(f"  named      {tally['named']:>4}  the code is named, nothing touches the class")
+    print(f"  none       {tally['none']:>4}  no test reaches the class or names the code")
+    print("\nStill a floor: reaching a class is not the same as exercising the branch "
+          "that raises the code.")
     return 0
 
 
