@@ -97,10 +97,22 @@ class BrainGenerator:
         lines = ["# Entry Points", ""]
         for ep in self._own_entry_points():
             node = self.graph.get_node(ep)
-            if node:
-                lines.append(f"- `{self._ref(node)}` — {node.label}")
+            if not node:
+                continue
+            lines.append(f"- `{self._ref(node)}` — {node.label}")
+            # The routes each entry point actually serves. The parser has
+            # carried them in node.doc for a long time and no generator ever
+            # rendered one, so a file listing 20 controllers named zero of
+            # their endpoints -- which is the thing a reader opened it for.
+            lines.extend(f"  - {route}" for route in self._routes(node))
         lines.append("")
         return "\n".join(lines) + "\n"
+
+    @staticmethod
+    def _routes(node) -> List[str]:
+        return [line.lstrip("- ").strip()
+                for line in (node.doc or "").splitlines()
+                if line.startswith("- **")]
 
     def _own_entry_points(self) -> List[str]:
         """Entry points belonging to this project -- a linked parent's are not.

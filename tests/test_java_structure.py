@@ -204,3 +204,27 @@ def test_the_dependent_oracle_ignores_a_name_that_only_appears_in_a_comment(tmp_
     assert bench._java_dependent_pairs(tmp_path) == [], (
         "a subject named only in a comment is not a reference"
     )
+
+
+def test_entry_points_document_names_the_routes_it_serves(tmp_path):
+    """The parser carried endpoints in node.doc and no generator rendered one,
+    so a file listing 20 controllers named zero of their endpoints."""
+    import shutil
+    from core.generators.markdown.brain import BrainGenerator
+    from core.knowledge.builder import KnowledgeBuilder
+    from core.lib.cache_store import CacheStore
+    from core.scanner import Scanner
+
+    root = tmp_path / "svc"
+    shutil.copytree(FIXTURE, root)
+    project = Scanner(root, CacheStore(root / ".eos" / "data" / "cache")).scan(full=True)
+    graph = KnowledgeBuilder().build(project, root=root)
+    brain = root / ".eos" / "data" / "brain"
+    BrainGenerator(graph).generate(brain)
+
+    rendered = (brain / "EntryPoints.md").read_text(encoding="utf-8")
+
+    assert "OrderController" in rendered, rendered
+    assert "**POST** `/orders/submit`" in rendered, (
+        f"the entry point was listed without the route it serves:\n{rendered}"
+    )
