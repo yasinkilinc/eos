@@ -38,6 +38,26 @@ def test_report_states_numbers_are_project_specific(tmp_path):
     assert "this project" in markdown.lower()
 
 
+def test_the_brief_is_measured_against_the_other_way_to_open_a_session(tmp_path):
+    """It cannot be measured against grep: nothing else produces what it
+    holds. What it can be measured against is the alternative opening move."""
+    from core import work
+
+    root = _project(tmp_path)
+    work.open_item(root, "order capture chain", session="s1", agent="devin", claim=True)
+
+    report = bench.run(root, samples=2)
+
+    assert report.brief is not None
+    assert report.brief.tool_recall is None, "a cost comparison is not a recall score"
+    assert report.brief.tool_avg_chars > 0
+    markdown = report.to_markdown()
+    assert "1 item(s) in flight" in markdown, (
+        "a brief measured against an empty ledger flatters itself, so the report has "
+        "to say what was in it")
+    assert "no baseline that answers the same question" in markdown
+
+
 def test_bench_command_dispatches_without_keyerror(tmp_path, capsys):
     """`bench` must be registered in main()'s commands dict, or this raises
     KeyError before cmd_bench ever runs.

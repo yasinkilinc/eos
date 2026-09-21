@@ -47,22 +47,35 @@ so a coding agent actually finds EOS without you wiring anything by hand:
    reach for `eos context`/`compose`/`impact` instead of grepping blind.
 2. **A researcher agent profile** at `.claude/agents/eos-researcher.md` — a
    subagent whose whole job is answering "where/what/why" questions via EOS.
-3. **An MCP server registration**, merged key-wise into `.mcp.json`
-   (`mcpServers.eos`) so it sits next to whatever other MCP servers the
-   project already has, without touching them.
+3. **Two hooks**, registered in `.claude/settings.json`: `eos-brief.py` runs
+   `eos brief` at session start and puts what is in flight in front of the
+   session, and `eos-close.py` asks a session, once, what happened to the work
+   it claimed. They are the surfaces that cost the agent no decision — see
+   [ADR-021](docs/decisions/021-session-ledger.md).
 4. **A section in `AGENTS.md`**, wrapped in `<!-- eos:begin -->` /
    `<!-- eos:end -->` markers so anything you wrote around it survives.
 
-All four are re-runnable — `eos ai update` refreshes just the generated block
-after an EOS upgrade, leaving everything else in each file alone. Pass
-`--no-ai` to `eos init` to skip all four for a project that doesn't want
-them. See [ADR-009](docs/decisions/009-ai-integration-layer.md).
+All of them are re-runnable — `eos ai update` refreshes just the generated
+block after an EOS upgrade, leaving everything else in each file alone. Pass
+`--no-ai` to `eos init` to skip them for a project that doesn't want them. See
+[ADR-009](docs/decisions/009-ai-integration-layer.md).
+
+**One surface per project.** `eos init --surface cli` (the default) writes no
+MCP registration, because an MCP tool roster is charged to every request
+whether or not a tool is called — measured at 2,194 tokens per session across
+an 18-service workspace, before anything was asked. `--surface mcp` or
+`--surface both` adds `mcpServers.eos` to `.mcp.json`, merged key-wise so
+other servers survive, and the generated skill then describes the tools too.
+The choice is recorded in `.eos/config.toml` under `[ai] surface`, so
+`eos ai update` after an upgrade does not silently put back a registration a
+project removed on purpose.
 
 ## CLI
 
 | Command | Purpose |
 |---|---|
-| `eos init <path> [--link-parent <path>] [--link-label <name>] [--no-ai]` | Bootstrap `.eos/`, write the AI integration surfaces |
+| `eos init <path> [--link-parent <path>] [--link-label <name>] [--surface cli\|mcp\|both] [--no-ai]` | Bootstrap `.eos/`, write the AI integration surfaces |
+| `eos brief <path> [--session <id>] [--agent <name>]` | What a session needs before it starts: work in flight, and the notes matching this branch |
 | `eos scan <path> [--full] [--with-parents]` | Incremental or full scan; optionally index linked parents too |
 | `eos update <path> [--dry-run]` | Update the runtime from canonical `core/` |
 | `eos doctor <path>` | Validate `.eos/` integrity |
@@ -81,12 +94,13 @@ them. See [ADR-009](docs/decisions/009-ai-integration-layer.md).
 | `eos findings <path> [--failed-only]` | Recorded runs and what they were judged to be |
 | `eos cost <path>` | What EOS has cost this project, per command (off by default) |
 | `eos graph <path> [--type import\|all] [--output -]` | Export the generated project graph as JSON |
-| `eos index <path>` | Rebuild `.eos/data/eos.db` from notes, brain, graph, and git history |
+| `eos index <path>` | Rebuild `.eos/data/eos.db` from notes, the work ledger, brain, graph, and git history |
 | `eos query <path> [sql \| --search "..."] [--limit N]` | Read-only SQL, or full-text search, against `eos.db` |
 | `eos parents <path>` | List configured parent-project links |
 | `eos parent <path> <symbol> [--limit N]` | Real source for a symbol from a linked parent, inlined |
 | `eos note add\|list\|show\|search\|skip\|amend\|audit <path> ...` | Manage authored knowledge notes (see below) |
-| `eos ai update <path> [--no-agents-md]` | Refresh the AI integration surfaces for the current EOS version |
+| `eos work add\|claim\|log\|block\|unblock\|done\|drop\|list\|show\|stats <path> ...` | What sessions are working on here, and what came of it (see below) |
+| `eos ai update <path> [--no-agents-md] [--surface cli\|mcp\|both]` | Refresh the AI integration surfaces for the current EOS version |
 | `eos mcp <path>` | Start the read-only stdio MCP server |
 | `eos bench <path> [--samples N]` | Measure EOS's own tools against baselines, on this project |
 | `eos ui [port] [--yes] [--no-install]` | Start the multi-project dashboard |
@@ -310,7 +324,13 @@ eos mcp /path/to/project
 ```
 
 EOS exposes a read-only MCP server over stdio for local code intelligence.
-It's self-contained and doesn't need the UI dependencies. Registered tools:
+It's self-contained and doesn't need the UI dependencies. It is **off by
+default** since 0.34: `eos init` registers it only under `--surface mcp` or
+`--surface both`, because its tool roster is billed to every request of every
+session whether or not a tool is called, and on a workspace of many projects
+that is the largest fixed cost EOS imposes. A single-project setup where the
+roster is one server may well want it; run `eos ai update <path> --surface
+mcp` to turn it on. Registered tools:
 
 `get_project`, `get_structure`, `get_context`, `get_file`, `find_symbol`,
 `compose`, `impact_analysis`, `get_graph`, `get_history`,
@@ -364,6 +384,165 @@ for instance). Notes are never touched by `scan`, `clean` or `update`.
 so `eos doctor` can later flag notes whose code has moved on since. Notes
 matching the current task are injected into `get_context` output, capped at
 15% of the budget.
+
+## Work in flight
+
+Notes answer "what was learned here". They cannot answer "what is happening
+here right now", and a second agent starting on work a first agent is already
+holding costs both of them a session. That is a different shape of record — it
+has a lifecycle, it expires, and two sessions write it at once — so it is a
+separate ledger:
+
+```bash
+eos work add /path/to/project --title "..." --claim --session <id> --agent claude
+eos work list /path/to/project [--status live|open|active|blocked|done|dropped|all] [--across]
+eos work claim /path/to/project <id> --session <id>
+eos work log /path/to/project <id> --body "where this got to"
+eos work block /path/to/project <id> --reason "what it is waiting on"
+eos work done /path/to/project <id> --note "..."
+eos work show /path/to/project <id>
+```
+
+It is an append-only event log — `work.jsonl`, beside the notes in the
+knowledge directory — and an item's state is the fold of its events. That is
+what makes it safe for a cloud session and a laptop to write at the same time:
+neither loses the other's line, which a read-modify-write of a status field
+could not promise.
+
+Three things it does that a to-do list does not:
+
+**A second claim is reported, not resolved.** Claim an item another session
+holds and both holders are named, every time it is listed. Picking a winner
+would be EOS deciding which of two agents is wasting its time.
+
+**A claim nobody has touched for a day is marked stale**, not closed. A
+session that went away and a session still thinking look identical from here;
+naming it is the whole intervention.
+
+**It says how far behind it might be.** This reaches another machine the way
+notes do — through the knowledge directory, through git — so every listing
+ends with whether the ledger is pushed, unpushed, uncommitted, untracked or
+gitignored. A ledger that reads as authoritative while being local to one
+laptop is the failure mode worth spending a line on.
+
+`--across` reads every sibling ledger under the same knowledge root, which is
+the arrangement `[knowledge] dir` exists for: one workspace, many services,
+and the work next door is the work most likely to collide with yours. Live
+items are injected into `eos context` output as well, capped at 8% of the
+budget.
+
+`eos work show <id>` prints the item's whole history and, when it carries a
+`--ticket`, the commits in the index that name that ticket — next to the
+claim, never folded into it. A ticket with no commits may be work that is not
+committed yet or a claim that outran it, and nothing here can tell those
+apart.
+
+`eos index` folds the ledger into `eos.db` as `work_item`, `work_holder` and
+`work_event`, so work can be asked about *with* something else — the commits
+naming its ticket, an extension's own rows, the notes written while it ran:
+
+```bash
+eos query /path/to/project "SELECT w.id, w.status, w.ticket, COUNT(t.sha) AS commits
+                            FROM work_item w
+                            LEFT JOIN git_commit_ticket t ON t.key = w.ticket
+                            GROUP BY w.id"
+eos query /path/to/project "SELECT session, agent, item FROM work_holder"
+```
+
+Items are searchable too — `eos query <path> --search "top-up"` returns the
+item someone claimed this morning next to the note written about it last
+month. There is deliberately no `stale` column: staleness is a question about
+now, and a value computed when the index was built would answer it with the
+wrong clock. `updated_at` is there; the query compares it to its own.
+
+## The session brief
+
+```bash
+eos brief /path/to/project
+```
+
+One command, no arguments to choose, meant for the start of a session: what is
+in flight here, and which recorded notes match the current branch. It derives
+its own query from the branch name and the ticket keys in it, because at
+session start nobody has typed a task yet.
+
+It exists because of a measurement. Offered as twelve MCP tools on a real
+workspace, EOS was reached for in 4 of 25 sessions — a tool an agent has to
+*decide* to call competes, on every question, with a `Read` it can do without
+asking, and usually loses. What does not compete is what nothing else
+produces. So `eos init` also writes `.claude/hooks/eos-brief.py` and registers
+it as a SessionStart hook: the brief arrives in the session's context with no
+call to remember and no tool to choose. The hook exits 0 on every failure path
+and prints nothing when there is nothing to say — a session-start block that
+is noisy is one that gets deleted.
+
+The other end of the loop is `.claude/hooks/eos-close.py`, registered as a
+Stop hook. It asks a session, once, what happened to the items **it** claimed
+— not open work nobody took, and not another session's claims. Every answer is
+accepted (`eos work done`, `eos work block`, `eos work drop`); a gate with no
+way through gets deleted, and a deleted gate records nothing. It never asks
+twice (`stop_hook_active`), never stops a session it could not ask EOS about,
+and never stops one that passed no session id. To turn it off, remove its
+entry from `hooks.Stop` in `.claude/settings.json`.
+
+`eos cost` now counts sessions as well as calls: how many identified
+themselves, how many of those called EOS for something beyond the opening
+brief, how many were still holding work when the Stop hook asked, and how many
+could not produce a brief at all. That last one is what keeps the first honest
+— a hook that cannot reach EOS would otherwise remove its whole session from
+the denominator, and a project where nothing worked would report the best
+adoption figure it has ever had. The hook records its own failure, into a
+telemetry log that already exists and never into one it would have to create.
+That is the number "4 of 25" was, and it was previously countable only by hand.
+
+**Sessions identify themselves with nothing configured.** Claude Code exports
+`CLAUDE_CODE_SESSION_ID` into the environment of every command it runs, so
+`eos cost` counts sessions on a plain install, with no hook and no flags. A
+harness that exports no id of its own sets `EOS_SESSION`; one that exports a
+differently-named id declares it:
+
+```toml
+[telemetry]
+enabled = true
+session_env = ["MY_HARNESS_RUN_ID"]
+```
+
+Only variables that *are* a session id belong there. `DEVIN_PERMISSION_MODE`
+was observed set inside a Claude Code session on a machine with Devin's editor
+extension installed: an inherited variable is evidence of what is installed,
+never of what is running, and reading one as a marker attributes one agent's
+work to another. Every record says which variable it came from, so "read from
+the harness" and "nobody passed one" never print as the same number.
+
+## What changed, as opposed to what was called
+
+```bash
+eos work stats /path/to/project [--since 2026-09-01]
+```
+
+`eos cost` says whether the engine was reached for. This says whether reaching
+for it changed anything — and after a hook is installed, the first number is
+close to tautological, since the hook runs in every session by construction.
+
+```text
+14 item(s) over 63 event(s), 12 of them claimed by a session.
+
+Collisions           2  item(s) claimed by two sessions at once
+Went quiet           3  item(s) held with no event for over 24h
+Closed               9  (7 done, 2 dropped; 4 block(s) recorded)
+Open now             5  (1 stale, 0 contested)
+Claim to close      4h median, 6d longest
+```
+
+Each line is a cost somebody already paid, replayed from the events rather
+than read off the current state: a collision settled an hour later leaves no
+trace in the final status and is exactly the event worth counting. Every
+number measures what sessions *recorded* — work done without closing an item,
+and an item closed without the work, are indistinguishable from here, and the
+report says so on every run. Sessions identify themselves through `--session` or `$EOS_SESSION`,
+which the hook exports so that every later call in the session is attributed
+too. Telemetry records the id and nothing else new — it is an opaque marker a
+harness generated, never anything a person typed.
 
 ## Linked parent projects
 

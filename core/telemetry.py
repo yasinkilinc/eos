@@ -13,6 +13,14 @@ description can contain anything a person typed, and a log that captured them
 would be a liability sitting in every project EOS touches -- so the writer has
 no path for a value to reach the file.
 
+There is one value-shaped exception and it is deliberate: the session id, from
+`--session` or `$EOS_SESSION`. It is an opaque marker a harness generated, not
+anything a person typed, and without it the number that decides whether this
+engine is worth keeping cannot be computed at all. "EOS was reached for in 4
+of 25 sessions" was counted by hand, once, because this log could say how many
+calls happened and not how many sessions made them -- and a per-call count
+cannot tell twelve calls in one session from one call in each of twelve.
+
 **It never fails a command.** A telemetry write that raised would turn a
 working `eos query` into a broken one, which is a poor trade for a statistic.
 Every failure here is swallowed.
@@ -44,8 +52,50 @@ _TOKEN_DIVISOR = 4
 MAX_LINES = 10000
 
 
+# Harness variables that already carry a session id, tried in order. Claude
+# Code exports CLAUDE_CODE_SESSION_ID into the environment of every command it
+# runs, which means sessions can be counted with nothing configured and no
+# hook installed. A project whose harness exports a different name adds it
+# with [telemetry] session_env in .eos/config.toml.
+#
+# Only variables that *are* a session id belong here. `DEVIN_PERMISSION_MODE`
+# was observed set inside a Claude Code session on a machine with Devin's
+# editor extension installed -- an inherited variable is evidence of what is
+# installed, never of what is running, and a marker read that way would
+# attribute one agent's work to another.
+SESSION_VARIABLES = ("EOS_SESSION", "CLAUDE_CODE_SESSION_ID")
+
+
 def path_for(project_root: str | Path) -> Path:
     return Path(project_root).expanduser().resolve() / ".eos" / "data" / FILENAME
+
+
+def detect_session(project_root: str | Path) -> tuple[str | None, str | None]:
+    """A session id from the environment, and which variable it came from.
+
+    The name is returned with the value because "no session id anywhere" and
+    "read from the harness" are different states that produce the same number,
+    and only one of them means the measurement can be trusted.
+    """
+    import os
+
+    configured = ()
+    config = Path(project_root).expanduser().resolve() / ".eos" / "config.toml"
+    if config.is_file():
+        try:
+            declared = ConfigIO.read_toml(config).get("telemetry", {}).get("session_env")
+        except (OSError, ValueError):
+            declared = None
+        if isinstance(declared, str):
+            configured = (declared,)
+        elif isinstance(declared, list):
+            configured = tuple(name for name in declared if isinstance(name, str))
+
+    for name in SESSION_VARIABLES[:1] + configured + SESSION_VARIABLES[1:]:
+        value = os.environ.get(name)
+        if value:
+            return value, name
+    return None, None
 
 
 def enabled(project_root: str | Path) -> bool:
@@ -73,10 +123,13 @@ def declare_answer_size(chars: int) -> None:
 class Timer:
     """Time one call and record it. Never raises, never blocks the command."""
 
-    def __init__(self, project_root: str | Path, command: str, flags: list[str] | None = None):
+    def __init__(self, project_root: str | Path, command: str, flags: list[str] | None = None,
+                 session: str | None = None, session_from: str | None = None):
         self.project_root = project_root
         self.command = command
         self.flags = sorted(set(flags or ()))
+        self.session = session
+        self.session_from = session_from
         self.chars = 0
         self.rebuilt = False
         self.ok = True
@@ -94,7 +147,8 @@ class Timer:
             record(self.project_root, self.command, flags=self.flags,
                    milliseconds=(time.perf_counter() - self._started) * 1000,
                    chars=_declared_size if _declared_size is not None else self.chars,
-                   rebuilt=self.rebuilt, ok=self.ok)
+                   rebuilt=self.rebuilt, ok=self.ok, session=self.session,
+                   session_from=self.session_from)
         except Exception:  # noqa: BLE001 - a statistic may not break a command
             pass
         return False
@@ -102,7 +156,8 @@ class Timer:
 
 def record(project_root: str | Path, command: str, flags: list[str] | None = None,
            milliseconds: float = 0.0, chars: int = 0, rebuilt: bool = False,
-           ok: bool = True) -> None:
+           ok: bool = True, session: str | None = None,
+           session_from: str | None = None) -> None:
     if not enabled(project_root):
         return
     target = path_for(project_root)
@@ -111,6 +166,14 @@ def record(project_root: str | Path, command: str, flags: list[str] | None = Non
         "command": command,
         # Names only. A value here would be the first thing to leak.
         "flags": sorted(set(flags or ())),
+        # The one exception, and only as far as it goes: an opaque harness id,
+        # truncated, because nothing here needs to identify a session beyond
+        # telling it apart from the others in this file.
+        "session": (session or "")[:64] or None,
+        # Where it came from, never its value's meaning: "read from the
+        # harness" and "nothing to read" produce the same count and only one
+        # of them means the number can be trusted.
+        "session_from": session_from,
         "ms": round(float(milliseconds), 1),
         "chars": int(chars),
         "tokens": int(chars) // _TOKEN_DIVISOR,
@@ -195,4 +258,71 @@ def summary(project_root: str | Path) -> dict[str, Any]:
         "tokens": sum(row["tokens"] for row in rows),
         "commands": rows,
         "since": entries[0]["at"] if entries else None,
+        "sessions": session_summary(entries),
+    }
+
+
+# The command a hook runs at session start. A session that called only this
+# one was reached by the hook and by nothing the agent decided to do, and the
+# distinction is the whole point of counting sessions rather than calls.
+OPENING_COMMAND = "brief"
+
+# What the Stop hook writes when it asks a session what happened to its
+# claims. `ok` there means the session was leaving nothing behind.
+CLOSING_COMMAND = "close"
+
+
+def session_summary(entries: list[dict[str, Any]]) -> dict[str, Any]:
+    """How many sessions used EOS, against how many it was present in.
+
+    The denominator is honest about what it is: sessions that identified
+    themselves. A call with no session id is counted and reported separately
+    rather than assigned to an imaginary session, because a harness that does
+    not pass one is the normal case for a human at a terminal, and folding
+    those in would inflate the number this exists to keep honest.
+    """
+    by_session: dict[str, list[dict[str, Any]]] = {}
+    unattributed = 0
+    for entry in entries:
+        identifier = entry.get("session")
+        if identifier:
+            by_session.setdefault(identifier, []).append(entry)
+        else:
+            unattributed += 1
+
+    beyond = [identifier for identifier, calls in by_session.items()
+              if any((call.get("command") or "") != OPENING_COMMAND for call in calls)]
+    # A session whose brief could not be produced still counts, and counts
+    # separately. Without this line a project where the hook never worked at
+    # all would report its best adoption figure ever, because the sessions it
+    # failed in would not be in the denominator.
+    broken = [identifier for identifier, calls in by_session.items()
+              if any((call.get("command") or "") == OPENING_COMMAND
+                     and not call.get("ok", True) for call in calls)]
+    # Both halves, because the ratio is the point: a hook that left a trace
+    # only when it fired would be missing every clean session from the
+    # denominator, and would look worst exactly when things improved.
+    asked = [identifier for identifier, calls in by_session.items()
+             if any((call.get("command") or "") == CLOSING_COMMAND for call in calls)]
+    left_open = [identifier for identifier, calls in by_session.items()
+                 if any((call.get("command") or "") == CLOSING_COMMAND
+                        and not call.get("ok", True) for call in calls)]
+    counts = sorted(len(calls) for calls in by_session.values())
+    sources: dict[str, int] = {}
+    for calls in by_session.values():
+        for call in calls:
+            name = call.get("session_from")
+            if name:
+                sources[name] = sources.get(name, 0) + 1
+                break
+    return {
+        "sessions": len(by_session),
+        "attributed_by": sources,
+        "beyond_opening": len(beyond),
+        "failed_openings": len(broken),
+        "closed_sessions": len(asked),
+        "left_work_open": len(left_open),
+        "unattributed_calls": unattributed,
+        "median_calls": counts[len(counts) // 2] if counts else 0,
+        "max_calls": counts[-1] if counts else 0,
     }

@@ -173,6 +173,8 @@ EMPTY_ANSWERS = [
     pytest.param(["trace", ".", "src/main.py"], id="a file that reaches nothing"),
     pytest.param(["parents", "."], id="no parent project is linked"),
     pytest.param(["note", "audit", "."], id="no note has gone stale"),
+    pytest.param(["work", "list", "."], id="nothing is in flight"),
+    pytest.param(["brief", "."], id="a session opening on an empty project"),
 ]
 
 # A bare negative tells the reader that the answer is empty and nothing else.

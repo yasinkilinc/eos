@@ -81,6 +81,8 @@ class BenchReport:
     scan_note: str | None = None
     find_symbol: ProbeMetric | None = None
     get_context: ProbeMetric | None = None
+    brief: ProbeMetric | None = None
+    brief_ledger: str | None = None
     dependents: ProbeMetric | None = None
     dependents_rule: str | None = None
     """How the dependents oracle was constructed, printed with its result.
@@ -144,9 +146,24 @@ class BenchReport:
         ]
         lines += _metric_table(self.get_context, "get_context", "Read")
 
+        if self.brief:
+            lines += [
+                "",
+                "## Comparative: brief vs the context a session would otherwise open with",
+                "",
+                "Neither a recall score nor a substitution: nothing except the ledger "
+                "knows what another session is holding, so there is no baseline that "
+                "answers the same question. What is compared is the cost of the two "
+                "moves a session can make at its start.",
+                "",
+            ]
+            if self.brief_ledger:
+                lines += [self.brief_ledger, ""]
+            lines += _metric_table(self.brief, "brief", "get_context")
+
         errors = (self.find_symbol.errors if self.find_symbol else []) + (
             self.get_context.errors if self.get_context else []
-        )
+        ) + (self.brief.errors if self.brief else [])
         if errors:
             lines += ["", "## Errors encountered while probing", ""]
             lines += [f"- {e}" for e in errors]
@@ -177,6 +194,17 @@ class BenchReport:
             f"  get_context: ~{gc.tool_avg_tokens:.0f} tok (est.), {gc.tool_avg_seconds * 1000:.1f} ms avg",
             f"  Read:        ~{gc.baseline_avg_tokens:.0f} tok (est.), {gc.baseline_avg_seconds * 1000:.1f} ms avg",
         ]
+        if self.brief:
+            lines += [
+                "",
+                "Comparative -- brief vs get_context (the two ways to open a session):",
+                f"  brief:       ~{self.brief.tool_avg_tokens:.0f} tok (est.), "
+                f"{self.brief.tool_avg_seconds * 1000:.1f} ms",
+                f"  get_context: ~{self.brief.baseline_avg_tokens:.0f} tok (est.), "
+                f"{self.brief.baseline_avg_seconds * 1000:.1f} ms",
+            ]
+            if self.brief_ledger:
+                lines += [f"  {self.brief_ledger}"]
         dep = self.dependents
         if dep is None:
             lines += ["", "Objective -- dependent recall: not run (no Java test/subject pairs "
@@ -520,6 +548,62 @@ def _bench_get_context(root: Path, sampled: list[Symbol]) -> ProbeMetric:
     )
 
 
+def _bench_brief(root: Path) -> tuple[ProbeMetric, str]:
+    """`eos brief` against the context bundle a session would otherwise open with.
+
+    There is no ground truth here, and no substitute either: nothing but the
+    ledger knows what another session is holding, so this cannot be a recall
+    score and grep cannot be the baseline. What it can compare is the two
+    things a session might do at its start -- the brief, or `get_context` --
+    because the claim being tested is about cost, not correctness.
+
+    The ledger's size at measurement time is reported with it. A brief
+    measured against an empty ledger is three lines and says nothing about
+    what it costs on a project with work in it; a number that flattered itself
+    that way would be worse than no number.
+    """
+    from core import brief as session_brief
+    from core import notes as knowledge
+    from core import work
+
+    errors: list[str] = []
+
+    start = time.perf_counter()
+    try:
+        text = session_brief.build(root)
+    except Exception as exc:  # noqa: BLE001 - one probe may not end the run
+        text = ""
+        errors.append(f"brief: {type(exc).__name__}: {exc}")
+    tool_seconds = time.perf_counter() - start
+
+    start = time.perf_counter()
+    try:
+        context = inspector.build_context(root, budget=12000)
+    except Exception as exc:  # noqa: BLE001
+        context = ""
+        errors.append(f"get_context: {type(exc).__name__}: {exc}")
+    baseline_seconds = time.perf_counter() - start
+
+    in_flight = len(work.items(root))
+    recorded = len(knowledge.load_notes(root))
+    disclosure = (
+        f"Measured with {in_flight} item(s) in flight and {recorded} note(s) recorded "
+        "here. Both grow the brief, and neither is bounded by this measurement: on a "
+        "project with nothing in flight the brief is three lines, which says nothing "
+        "about what it costs on one with work in it."
+    )
+    return ProbeMetric(
+        n=1,
+        tool_recall=None,
+        baseline_recall=None,
+        tool_avg_chars=float(len(text)),
+        tool_avg_seconds=tool_seconds,
+        baseline_avg_chars=float(len(context)),
+        baseline_avg_seconds=baseline_seconds,
+        errors=errors,
+    ), disclosure
+
+
 def run(root: Path, samples: int) -> BenchReport:
     root = Path(root).resolve()
     generated_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
@@ -573,6 +657,8 @@ def run(root: Path, samples: int) -> BenchReport:
             "missing or stale data."
         )
 
+    brief_metric, brief_ledger = _bench_brief(root)
+
     return BenchReport(
         project=root.name,
         root=str(root),
@@ -585,4 +671,6 @@ def run(root: Path, samples: int) -> BenchReport:
         get_context=_bench_get_context(root, sampled),
         dependents=_bench_dependents(root),
         dependents_rule=_DEPENDENTS_RULE,
+        brief=brief_metric,
+        brief_ledger=brief_ledger,
     )

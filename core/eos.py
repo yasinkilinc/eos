@@ -143,11 +143,55 @@ def cmd_init(args: argparse.Namespace) -> int:
     if not getattr(args, "no_ai", False):
         from core.ai import writer
 
-        written = writer.write_all(root, VERSION)
-        print("  AI integration:")
+        surface = getattr(args, "surface", "cli")
+        _store_surface(root, surface)
+        written = writer.write_all(root, VERSION, surface=surface)
+        print(f"  AI integration ({surface} surface):")
         for path in written:
             print(f"    {path.relative_to(root)}")
+        _warn_stale_mcp(root, surface)
     return 0
+
+
+def _store_surface(root: Path, surface: str) -> None:
+    """Remember the choice, so `eos ai update` does not silently change it.
+
+    Without this, an upgrade run without the flag would re-add an MCP
+    registration a project deliberately removed -- and the cost of that is
+    paid on every request of every session afterwards, which is exactly the
+    failure mode nobody notices.
+    """
+    config_path = root / ".eos" / "config.toml"
+    config = ConfigIO.read_toml(config_path) if config_path.is_file() else {}
+    if config.get("ai", {}).get("surface") == surface:
+        return
+    config.setdefault("ai", {})["surface"] = surface
+    ConfigIO.write_toml(config_path, config)
+
+
+def _read_surface(root: Path) -> str:
+    config_path = root / ".eos" / "config.toml"
+    if not config_path.is_file():
+        return "cli"
+    try:
+        configured = ConfigIO.read_toml(config_path).get("ai", {}).get("surface")
+    except (OSError, ValueError):
+        return "cli"
+    from core.ai import writer
+
+    return configured if configured in writer.SURFACES else "cli"
+
+
+def _warn_stale_mcp(root: Path, surface: str) -> None:
+    from core.ai import writer
+
+    if surface == "cli" and writer.mcp_registered(root):
+        # Never deleted on the project's behalf: .mcp.json is the user's file
+        # and another tool may be reading it. Said out loud, because a roster
+        # nobody uses is invisible and is charged for every session.
+        print("  note: .mcp.json still registers `eos`. On the cli surface nothing "
+              "reads it, and its tool roster is charged to every session -- remove "
+              "mcpServers.eos to stop paying for it.")
 
 
 def _parent_ref_for(root: Path) -> str | None:
@@ -358,7 +402,45 @@ def cmd_doctor(args: argparse.Namespace) -> int:
         if generated:
             print(f"  - {len(generated)} generated note(s) also stale; regenerate them, do not edit by hand")
         print("  Run `eos note audit` for the full list.")
+
+    _report_ledger(root)
     return 0
+
+
+def _report_ledger(root: Path) -> None:
+    """What the work ledger says about itself, in a doctor that is not fatal.
+
+    Three states go wrong quietly and each has a different fix. A ledger
+    nothing else can read answers "is anyone on this" with a confident no. A
+    contested item is two agents spending two sessions on one piece of work. A
+    stale claim is neither: it is a session that may simply be gone, and the
+    only safe move is to say so to whoever reads it next.
+    """
+    import datetime
+
+    from core import work
+
+    state = work.sync_state(root)
+    if state["state"] in ("ignored", "untracked", "uncommitted", "unpushed"):
+        print(f"Warning: {work.sync_sentence(state)} ({state['path']})")
+
+    in_flight = work.items(root)
+    if not in_flight:
+        return
+    now = datetime.datetime.now(datetime.timezone.utc)
+    contested = [item for item in in_flight if item.contested]
+    stale = [item for item in in_flight if item.is_stale(now)]
+    if contested:
+        print("Warning: work items held by more than one session at once:")
+        for item in contested:
+            print(f"  - {item.id}: {item.title} ({' and '.join(item.holder_labels)})")
+    if stale:
+        print(f"Warning: {len(stale)} claim(s) with no event for over "
+              f"{work.STALE_AFTER_HOURS}h -- the session holding them may be gone:")
+        for item in stale[:5]:
+            print(f"  - {item.id}: {item.title} ({' and '.join(item.holder_labels) or 'unclaimed'})")
+        if len(stale) > 5:
+            print(f"  - ...and {len(stale) - 5} more; `eos work list {root}` lists them")
 
 
 def cmd_info(args: argparse.Namespace) -> int:
@@ -781,6 +863,45 @@ def cmd_cost(args: argparse.Namespace) -> int:
     for row in report["commands"]:
         print(f"{row['command']:<16}{row['calls']:>7}{row['median_ms']:>11}"
               f"{row['median_tokens']:>12}{row['rebuilt']:>10}{row['failed']:>8}")
+
+    # Calls are what this file holds; sessions are what the question was
+    # always about. A tool called twelve times by one session and never by
+    # eleven others is not a tool anyone adopted, and the per-command table
+    # above cannot tell that apart from steady use.
+    sessions = report["sessions"]
+    if sessions["sessions"]:
+        share = round(100 * sessions["beyond_opening"] / sessions["sessions"])
+        print(f"\n{sessions['sessions']} session(s) identified themselves; "
+              f"{sessions['beyond_opening']} of them ({share}%) called EOS for something "
+              f"beyond the opening brief.")
+        print(f"Calls per session: median {sessions['median_calls']}, "
+              f"most {sessions['max_calls']}.")
+    if sessions["closed_sessions"]:
+        # The outcome number, not a usage one: it should fall as sessions
+        # learn to close what they took, and a rise is worth acting on.
+        print(f"{sessions['closed_sessions']} session(s) were asked what happened to "
+              f"their claims on the way out; {sessions['left_work_open']} of them still "
+              "held work at that point.")
+    if sessions["failed_openings"]:
+        # The number that makes the one above trustworthy. From a percentage
+        # alone, a hook that cannot run EOS at all is indistinguishable from a
+        # project where everything is working.
+        print(f"{sessions['failed_openings']} session(s) could not produce the opening "
+              "brief: the hook ran and EOS could not be reached. Check that `eos` is on "
+              f"PATH, and that `eos update {args.path}` has refreshed this project's "
+              "runtime copy.")
+    if sessions["attributed_by"]:
+        # Which variable did the attributing, because "the harness told us"
+        # and "somebody passed a flag by hand" are different levels of trust
+        # in the same number.
+        named = ", ".join(f"{name} ({count})" for name, count
+                          in sorted(sessions["attributed_by"].items()))
+        print(f"Sessions identified by: {named}.")
+    if sessions["unattributed_calls"]:
+        print(f"{sessions['unattributed_calls']} call(s) carried no session id and are "
+              "counted above but belong to no session. Claude Code is read from "
+              "$CLAUDE_CODE_SESSION_ID automatically; another harness exports "
+              "$EOS_SESSION, or names its own variable in [telemetry] session_env.")
     return 0
 
 
@@ -1224,6 +1345,329 @@ def cmd_note(args: argparse.Namespace) -> int:
     }[args.note_command](args)
 
 
+def _no_work_here(path: str) -> str:
+    """The sentence for a project where nothing is in flight.
+
+    Same reasoning as `_no_notes_here`: an empty ledger and a knowledge
+    directory pointed somewhere else look identical on a terminal, and every
+    FM service points [knowledge] dir outside the service. Name the place, and
+    say which question was asked -- "nothing open" and "nothing ever recorded"
+    lead to opposite next actions.
+    """
+    from core import work
+
+    return (f"Nothing is in flight here ({work.path_for(path)}). "
+            "`eos work add` records the first item; finished and dropped work "
+            "is shown by `eos work list --status all`.")
+
+
+def _work_line(item, now) -> list[str]:
+    """One item as the terminal shows it: a line, plus what qualifies it."""
+    from core import work
+
+    held = " and ".join(item.holder_labels) if item.holders else "-"
+    lines = [f"{item.status:<8} {item.id:<24} {item.title[:48]:<48} "
+             f"{(item.ticket or '-'):<12} {held:<22} {work.ago(item.updated_at, now)}"]
+    if item.contested:
+        # Two sessions holding one item is the failure this ledger is for, so
+        # it is never folded into the status column where it would read as
+        # ordinary.
+        lines.append(f"    contested: claimed by {' and '.join(item.holder_labels)}")
+    if item.is_stale(now):
+        lines.append(f"    stale: no event for over {work.STALE_AFTER_HOURS}h "
+                     "-- the session holding it may be gone")
+    if item.status == work.BLOCKED and item.reason:
+        lines.append(f"    blocked on: {item.reason}")
+    elif item.last:
+        lines.append(f"    last: {item.last}" + (f"  ({item.last_by})" if item.last_by else ""))
+    return lines
+
+
+def _resolve_work(args):
+    """One item by id or title fragment, with both failures reported in full."""
+    from core import work
+
+    found = work.fold(work.load(args.path))
+    if not found:
+        print(_no_work_here(args.path), file=sys.stderr)
+        return None
+    try:
+        return work.resolve(found, args.item)
+    except KeyError:
+        print(f"No work item matches {args.item!r} among {len(found)} recorded here. "
+              f"`eos work list {args.path} --status all` lists every one of them.",
+              file=sys.stderr)
+        return None
+    except LookupError as exc:
+        # Appending to the wrong item is silent and unrecoverable by reading:
+        # the event lands, the fold accepts it, and nothing downstream knows.
+        print(f"Several items match {args.item!r}; name one of them:", file=sys.stderr)
+        print(exc, file=sys.stderr)
+        return None
+
+
+def _record_work(args, event: str, body: str | None = None) -> int:
+    """Append one event to a resolved item and print what it folded to."""
+    import datetime
+
+    from core import work
+
+    item = _resolve_work(args)
+    if item is None:
+        return 1
+    try:
+        work.append(args.path, event, item.id, session=args.session,
+                    agent=getattr(args, "agent", None), body=body)
+    except (ValueError, OSError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+    # Re-folded rather than assumed: a claim on an item someone else holds
+    # becomes contested at exactly this moment, and that is the moment the
+    # session claiming it can still act on the information.
+    updated = work.resolve(work.fold(work.load(args.path)), item.id)
+    for line in _work_line(updated, datetime.datetime.now(datetime.timezone.utc)):
+        print(line)
+    return 0
+
+
+def cmd_work_add(args: argparse.Namespace) -> int:
+    from core import work
+
+    try:
+        entry = work.open_item(
+            args.path, args.title, body=args.body, ticket=args.ticket,
+            scope=_split_csv(args.scope), session=args.session,
+            agent=args.agent, claim=args.claim,
+        )
+    except (ValueError, OSError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+    state = work.sync_state(args.path)
+    print(f"{entry.id}\t{'claimed' if args.claim else 'open'}\t{args.title}")
+    print(work.sync_sentence(state))
+    return 0
+
+
+def cmd_work_claim(args: argparse.Namespace) -> int:
+    return _record_work(args, "claim", body=args.note)
+
+
+def cmd_work_log(args: argparse.Namespace) -> int:
+    return _record_work(args, "log", body=args.body)
+
+
+def cmd_work_block(args: argparse.Namespace) -> int:
+    return _record_work(args, "block", body=args.reason)
+
+
+def cmd_work_unblock(args: argparse.Namespace) -> int:
+    return _record_work(args, "unblock", body=args.note)
+
+
+def cmd_work_done(args: argparse.Namespace) -> int:
+    return _record_work(args, "done", body=args.note)
+
+
+def cmd_work_drop(args: argparse.Namespace) -> int:
+    return _record_work(args, "drop", body=args.reason)
+
+
+def cmd_work_list(args: argparse.Namespace) -> int:
+    """What is in flight, and whether anyone else can see it.
+
+    The sync sentence is printed on every run rather than only when something
+    is wrong: this ledger's entire purpose is that a second session reads what
+    the first one wrote, and "committed but not pushed" is the state in which
+    it silently is not.
+    """
+    import datetime
+
+    from core import work
+
+    now = datetime.datetime.now(datetime.timezone.utc)
+    status = None if args.status == "live" else args.status
+
+    if args.across:
+        ledgers = work.across_ledgers(args.path)
+        payload = []
+        for label, ledger in ledgers:
+            found = work.fold(work.load_path(ledger))
+            if status != "all":
+                keep = work.LIVE if status is None else (status,)
+                found = [item for item in found if item.status in keep]
+            payload.append((label, work.sort_items(found)))
+        if args.format == "json":
+            print(json.dumps([{"project": label, "items": [item.to_dict() for item in found]}
+                              for label, found in payload], indent=2, ensure_ascii=False))
+            return 0
+        for label, found in payload:
+            if not found:
+                continue
+            print(f"== {label}")
+            for item in found:
+                for line in _work_line(item, now):
+                    print(line)
+        total = sum(len(found) for _, found in payload)
+        if not total:
+            print(f"Nothing is in flight in any of {len(ledgers)} ledger(s) under "
+                  f"{work.path_for(args.path).parent.parent}.")
+        if len(ledgers) == 1:
+            # --across that silently reads one directory looks like a broken
+            # flag. It is the right answer for a project whose knowledge
+            # directory is its own; say which of the two happened.
+            print(f"One ledger only: no sibling ledgers under "
+                  f"{work.path_for(args.path).parent.parent}. `[knowledge] dir` is "
+                  "what puts several projects under one root.")
+        print(work.sync_sentence(work.sync_state(args.path)))
+        return 0
+
+    found = work.items(args.path, status=status)
+    if args.session:
+        found = [item for item in found
+                 if any(holder.get("session") == args.session for holder in item.holders)]
+    if args.format == "json":
+        print(json.dumps([item.to_dict() for item in found], indent=2, ensure_ascii=False))
+        return 0
+    for item in found:
+        for line in _work_line(item, now):
+            print(line)
+    if not found:
+        every = work.fold(work.load(args.path))
+        if not every:
+            print(_no_work_here(args.path))
+        else:
+            print(f"{len(every)} item(s) recorded here, none {args.status}. "
+                  f"`eos work list {args.path} --status all` lists every one of them.")
+    else:
+        stale = [item for item in found if item.is_stale(now)]
+        print(f"\n{len(found)} item(s) in flight"
+              + (f", {len(stale)} stale (no event for over {work.STALE_AFTER_HOURS}h)"
+                 if stale else "") + ".")
+    print(work.sync_sentence(work.sync_state(args.path)))
+    return 0
+
+
+def cmd_work_show(args: argparse.Namespace) -> int:
+    """One item in full: its events, and what git says about its ticket."""
+    import datetime
+
+    from core import work
+
+    item = _resolve_work(args)
+    if item is None:
+        return 1
+    history = [entry for entry in work.load(args.path) if entry.id == item.id]
+    evidence = work.ticket_commits(args.path, item.ticket) if item.ticket else None
+
+    if args.format == "json":
+        print(json.dumps({"item": item.to_dict(),
+                          "events": [entry.to_dict() for entry in history],
+                          "ticket_commits": evidence}, indent=2, ensure_ascii=False))
+        return 0
+
+    now = datetime.datetime.now(datetime.timezone.utc)
+    for line in _work_line(item, now):
+        print(line)
+    print()
+    for entry in history:
+        who = work.who(entry.session, entry.agent)
+        where = f"  {entry.branch}@{entry.commit[:7]}" if entry.commit else ""
+        print(f"{entry.at}  {entry.event:<8} {who}{where}")
+        if entry.body:
+            print(f"    {entry.body}")
+    if evidence is None:
+        print("\nNo ticket on this item, so there is nothing to check it against.")
+    elif not evidence["indexed"]:
+        print(f"\nWhether any commit names {item.ticket} is unknown here: there is no "
+              f"index at .eos/data/eos.db. `eos index {args.path}` builds one.")
+    elif not evidence["commits"]:
+        print(f"\nThe index holds no commit naming {item.ticket}. That is either work "
+              "that is not committed yet, or a claim that outran it -- this cannot "
+              "tell those apart.")
+    else:
+        print(f"\nCommits naming {item.ticket}:")
+        for commit in evidence["commits"]:
+            print(f"  {commit['sha'][:9]}  {commit['at']}  {commit['subject']}")
+    return 0
+
+
+def cmd_brief(args: argparse.Namespace) -> int:
+    """What a session needs before it starts, in one call it did not choose.
+
+    Every other command answers a question somebody asked. This one answers
+    the question nobody thinks to ask -- "is someone already on this, and was
+    this already learned here" -- which is why it is wired to a hook rather
+    than offered in a list.
+    """
+    from core import brief
+
+    print(brief.build(args.path, session=args.session, agent=args.agent))
+    return 0
+
+
+def cmd_work_stats(args: argparse.Namespace) -> int:
+    """What happened here, as opposed to how often a command was called.
+
+    `eos cost` says whether the engine was reached for; this says whether
+    reaching for it changed anything. Every number below should fall if the
+    ledger is doing its job, and a rising one is the report doing its job.
+    """
+    from core import work
+
+    report = work.statistics(args.path, since=args.since)
+    if args.format == "json":
+        print(json.dumps(report, indent=2, ensure_ascii=False))
+        return 0
+    if not report.get("events"):
+        window = f" since {args.since}" if args.since else ""
+        print(f"No work has been recorded here{window} ({work.path_for(args.path)}). "
+              "`eos work add` records the first item; there is nothing yet to measure.")
+        return 0
+
+    window = f" since {args.since}" if args.since else ""
+    print(f"{report['items']} item(s) over {report['events']} event(s){window}, "
+          f"{report['claimed']} of them claimed by a session.")
+    print()
+    # Each of these is a cost somebody already paid, not a score.
+    print(f"Collisions        {report['contested']:>4}  item(s) claimed by two sessions at once")
+    print(f"Went quiet        {report['went_quiet']:>4}  item(s) held with no event for over "
+          f"{work.STALE_AFTER_HOURS}h")
+    print(f"Closed            {report['closed']:>4}  ({report['done']} done, "
+          f"{report['dropped']} dropped; {report['blocked']} block(s) recorded)")
+    print(f"Open now          {report['open_now']:>4}  ({report['stale_now']} stale, "
+          f"{report['contested_now']} contested)")
+    if report["median_hours_to_close"] is not None:
+        print(f"Claim to close      {_hours(report['median_hours_to_close'])} median, "
+              f"{_hours(report['longest_hours_to_close'])} longest")
+    print()
+    print("These count what sessions recorded. Work done without closing an item, and "
+          "an item closed without the work, are indistinguishable from here.")
+    return 0
+
+
+def _hours(value: float) -> str:
+    if value < 1:
+        return "under 1h"
+    if value < 48:
+        return f"{value:.0f}h"
+    return f"{value / 24:.0f}d"
+
+
+def cmd_work(args: argparse.Namespace) -> int:
+    return {
+        "add": cmd_work_add,
+        "claim": cmd_work_claim,
+        "log": cmd_work_log,
+        "block": cmd_work_block,
+        "unblock": cmd_work_unblock,
+        "done": cmd_work_done,
+        "drop": cmd_work_drop,
+        "list": cmd_work_list,
+        "show": cmd_work_show,
+        "stats": cmd_work_stats,
+    }[args.work_command](args)
+
+
 def _read_git_ref(repo: Path) -> str | None:
     head = repo / ".git" / "HEAD"
     if not head.is_file():
@@ -1366,8 +1810,13 @@ def cmd_ai(args: argparse.Namespace) -> int:
     from core.ai import writer
 
     root = Path(args.path).resolve()
-    for path in writer.write_all(root, VERSION, agents_md=not args.no_agents_md):
+    surface = args.surface or _read_surface(root)
+    if args.surface:
+        _store_surface(root, surface)
+    for path in writer.write_all(root, VERSION, agents_md=not args.no_agents_md,
+                                 surface=surface):
         print(f"  {path.relative_to(root)}")
+    _warn_stale_mcp(root, surface)
     return 0
 
 
@@ -1402,6 +1851,14 @@ def main(argv: list[str] | None = None) -> int:
         dest="no_ai",
         action="store_true",
         help="Do not write the .claude/, .mcp.json and AGENTS.md integration files",
+    )
+    init_p.add_argument(
+        "--surface",
+        choices=("cli", "mcp", "both"),
+        default="cli",
+        help="Which surface this project exposes. 'cli' (default) writes no MCP "
+        "registration: an MCP tool roster is charged to every request whether "
+        "or not a tool is called. 'mcp' or 'both' registers the server too.",
     )
 
     scan_p = sub.add_parser("scan", help="Scan project and regenerate knowledge artifacts")
@@ -1616,12 +2073,99 @@ def main(argv: list[str] | None = None) -> int:
     note_audit_p = note_sub.add_parser("audit", help="Report notes whose scoped files changed")
     add_path(note_audit_p)
 
+    brief_p = sub.add_parser(
+        "brief", help="What a session needs before it starts: in flight, and known here")
+    add_path(brief_p)
+    brief_p.add_argument("--session", default=None, help="Session id, so 'yours' means something")
+    brief_p.add_argument("--agent", default=None, help="Which agent this is, e.g. claude or devin")
+
+    work_p = sub.add_parser("work", help="What is in flight, across sessions")
+    work_sub = work_p.add_subparsers(dest="work_command", required=True)
+
+    def add_actor(p):
+        # Both are optional and both are only ever markers: who wrote this
+        # line, not a permission or an identity. The ledger tolerates their
+        # absence -- an item held by "nobody" still reads as held.
+        p.add_argument("--session", default=None, help="Session id, so a claim has a holder")
+        p.add_argument("--agent", default=None, help="Which agent this is, e.g. claude or devin")
+
+    work_add_p = work_sub.add_parser("add", help="Record a piece of work")
+    add_path(work_add_p)
+    work_add_p.add_argument("--title", required=True)
+    work_add_p.add_argument("--body", help="What this is, in a sentence the next session can act on")
+    work_add_p.add_argument("--ticket", help="Issue key, e.g. TICKET-123")
+    work_add_p.add_argument("--scope", help="Comma-separated files this work touches")
+    work_add_p.add_argument("--claim", action="store_true",
+                            help="Claim it in the same command; the usual case")
+    add_actor(work_add_p)
+
+    work_claim_p = work_sub.add_parser("claim", help="Take an item; a second claim is reported")
+    add_path(work_claim_p)
+    work_claim_p.add_argument("item", help="Item id, or part of its title")
+    work_claim_p.add_argument("--note", help="What you are about to do")
+    add_actor(work_claim_p)
+
+    work_log_p = work_sub.add_parser("log", help="Record progress without changing status")
+    add_path(work_log_p)
+    work_log_p.add_argument("item", help="Item id, or part of its title")
+    work_log_p.add_argument("--body", required=True, help="Where this got to")
+    add_actor(work_log_p)
+
+    work_block_p = work_sub.add_parser("block", help="Record that this is stuck, and on what")
+    add_path(work_block_p)
+    work_block_p.add_argument("item", help="Item id, or part of its title")
+    work_block_p.add_argument("--reason", required=True, help="What it is waiting on")
+    add_actor(work_block_p)
+
+    work_unblock_p = work_sub.add_parser("unblock", help="Record that the blocker cleared")
+    add_path(work_unblock_p)
+    work_unblock_p.add_argument("item", help="Item id, or part of its title")
+    work_unblock_p.add_argument("--note", help="What cleared it")
+    add_actor(work_unblock_p)
+
+    work_done_p = work_sub.add_parser("done", help="Record that a session finished it")
+    add_path(work_done_p)
+    work_done_p.add_argument("item", help="Item id, or part of its title")
+    work_done_p.add_argument("--note", help="What was done")
+    add_actor(work_done_p)
+
+    work_drop_p = work_sub.add_parser("drop", help="Record that this will not be done, and why")
+    add_path(work_drop_p)
+    work_drop_p.add_argument("item", help="Item id, or part of its title")
+    work_drop_p.add_argument("--reason", required=True, help="Why it was dropped")
+    add_actor(work_drop_p)
+
+    work_list_p = work_sub.add_parser("list", help="What is in flight here")
+    add_path(work_list_p)
+    work_list_p.add_argument("--status", default="live",
+                             choices=("live", "open", "active", "blocked", "done", "dropped", "all"),
+                             help="Default 'live': active, blocked and untaken work")
+    work_list_p.add_argument("--across", action="store_true",
+                             help="Every sibling ledger under the same knowledge root")
+    work_list_p.add_argument("--session", default=None, help="Only items this session holds")
+    work_list_p.add_argument("--format", choices=("text", "json"), default="text")
+
+    work_show_p = work_sub.add_parser("show", help="One item, its events, and its commits")
+    add_path(work_show_p)
+    work_show_p.add_argument("item", help="Item id, or part of its title")
+    work_show_p.add_argument("--format", choices=("text", "json"), default="text")
+
+    work_stats_p = work_sub.add_parser(
+        "stats", help="What happened here: collisions, claims gone quiet, time to close")
+    add_path(work_stats_p)
+    work_stats_p.add_argument("--since", default=None,
+                              help="Only events at or after this date, e.g. 2026-09-01")
+    work_stats_p.add_argument("--format", choices=("text", "json"), default="text")
+
     ai_p = sub.add_parser("ai", help="Manage the AI integration files")
     ai_sub = ai_p.add_subparsers(dest="ai_command", required=True)
     ai_update_p = ai_sub.add_parser("update", help="Refresh the integration files for this EOS version")
     add_path(ai_update_p)
     ai_update_p.add_argument("--no-agents-md", dest="no_agents_md", action="store_true",
                              help="Leave AGENTS.md alone (for a repository that tracks it)")
+    ai_update_p.add_argument("--surface", choices=("cli", "mcp", "both"), default=None,
+                             help="Change which surface this project exposes; without it, "
+                                  "the choice recorded at init is kept")
 
     args = parser.parse_args(argv)
 
@@ -1653,6 +2197,8 @@ def main(argv: list[str] | None = None) -> int:
         "parent": cmd_parent,
         "parents": cmd_parents,
         "note": cmd_note,
+        "work": cmd_work,
+        "brief": cmd_brief,
         "ai": cmd_ai,
     }
     handler = commands[args.command]
@@ -1670,7 +2216,18 @@ def main(argv: list[str] | None = None) -> int:
     # liability in every project EOS touches.
     flags = [f"--{name.replace('_', '-')}" for name, value in vars(args).items()
              if name not in ("command", "path", "func") and value not in (None, False)]
-    with telemetry.Timer(path, args.command, flags) as timer:
+    # The environment is what makes this measurable at all: only a handful of
+    # commands take --session, and the harness already knows which session it
+    # is running. Claude Code exports CLAUDE_CODE_SESSION_ID into every
+    # command it runs, so sessions are counted with nothing installed and
+    # nothing configured; EOS_SESSION is for a harness that exports no id of
+    # its own.
+    session = getattr(args, "session", None)
+    session_from = "--session" if session else None
+    if not session:
+        session, session_from = telemetry.detect_session(path)
+    with telemetry.Timer(path, args.command, flags, session=session,
+                         session_from=session_from) as timer:
         # A pass-through counter, not a buffer. Buffering stdout and replaying
         # it broke the escaping a non-UTF-8 terminal needs -- measured by the
         # test that exists for it -- and a statistic may not change what a

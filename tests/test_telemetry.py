@@ -154,3 +154,99 @@ def test_the_log_is_bounded(tmp_path, monkeypatch):
         telemetry.record(root, "query", chars=10)
 
     assert len(telemetry.load(root)) == 5
+
+
+def test_a_session_is_attributed_from_the_environment(tmp_path):
+    """Only a handful of commands take --session. A hook that exports
+    EOS_SESSION attributes every call the session makes, which is what turns a
+    count of calls into a count of sessions."""
+    import os
+
+    root = _project(tmp_path, on=True)
+    environment = dict(os.environ, EOS_SESSION="sess-from-env")
+
+    assert _run(["rules", str(root)], env=environment).returncode == 0
+
+    entry = [e for e in telemetry.load(root) if e["command"] == "rules"][-1]
+    assert entry["session"] == "sess-from-env", entry
+
+
+def test_a_session_is_read_from_the_harness_with_nothing_configured(tmp_path):
+    """The measurement works with no hook and no setup, because the harness
+    already knows which session it is: Claude Code exports
+    CLAUDE_CODE_SESSION_ID into every command it runs."""
+    import os
+
+    root = _project(tmp_path, on=True)
+    environment = dict(os.environ, CLAUDE_CODE_SESSION_ID="a-real-looking-uuid")
+
+    assert _run(["rules", str(root)], env=environment).returncode == 0
+
+    entry = [e for e in telemetry.load(root) if e["command"] == "rules"][-1]
+    assert entry["session"] == "a-real-looking-uuid"
+    assert entry["session_from"] == "CLAUDE_CODE_SESSION_ID"
+
+
+def test_a_variable_that_is_not_a_session_id_is_never_read_as_one(tmp_path):
+    """Observed on a real machine: DEVIN_PERMISSION_MODE was set inside a
+    Claude Code session, inherited from an editor extension. An inherited
+    variable is evidence of what is installed, never of what is running, and
+    reading one as a marker attributes one agent's work to another."""
+    import os
+
+    root = _project(tmp_path, on=True)
+    environment = dict(os.environ, DEVIN_PERMISSION_MODE="bypass")
+    environment.pop("CLAUDE_CODE_SESSION_ID", None)
+
+    assert _run(["rules", str(root)], env=environment).returncode == 0
+
+    entry = [e for e in telemetry.load(root) if e["command"] == "rules"][-1]
+    assert entry["session"] is None
+
+
+def test_a_project_can_name_its_own_harness_variable(tmp_path):
+    import os
+
+    root = _project(tmp_path, on=True)
+    config = root / ".eos" / "config.toml"
+    config.write_text(config.read_text(encoding="utf-8").replace(
+        "[telemetry]\nenabled = true",
+        '[telemetry]\nenabled = true\nsession_env = ["MY_HARNESS_RUN"]'), encoding="utf-8")
+    environment = dict(os.environ, MY_HARNESS_RUN="run-77")
+
+    assert _run(["rules", str(root)], env=environment).returncode == 0
+
+    entry = [e for e in telemetry.load(root) if e["command"] == "rules"][-1]
+    assert (entry["session"], entry["session_from"]) == ("run-77", "MY_HARNESS_RUN")
+
+
+def test_sessions_are_counted_apart_from_calls(tmp_path):
+    """Twelve calls from one session and one call from each of twelve are the
+    same number of calls and completely different answers to "is this being
+    used". Only the second decides whether the engine is worth keeping."""
+    root = _project(tmp_path, on=True)
+    telemetry.record(root, "brief", session="s1")
+    telemetry.record(root, "brief", session="s2")
+    telemetry.record(root, "rules", session="s2")
+    telemetry.record(root, "rules")  # a person at a terminal passes no session
+
+    report = telemetry.summary(root)["sessions"]
+
+    assert report["sessions"] == 2
+    assert report["beyond_opening"] == 1, "a session that only ran the hook did not reach for EOS"
+    # The scan this fixture ran carries no session either: a call nobody
+    # attributed is counted and reported, never assigned to an invented one.
+    assert report["unattributed_calls"] >= 1
+
+
+def test_cost_reports_the_adoption_number(tmp_path):
+    root = _project(tmp_path, on=True)
+    telemetry.record(root, "brief", session="s1")
+    telemetry.record(root, "brief", session="s2")
+    telemetry.record(root, "impact", session="s2")
+
+    done = _run(["cost", str(root)])
+
+    assert done.returncode == 0, done.stderr
+    assert "2 session(s) identified themselves" in done.stdout, done.stdout
+    assert "beyond the opening brief" in done.stdout, done.stdout

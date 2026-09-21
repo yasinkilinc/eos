@@ -463,6 +463,20 @@ def build_context(root: str | Path, budget: int = 12000, task: str | None = None
             f"- Engine version: `{summary['engine_version']}`",
         ]),
     ]
+
+    # Second, ahead of the task the caller named and everything derived from
+    # the code: what another session is already doing cannot be re-derived
+    # from a file tree, and it is the one fact here whose value expires.
+    # Capped at 8% of the budget -- items are a line each, so the cap bounds a
+    # runaway ledger rather than a normal one -- and it goes through the same
+    # fit loop as everything else, so a budget too small to hold it says so
+    # rather than dropping it silently.
+    from core import work
+
+    work_section = work.render_context_section(project, max_chars=int(max_chars * 0.08))
+    if work_section:
+        sections.append(work_section)
+
     if task:
         sections.append(f"## Task\n\n{task}")
     if target:

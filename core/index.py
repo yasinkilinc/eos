@@ -31,7 +31,7 @@ from core import links
 from core import notes
 from core.lib.config_io import ConfigIO
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 # Bounds measured on the 18 FM repos: the longest history is 1,339 commits and
 # only one commit anywhere touches more than 200 files (430).
@@ -76,6 +76,55 @@ CREATE TABLE note_scope (
     PRIMARY KEY (note_id, ord)
 ) WITHOUT ROWID;
 CREATE INDEX note_scope_by_entry ON note_scope(entry);
+
+-- What sessions took on, folded from the append-only ledger (ADR-020). The
+-- ledger stays the source of truth and `eos work` reads it directly; this is
+-- here so work can be *joined* -- against the commits naming its ticket,
+-- against an extension's own rows, against the notes written while it ran.
+--
+-- Deliberately no `stale` column. Staleness is a question about now, and a
+-- value computed at build time would answer it with the moment the index was
+-- built instead -- the confidently-wrong shape the rest of this schema is
+-- arranged to avoid. `updated_at` is here; the caller compares it to its own
+-- clock.
+CREATE TABLE work_item (
+    id TEXT PRIMARY KEY,
+    title TEXT NOT NULL,
+    status TEXT NOT NULL,
+    ticket TEXT,
+    opened_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    holder_count INTEGER NOT NULL,
+    reason TEXT,
+    last TEXT,
+    events INTEGER NOT NULL
+);
+CREATE INDEX work_item_by_status ON work_item(status);
+CREATE INDEX work_item_by_ticket ON work_item(ticket);
+-- One row per session still holding an item. More than one is a collision,
+-- and it is a row rather than a rendered string so "what is this session
+-- holding" is a query rather than a LIKE.
+CREATE TABLE work_holder (
+    item TEXT NOT NULL REFERENCES work_item(id),
+    session TEXT NOT NULL,
+    agent TEXT,
+    claimed_at TEXT,
+    PRIMARY KEY (item, session)
+) WITHOUT ROWID;
+CREATE INDEX work_holder_by_session ON work_holder(session);
+CREATE TABLE work_event (
+    item TEXT NOT NULL REFERENCES work_item(id),
+    ord INTEGER NOT NULL,
+    event TEXT NOT NULL,
+    at TEXT NOT NULL,
+    session TEXT,
+    agent TEXT,
+    body TEXT,
+    branch TEXT,
+    commit_sha TEXT,
+    PRIMARY KEY (item, ord)
+) WITHOUT ROWID;
+CREATE INDEX work_event_by_session ON work_event(session);
 
 CREATE TABLE brain_doc (name TEXT PRIMARY KEY, content TEXT NOT NULL, sha256 TEXT NOT NULL);
 CREATE TABLE node (
@@ -204,6 +253,7 @@ _LIKE_SCHEMA = "CREATE TABLE search (source TEXT NOT NULL, ref TEXT NOT NULL, ti
 
 _COUNTS = {
     "notes": "SELECT COUNT(*) FROM note",
+    "work items": "SELECT COUNT(*) FROM work_item",
     "brain docs": "SELECT COUNT(*) FROM brain_doc",
     "nodes": "SELECT COUNT(*) FROM node",
     "edges": "SELECT COUNT(*) FROM edge",
@@ -546,6 +596,7 @@ def _populate(conn: sqlite3.Connection, root: Path, sources: str) -> tuple[bool,
     counts = dict(_COUNTS)
 
     build.notes_dir = _load_notes(build)
+    _load_work(build)
     _load_brain(build)
     _load_evidence(build)
     for extension in usable:
@@ -633,6 +684,13 @@ def _sources_digest(root: Path) -> str:
     if directory.is_dir():
         for path in sorted(directory.glob("*.md")):
             add("note", path.name, _file_digest(path))
+    # The ledger is appended to far more often than notes are written, so it
+    # is the input most likely to make an index stale -- and an index that
+    # still shows an item as claimed after a session closed it would be worse
+    # than one that never had the table.
+    from core import work
+
+    add("work", _file_digest(work.path_for(root)))
     data = root / ".eos" / "data"
     for path in (data / "last_scan.json", data / "brain" / "graph.json",
                  data / "brain" / "evidence.jsonl",
@@ -777,6 +835,58 @@ def _load_notes(build: BuildContext) -> Path:
         )
         _add_search(build, "note", name, note.title, note.body)
     return directory
+
+
+def _load_work(build: BuildContext) -> None:
+    """Fold the work ledger into the index, events and all.
+
+    Read through `work.fold` rather than re-implemented here: two answers to
+    "what is the status of this item" is one more than a system should have,
+    and the CLI's answer is the one people have read.
+
+    A ledger that cannot be parsed costs its own tables and nothing else --
+    `work.load_path` already skips a line it cannot read, so the worst case is
+    a partial fold rather than a failed build.
+    """
+    from core import work
+
+    ledger = work.path_for(build.root)
+    build.meta["work_ledger"] = str(ledger)
+    if not ledger.is_file():
+        return
+    events = work.load_path(ledger)
+    if not events:
+        return
+
+    by_item: dict[str, list] = {}
+    for entry in events:
+        by_item.setdefault(entry.id, []).append(entry)
+
+    for item in work.fold(events):
+        build.conn.execute(
+            "INSERT INTO work_item(id, title, status, ticket, opened_at, updated_at, "
+            "holder_count, reason, last, events) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (item.id, item.title, item.status, item.ticket, item.opened_at,
+             item.updated_at, len(item.holders), item.reason, item.last, item.events),
+        )
+        build.conn.executemany(
+            "INSERT OR IGNORE INTO work_holder(item, session, agent, claimed_at) "
+            "VALUES (?, ?, ?, ?)",
+            [(item.id, holder.get("session") or "", holder.get("agent"), holder.get("at"))
+             for holder in item.holders],
+        )
+        build.conn.executemany(
+            "INSERT INTO work_event(item, ord, event, at, session, agent, body, branch, commit_sha) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            [(item.id, ord_, entry.event, entry.at, entry.session, entry.agent,
+              entry.body, entry.branch, entry.commit)
+             for ord_, entry in enumerate(by_item.get(item.id, []))],
+        )
+        # Searchable by what it is about, not by its id: a session searching
+        # "top-up" should find the item someone claimed this morning next to
+        # the note written about it last month.
+        body = " ".join(part for part in (item.ticket, item.reason, item.last) if part)
+        _add_search(build, "work", item.id, item.title, body)
 
 
 # --- brain and graph ---------------------------------------------------------------

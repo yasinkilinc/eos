@@ -12,12 +12,28 @@ looks wrong, a stale index is the first thing to suspect.
 
 ## What follows is decision support, not a rulebook
 
-Every tool below is described with what it answers and roughly what it costs.
-None of it is a permission list. `Read`, `Grep` and `Glob` are frequently the
-cheaper way to the same fact, and this file says so per tool rather than
-pretending otherwise. Decide per question; a tool being available is not a
-reason to call it.
+Every command below is described with what it answers and roughly what it
+costs. None of it is a permission list. `Read`, `Grep` and `Glob` are
+frequently the cheaper way to the same fact, and this file says so per entry
+rather than pretending otherwise. Decide per question; a command being
+available is not a reason to run it.
 
+## Two calls that are not a judgement call
+
+Everything else here competes with a `Read` you can do without asking, and
+frequently loses. These two do not, because nothing else produces what they
+hold:
+
+- **`eos brief .`** at the start — what another session is doing right now
+  (claimed, blocked, stale), and which recorded notes match this branch. A
+  SessionStart hook runs it for you where one is installed; run it yourself
+  where one is not. It is one screen, and it is the only way to find out that
+  the thing you are about to start is already half-done next door.
+- **`eos work claim .` / `eos note add .`** at the end — what you took, and
+  what you learned. A finding that lives only in a conversation is a finding
+  the next session pays for again.
+
+<!-- eos:mcp-only:begin -->
 ## The 12 tools
 
 | Tool | What it answers | Rough cost | Cheaper alternative |
@@ -46,10 +62,9 @@ full graph can be larger than what fits usefully in a conversation. Reach for
 `impact_analysis` on the one file in question, or `find_symbol`, before asking
 for the whole graph — and if you do need the graph, treat it as something to
 filter or export, not to read end to end.
+<!-- eos:mcp-only:end -->
 
-## Commands the MCP tools do not cover
-
-These are CLI-only, and each answers something none of the tools above can.
+## The commands
 
 `<project>` is a **path**, not a project name, and it comes before the
 command's own arguments: `eos <command> <project> [arguments]`. Inside the
@@ -61,6 +76,11 @@ argument. Every command takes `--format json`.
 
 | Command | What it answers | When it earns its cost |
 |---|---|---|
+| `eos brief` | What is in flight here and which notes match this branch | At the start of a session, before reading anything |
+| `eos work list [--across]` | Every item in flight, who holds it, what is stale or contested; `--across` covers sibling projects sharing one knowledge root | When picking up work, and before starting something someone may already hold |
+| `eos work add --title "…" --claim` | Records that you took this, so a parallel session sees it | The moment you start, not the moment you finish |
+| `eos work show <id>` | One item's whole history, and the commits naming its ticket | When a claim looks stale, or done and unproven |
+| `eos query "<sql>"` | Work joined against everything else indexed: `work_item`, `work_holder`, `work_event` next to `git_commit_ticket`, `note` and any extension's tables | When the question is about work *and* something else — which flow a claim touches, whether its ticket has commits |
 | `eos rules [--untested]` | Which refusals this code can raise, and what the tests do about each | Before writing a test, and before claiming a behaviour is covered |
 | `eos trace <file>` | What an entry point serves and reaches — **and how much of the system no call graph can reach** | When asked "what does this endpoint do" on a system whose components are looked up by name |
 | `eos why <file>` | Where a fact came from: detector, origin, confidence, `path:line` — and which detectors found nothing | When an answer looks wrong or suspiciously empty |
@@ -68,8 +88,9 @@ argument. Every command takes `--format json`.
 | `eos verify <code>` | Records what an adapter ran and what happened | After running a test, so the next session does not re-run it to find out |
 | `eos findings` | Every recorded run and what it was judged to be | Before re-testing something |
 | `eos ask [question] [value]` | Questions this project's index extensions provide; with no question, the list of them | First, on any project with extensions — it is where project-shaped answers live |
-| `eos parent <symbol>` | Real source from a linked parent, by symbol — the CLI form of `get_parent_implementation` | On an overlay codebase, whenever the class that decides the behaviour is not in this project |
-| `eos cost` | What EOS has cost this project per command | When deciding whether a habit is worth keeping |
+| `eos parent <symbol>` | Real source from a linked parent project, by symbol | On an overlay codebase, whenever the class that decides the behaviour is not in this project |
+| `eos cost` | What EOS has cost this project per command, and how many sessions reached for it at all | When deciding whether a habit is worth keeping |
+| `eos work stats [--since]` | What came of the work: collisions, claims that went quiet, time from claim to close | When asking whether any of this is helping, rather than how often it ran |
 
 Two of these are worth a habit.
 
@@ -103,25 +124,36 @@ If `.eos/data/bench.md` exists in this project, it holds numbers measured
 here, not elsewhere. Prefer it over the table above whenever the two disagree
 — it is describing the codebase actually in front of you.
 
-## The notes loop
+## The session loop
 
-This is the one thing nothing else substitutes for:
+This is the one part nothing else substitutes for. Four steps, two of them at
+the start and two at the end.
 
-1. **Before** starting on a question — `search_notes` for the subject
-   (`eos note search <project> "<query>"`). An earlier session may have
-   already paid for the discovery, and re-deriving it from source is real
-   cost paid twice.
-2. **After** learning something that would not be re-derived by the next
-   `eos scan` — a non-obvious cause, a measured cost, a constraint that isn't
-   visible in the code itself — `add_note` (`eos note add <project> --kind
-   finding --title "..." --body "..."`). A finding that lives only in this
-   conversation is a finding the next one pays for again.
-
-The CLI spellings are given because without them this loop is unreachable to
-anyone not holding the MCP tools, and it is the step most worth not skipping.
-`eos note search` lists titles; `eos note show <project> <name>` prints one
-in full; `eos compose <project> "<task>"` returns the bodies of the notes that
-rank highest against a task, which is how to read several at once.
+1. **Open with `eos brief <project>`** — what is claimed, blocked or stale
+   here, and which notes match this branch. Where a SessionStart hook is
+   installed this has already run and its output is above; otherwise it is the
+   cheapest call you will make all session.
+2. **Before starting on a subject** — `eos note search <project> "<query>"`,
+   then `eos note show <project> "<name>"` for one that looks relevant. An
+   earlier session may have already paid for the discovery, and re-deriving it
+   from source is real cost paid twice. `eos compose <project> "<task>"`
+   returns the bodies of the notes ranking highest against a task, which is how
+   to read several at once.
+3. **Claim what you take** — `eos work add <project> --title "…" --claim
+   --session <id>`, or `eos work claim <project> <id>` for an item that already
+   exists. A parallel session reads the ledger you did not write, and two
+   agents on one item costs both of them a session.
+4. **Close what you learned** — `eos note add <project> --kind finding --title
+   "..." --body "..."` for anything the next `eos scan` could not re-derive (a
+   non-obvious cause, a measured cost, a constraint invisible in the code), and
+   `eos work done <project> <id> --note "…"`, `eos work block <project> <id>
+   --reason "…"` or `eos work drop <project> <id> --reason "…"` for where the
+   work got to. A finding that lives only in this conversation is a finding the
+   next one pays for again; a claim never closed reads to the next session as an
+   agent that vanished mid-task. Where a Stop hook is installed it will ask you
+   for exactly this once, before the session ends — all three answers are
+   accepted, and "it is blocked" or "it will not be done" are as good as "done"
+   as long as one of them is recorded.
 
 ---
 
