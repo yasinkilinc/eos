@@ -1888,7 +1888,7 @@ def main(argv: list[str] | None = None) -> int:
     query_p = sub.add_parser("query", help="Run read-only SQL against .eos/data/eos.db")
     add_path(query_p)
     query_p.add_argument("sql", nargs="?", help="One read-only SQL statement")
-    query_p.add_argument("--search", help="Full-text search over notes, brain docs and journeys instead of SQL")
+    query_p.add_argument("--search", help="Full-text search over notes, brain docs and journeys instead of SQL, best match first (a word matching nothing costs rank, not the answer)")
     query_p.add_argument("--limit", type=int, default=20, help="Maximum --search results")
 
     status_p = sub.add_parser("status", help="Show project status and latest scan metadata")

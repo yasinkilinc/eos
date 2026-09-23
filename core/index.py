@@ -540,10 +540,25 @@ def run_query(path: str | Path, sql: str) -> tuple[list[str], list[tuple]]:
 
 
 def search(path: str | Path, text: str, limit: int = 20) -> tuple[list[str], list[tuple]]:
-    """Full-text search over notes and brain docs.
+    """Full-text search over notes and brain docs, best match first.
 
-    Every word must match. Words are quoted as FTS5 phrases, so `PROJ-123`
-    or a stray quote is searched for rather than parsed as query syntax.
+    Words are ORed and the rows ranked, not ANDed. A query is a question in
+    somebody's own words, and one word that happens to match nothing -- `fails`,
+    `why`, a misspelling, a term the writer of the note never used -- must cost
+    rank, never the answer. Measured on a real 461-note corpus while this was
+    still AND: `rate plan change` returned the note that answers it, and `rate
+    plan change fails 500` -- the same question asked in a sentence -- returned
+    nothing. The more naturally a question was phrased, the worse it was
+    answered, which is backwards.
+
+    BM25 is what makes OR safe. It scores a row by how much of the query it
+    carries and how rare those words are across the corpus, so a row matching
+    every word still outranks one carrying a single common word: the AND result
+    stays at the top of the OR result rather than being replaced by it. The
+    words that would have ANDed away the answer now just sort it down a little.
+
+    Words are quoted as FTS5 phrases, so `PROJ-123` or a stray quote is searched
+    for rather than parsed as query syntax.
     """
     columns = ["source", "ref", "title", "snippet"]
     words = [word for word in text.split() if re.search(r"\w", word)]
@@ -553,17 +568,27 @@ def search(path: str | Path, text: str, limit: int = 20) -> tuple[list[str], lis
     try:
         row = conn.execute("SELECT value FROM meta WHERE key = 'fts5'").fetchone()
         if row and row[0] == "1":
-            query = " ".join('"' + word.replace('"', '""') + '"' for word in words)
+            query = " OR ".join('"' + word.replace('"', '""') + '"' for word in words)
             rows = conn.execute(
                 "SELECT source, ref, title, snippet(search, 3, '[', ']', '...', 12) FROM search "
                 "WHERE search MATCH ? ORDER BY rank LIMIT ?",
                 (query, limit),
             ).fetchall()
         else:
-            clauses = " AND ".join("(title LIKE ? ESCAPE '\\' OR body LIKE ? ESCAPE '\\')" for _ in words)
+            # No BM25 without FTS5, so rank by how many of the query's words the
+            # row carries. That is a coarser signal -- it cannot tell a rare word
+            # from a common one -- but it keeps the same promise: more of the
+            # query matched sorts higher, and nothing matched is the only way to
+            # be left out. The sum is computed in a subquery because SQLite will
+            # not have an output alias in WHERE.
+            hits = " + ".join(
+                "(title LIKE ? ESCAPE '\\' OR body LIKE ? ESCAPE '\\')" for _ in words
+            )
             params = [pattern for word in words for pattern in (_like(word), _like(word))]
             rows = conn.execute(
-                f"SELECT source, ref, title, substr(body, 1, 160) FROM search WHERE {clauses} LIMIT ?",
+                "SELECT source, ref, title, substr(body, 1, 160) FROM "
+                f"(SELECT source, ref, title, body, {hits} AS hits FROM search) "
+                "WHERE hits > 0 ORDER BY hits DESC LIMIT ?",
                 (*params, limit),
             ).fetchall()
     finally:

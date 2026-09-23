@@ -568,6 +568,44 @@ def test_full_text_search_over_notes_and_brain_docs(tmp_path):
     assert rows == []
 
 
+def test_search_ranks_a_partial_match_rather_than_dropping_it(tmp_path):
+    """One word matching nothing must cost rank, never the whole answer.
+
+    Measured on a real 461-note corpus before this changed: `rate plan change`
+    returned the note that answers it; `rate plan change fails 500` -- the same
+    question asked in a sentence -- returned nothing, because every word was
+    ANDed and `fails` appears in no note. The more naturally a question was
+    phrased, the worse it was answered.
+    """
+    service = _workspace(tmp_path)["service"]
+    db = index.build(service).path
+
+    _, rows = index.search(db, "wallet credited twice fails")
+    assert ("note", "20260901-wallet-double-credit.md") in _refs(rows)
+    assert (rows[0][0], rows[0][1]) == ("note", "20260901-wallet-double-credit.md")
+
+
+def test_search_puts_the_note_matching_more_of_the_query_first(tmp_path):
+    """What makes OR safe: BM25 ranks by how much of the query a row carries.
+
+    Both notes below match `note`-worthy words, but only one is about the
+    credit, so a query about the credit must not be answered by the other.
+    """
+    service = _workspace(tmp_path)["service"]
+    db = index.build(service).path
+
+    _, rows = index.search(db, "customer wallet credited twice")
+    assert (rows[0][0], rows[0][1]) == ("note", "20260901-wallet-double-credit.md")
+
+
+def test_search_still_answers_nothing_when_no_word_matches(tmp_path):
+    service = _workspace(tmp_path)["service"]
+    db = index.build(service).path
+
+    _, rows = index.search(db, "zzzquux zzzfrob")
+    assert rows == []
+
+
 def test_search_falls_back_to_like_when_fts5_is_missing(tmp_path, monkeypatch):
     service = _workspace(tmp_path)["service"]
     monkeypatch.setattr(index, "fts5_available", lambda conn: False)
