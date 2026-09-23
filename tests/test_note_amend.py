@@ -999,3 +999,35 @@ def test_cli_skip_reports_a_placeholder_reason_without_a_traceback(tmp_path, cap
     assert "placeholder" in captured.err
     assert "Traceback" not in captured.err
     assert not notes.was_skipped(tmp_path, "s1")
+
+
+# --- the same placeholder, one field over ---------------------------------
+#
+# The guard above covered --body and --reaffirm and stopped there, so the
+# gate's printed `--scope '<files>'` went through untouched: amend re-hashes
+# scope, so the note came out watching a file named `<files>` with a null
+# hash, reading as scoped and monitoring nothing, on exit 0. An empty entry
+# among real ones was dropped in the same silence.
+
+def test_amend_refuses_a_placeholder_scope_entry(project):
+    tmp_path, _watched, note_path = project
+    before = notes.parse_note(note_path).scope
+
+    with pytest.raises(ValueError) as exc:
+        notes.amend_note(note_path, tmp_path, reaffirm="still holds", scope=["<files>"])
+
+    assert "placeholder" in str(exc.value)
+    assert "<files>" in str(exc.value), "name what to replace"
+    assert notes.parse_note(note_path).scope == before, "and write nothing"
+    assert notes.stale_notes(tmp_path), "the stale flag must survive the refusal"
+
+
+def test_amend_refuses_an_empty_scope_entry_beside_real_ones(project):
+    tmp_path, _watched, note_path = project
+
+    with pytest.raises(ValueError) as exc:
+        notes.amend_note(note_path, tmp_path, reaffirm="still holds",
+                         scope=["src/main/java/A.java", "", "src/main/java/B.java"])
+
+    assert "empty" in str(exc.value)
+    assert "2 of 3" in str(exc.value), "say which entry, not just that one is wrong"

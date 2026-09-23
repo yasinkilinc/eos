@@ -471,3 +471,65 @@ def test_stale_notes_skips_a_note_written_before_this_feature_existed(tmp_path):
     )
 
     assert notes.stale_notes(proj) == []
+
+
+# --- a scope or source that was never substituted --------------------------
+#
+# `add_note`'s placeholder guard covered the title and the body, which is
+# where the Stop-hook gate's printed command was first copied verbatim. It
+# reaches `--scope` and `--source` the same way, and those went through: the
+# note stored the literal `<files>` with a null hash beside it and a source of
+# `<TICKET>`, reading as scoped and sourced while monitoring nothing and
+# citing nothing, on exit 0. Nothing downstream can recover that afterwards --
+# the hashes are taken at write time.
+
+def test_add_note_refuses_a_placeholder_scope_entry(tmp_path):
+    project = tmp_path / "proj"
+    (project / ".eos").mkdir(parents=True)
+
+    with pytest.raises(ValueError) as exc:
+        notes.add_note(project, kind="finding", title="A real title",
+                       body="A real body.", scope=["<files>"])
+
+    assert "placeholder" in str(exc.value)
+    assert "<files>" in str(exc.value), "name what to replace"
+    assert notes.load_notes(project) == [], "and write nothing"
+
+
+def test_add_note_refuses_a_placeholder_source(tmp_path):
+    project = tmp_path / "proj"
+    (project / ".eos").mkdir(parents=True)
+
+    with pytest.raises(ValueError) as exc:
+        notes.add_note(project, kind="finding", title="A real title",
+                       body="A real body.", source="<TICKET>")
+
+    assert "source" in str(exc.value)
+    assert notes.load_notes(project) == []
+
+
+def test_add_note_refuses_an_empty_scope_entry_beside_real_ones(tmp_path):
+    """`["a", "", "b"]` was dropped in silence, leaving a note watching two
+    files where its author named three and nothing saying which went."""
+    project = tmp_path / "proj"
+    (project / ".eos").mkdir(parents=True)
+    (project / "Real.java").write_text("class Real {}\n", encoding="utf-8")
+
+    with pytest.raises(ValueError) as exc:
+        notes.add_note(project, kind="finding", title="A real title",
+                       body="A real body.", scope=["Real.java", "", "Other.java"])
+
+    assert "empty" in str(exc.value)
+    assert "2 of 3" in str(exc.value), "say which entry"
+    assert notes.load_notes(project) == []
+
+
+def test_add_note_still_accepts_a_scope_entry_with_angle_brackets_in_it(tmp_path):
+    """Anchored on the whole entry: a generic in a class name is a real scope."""
+    project = tmp_path / "proj"
+    (project / ".eos").mkdir(parents=True)
+
+    path = notes.add_note(project, kind="finding", title="Generics are fine",
+                          body="A real body.", scope=["Handler<String>"])
+
+    assert notes.parse_note(path).scope == ["Handler<String>"]

@@ -513,6 +513,34 @@ def _is_placeholder(value: str) -> bool:
     return bool(_PLACEHOLDER_RE.match(value.strip()))
 
 
+def _refuse_scope(scope: list[str] | None) -> None:
+    """Every scope entry must name a real file, or the note monitors nothing.
+
+    Two ways that failed silently, both found in the corpus rather than
+    imagined. A printed command copied verbatim keeps its `--scope '<files>'`,
+    and the entry was stored as the literal string with a null hash beside it:
+    the note reads as scoped, `note audit` can never report it stale, and the
+    injector can never match it to a touched file. And an empty entry among
+    real ones (`["a", "", "b"]`) was dropped without a word, so a note ended up
+    watching fewer files than its author wrote and nothing said which.
+
+    Refused at the door, because neither is recoverable afterwards: the hashes
+    are taken at write time, so a note that was never scoped correctly cannot
+    be told from one whose files changed.
+    """
+    if not scope:
+        return
+    for position, entry in enumerate(scope, start=1):
+        where = f"scope entry {position} of {len(scope)}"
+        if not entry.strip():
+            raise ValueError(
+                f"The {where} is empty. An empty entry used to be dropped in "
+                "silence, which left the note scoped to fewer files than it "
+                "names; say the file or leave it out."
+            )
+        _refuse_placeholder(entry, where)
+
+
 def _refuse_placeholder(value: str, what: str) -> None:
     """Raise if `value` is nothing but a placeholder, saying what to do."""
     if _is_placeholder(value):
@@ -579,6 +607,9 @@ def add_note(
     _refuse_placeholder(title, "note title")
     if body is not None:
         _refuse_placeholder(body, "note body")
+    if source is not None:
+        _refuse_placeholder(source, "note source")
+    _refuse_scope(scope)
     content = _compose_body(kind, body, cause, solution, metric)
 
     found = _find_credential(f"{title}\n{content}")
@@ -773,6 +804,7 @@ def amend_note(
             "rather than treated as 'clear the scope'. Clearing scope entirely "
             "is not supported today."
         )
+    _refuse_scope(scope)
 
     project = Path(project_root).expanduser().resolve()
     path = Path(note_path).expanduser().resolve()
