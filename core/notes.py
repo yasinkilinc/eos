@@ -239,6 +239,26 @@ def _credential_value(raw_value: str) -> bool:
 # prose, and one pom.xml change staleness-marks six of them at once.
 GENERATOR_SOURCES = frozenset({"api-inventory", "journey-map", "repo-topology"})
 
+# The same three sources answer a SECOND question badly, so ranking asks a
+# narrower one. "Who may edit this" and "is this filler" are not the same
+# property, and conflating them cost the corpus its best notes:
+#
+#   api-inventory, repo-topology  an endpoint table, a directory listing --
+#                                 extracted from code, nothing learned
+#   journey-map                   prose a person wrote in a journey document,
+#                                 moved into a note by a script
+#
+# A journey note is mechanically written and hand-authored at the same time.
+# Measured with `note eval` on a 106-note service and a 20-question golden
+# set: five of the twenty answers carried `source: journey-map`, so treating
+# the whole source set as filler dropped recall@1 from 0.95 to 0.75 and
+# pushed all 56 such notes to the back of the context budget behind anything
+# with a ticket key on it.
+#
+# Excluding only the two real inventories left recall@1 at 0.95 and took the
+# last bulk row out of the top five, which is the split this encodes.
+BULK_INDEX_SOURCES = frozenset({"api-inventory", "repo-topology"})
+
 
 def is_generated(note: "Note") -> bool:
     """Whether a bulk generator wrote this note rather than a person or agent.
@@ -246,8 +266,21 @@ def is_generated(note: "Note") -> bool:
     An unfamiliar source falls to hand-written, which is the safe direction:
     the cost is one avoidable block, against silently never blocking on a
     real finding.
+
+    This answers "may an agent revise this by hand" -- it decides whether the
+    Stop gate blocks. For "is this an index rather than a finding", which is
+    what ranking wants, use `is_bulk_index`.
     """
     return note.source in GENERATOR_SOURCES
+
+
+def is_bulk_index(note: "Note") -> bool:
+    """Whether this note is an extracted listing rather than something learned.
+
+    The ranking question. Every bulk index is generated; not every generated
+    note is a bulk index (see BULK_INDEX_SOURCES).
+    """
+    return note.source in BULK_INDEX_SOURCES
 
 
 def _find_credential(text: str) -> str | None:
@@ -1223,13 +1256,17 @@ def render_context_section(
     if not candidates:
         return ""
 
-    # Hand-written findings lead. Without this a bulk-generated inventory entry
-    # outranks a trap someone learned the hard way purely by being newer, and
-    # since the budget fits one or two full notes it can take the only slot.
+    # Findings lead, indexes trail. Without this a bulk-generated inventory
+    # entry outranks a trap someone learned the hard way purely by being newer,
+    # and since the budget fits one or two full notes it can take the only slot.
     # Measured on a 64-note service 2026-09-18: 23 of the 64 were generated.
     # With a query, relevance already decides the order and must not be undone.
+    #
+    # `is_bulk_index`, not `is_generated`: a journey note is written by a script
+    # out of prose a person wrote, and sorting it with the endpoint tables put
+    # 56 of this workspace's best notes behind every note carrying a ticket key.
     if not query:
-        candidates.sort(key=is_generated)
+        candidates.sort(key=is_bulk_index)
 
     lines = ["## Accumulated Knowledge"]
     included = 0

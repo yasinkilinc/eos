@@ -180,3 +180,33 @@ def test_a_huge_note_cannot_blow_past_the_context_budget(tmp_path):
     assert len(context) <= budget * 4, (
         f"context must respect its ceiling; got {len(context)} for a cap of {budget * 4}"
     )
+
+
+def test_a_journey_note_is_not_sorted_with_the_endpoint_tables(tmp_path):
+    """"Generated" answers the wrong question for ranking.
+
+    `api-inventory` is an extracted table; `journey-map` is prose a person
+    wrote in a journey document, moved into a note by a script. Both are
+    generated and only one is filler. Measured on a 20-question golden set:
+    treating the whole source set as filler dropped recall@1 from 0.95 to
+    0.75, because five of the twenty answers were journey notes.
+    """
+    project = tmp_path / "proj"
+    directory = notes.notes_dir(project)
+    directory.mkdir(parents=True)
+
+    def write(name, title, source):
+        (directory / name).write_text(
+            f"---\nkind: finding\ntitle: {title}\ncreated: 2026-09-01\n"
+            f"source: {source}\n---\n\nBody of {title}.\n", encoding="utf-8")
+
+    # Newest last, so recency alone would put the inventory first.
+    write("20260901-journey.md", "Command chain is data, not Java", "journey-map")
+    write("20260902-inventory.md", "REST endpoints of the service", "api-inventory")
+
+    section = notes.render_context_section(project, query=None, max_chars=10_000)
+
+    assert section.index("Command chain is data") < section.index("REST endpoints"), \
+        "the journey note carries what someone learned; the table does not"
+    assert notes.is_generated(notes.parse_note(directory / "20260901-journey.md")), \
+        "it is still generated: hand-editing it is still the wrong repair"
