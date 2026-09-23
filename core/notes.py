@@ -16,6 +16,7 @@ import fnmatch
 import datetime
 import hashlib
 import json
+import math
 import re
 from pathlib import Path
 
@@ -1058,7 +1059,35 @@ def _words(text: str) -> set[str]:
     return {word for word in _WORD.findall(text.lower()) if len(word) > 2}
 
 
-def relevance(note: Note, query_words: set[str]) -> float:
+def word_weights(corpus: list[Note], query_words: set[str]) -> dict[str, float]:
+    """How much each query word is worth here: `log(notes / notes using it)`.
+
+    Without this every word counts the same, and a question asked in a sentence
+    is decided by its filler. Measured on a 106-note corpus with a 20-question
+    golden set: "which Java class decides the order of the steps" could not find
+    the note that answers it inside ten results, because "which", "class",
+    "order" and "steps" are in half the corpus and outvoted the rest.
+
+    A word in every note scores 0 and stops voting, which is the intent. A word
+    in no note scores 0 too -- it cannot discriminate either, and treating an
+    unmatched word as evidence of anything is what made long queries worse than
+    short ones. When every word of a query is worthless the caller falls back to
+    equal weights, so a search for a single ubiquitous word still answers with
+    what it matched rather than with nothing.
+    """
+    if not corpus or not query_words:
+        return {}
+    total = len(corpus)
+    seen = {word: 0 for word in query_words}
+    for note in corpus:
+        present = _words(note.title) | _words(" ".join(note.tags)) | _words(note.body)
+        for word in query_words & present:
+            seen[word] += 1
+    return {word: math.log(total / count) if count else 0.0 for word, count in seen.items()}
+
+
+def relevance(note: Note, query_words: set[str],
+              weights: dict[str, float] | None = None) -> float:
     """How well one note answers a query, in 0.0 - 1.0.
 
     Scores how much of the *query* the note covers, rather than the Jaccard
@@ -1073,6 +1102,11 @@ def relevance(note: Note, query_words: set[str]) -> float:
     entirely was the original fix for a different problem -- a paragraph of
     root-cause prose diluting a short query -- which coverage scoring does not
     have, because the denominator is the query and never the note.
+
+    `weights` says what each query word is worth (see `word_weights`); without
+    it every word is worth the same, which is the behaviour this had before a
+    golden set showed what it costs. Coverage stays a ratio either way, so the
+    0.0-1.0 range and the threshold mean what they always did.
     """
     if not query_words:
         return 0.0
@@ -1081,8 +1115,20 @@ def relevance(note: Note, query_words: set[str]) -> float:
     tag_words = _words(" ".join(note.tags))
     body_words = _words(note.body)
 
+    if weights:
+        budget = sum(weights.get(word, 0.0) for word in query_words)
+    else:
+        budget = float(len(query_words))
+    if budget <= 0:
+        return 0.0
+
     def coverage(words: set[str]) -> float:
-        return len(words & query_words) / len(query_words) if words else 0.0
+        if not words:
+            return 0.0
+        matched = words & query_words
+        if weights:
+            return sum(weights.get(word, 0.0) for word in matched) / budget
+        return len(matched) / budget
 
     return min(
         1.0,
@@ -1095,9 +1141,14 @@ def relevance(note: Note, query_words: set[str]) -> float:
 def search_notes(project_root: str | Path, query: str, limit: int | None = None) -> list[Note]:
     """Notes relevant to `query`, most relevant first."""
     query_words = _words(query)
-    scored = [
-        (relevance(note, query_words), note) for note in load_notes(project_root)
-    ]
+    corpus = load_notes(project_root)
+    weights = word_weights(corpus, query_words)
+    # Every word ubiquitous (or the query is one such word): weighting has
+    # nothing left to say, and falling through to equal weights answers with
+    # what matched instead of with nothing.
+    if not any(weight > 0 for weight in weights.values()):
+        weights = None
+    scored = [(relevance(note, query_words, weights), note) for note in corpus]
     matches = [pair for pair in scored if pair[0] >= _RELEVANCE_THRESHOLD]
     matches.sort(key=lambda pair: (-pair[0], pair[1].path.name))
     ranked = [note for _, note in matches]

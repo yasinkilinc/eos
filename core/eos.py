@@ -1187,6 +1187,29 @@ def cmd_note_search(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_note_eval(args: argparse.Namespace) -> int:
+    """Score note search against questions somebody wrote the answers for.
+
+    Exits non-zero only when the golden file itself is broken -- unreadable, or
+    naming a note that no longer exists. A low score is a measurement and must
+    not fail a run, or the number stops being reported honestly.
+    """
+    from core import retrieval
+
+    try:
+        entries = retrieval.parse_golden(args.golden)
+    except (retrieval.GoldenError, OSError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+
+    report = retrieval.evaluate(args.path, entries, depth=args.depth)
+    if args.format == "json":
+        print(json.dumps(report, indent=2, ensure_ascii=False))
+    else:
+        print(retrieval.render(report))
+    return 1 if report["broken"] else 0
+
+
 def cmd_note_skip(args: argparse.Namespace) -> int:
     # `record_skip` had no refusal path until the placeholder guard, so this
     # handler was not needed and was not written -- and its absence turned an
@@ -1339,6 +1362,7 @@ def cmd_note(args: argparse.Namespace) -> int:
         "list": cmd_note_list,
         "search": cmd_note_search,
         "show": cmd_note_show,
+        "eval": cmd_note_eval,
         "skip": cmd_note_skip,
         "amend": cmd_note_amend,
         "audit": cmd_note_audit,
@@ -2051,6 +2075,16 @@ def main(argv: list[str] | None = None) -> int:
     add_path(note_search_p)
     note_search_p.add_argument("query")
     note_search_p.add_argument("--limit", type=int, default=None)
+
+    note_eval_p = note_sub.add_parser(
+        "eval", help="Score note search against a golden file of question/answer pairs")
+    add_path(note_eval_p)
+    note_eval_p.add_argument("golden", help="TSV: '<question><TAB><note filename>' per line")
+    # Kept in step with core.retrieval.DEFAULT_DEPTH by the test below it; the
+    # module is imported in the handler, not here, so the parser stays cheap.
+    note_eval_p.add_argument("--depth", type=int, default=10,
+                             help="How far down to look for the expected note")
+    note_eval_p.add_argument("--format", choices=("text", "json"), default="text")
 
     note_skip_p = note_sub.add_parser("skip", help="Record that this session needs no note")
     add_path(note_skip_p)
