@@ -191,3 +191,17 @@ def test_a_related_note_must_meet_the_task_in_its_title_or_tags(project):
 
     assert "Wallet balance returns 400" not in brief.build(project, task="continue", task_only=True)
     assert "Registry host was wrong" in brief.build(project, task="continue", task_only=True)
+
+
+def test_a_word_in_most_run_titles_does_not_match_them_all(project):
+    """Nine of ten runs are "Run the <x> scenario"; a prompt with "run" in it
+    is most prompts, and it matched every one of them."""
+    for n in range(9):
+        r = executions.start(project, f"Run the scenario-{n} scenario on env1", target="env1", session="s")
+        executions.finish(project, r.id, outcome="ok")
+    other = executions.start(project, "Rotate the database credentials", target="vault", session="s")
+    executions.finish(project, other.id, outcome="ok")
+
+    assert executions.ranked(project, task="run the credential rotation") == \
+        [executions.load(project)[-1]]
+    assert executions.ranked(project, task="please run it") == []

@@ -428,6 +428,24 @@ def audit_procedures(project_root: str | Path, now: str | None = None) -> list[d
 # --- retrieval (M3) --------------------------------------------------------------
 
 
+def _ubiquitous(records: list[Record]) -> set[str]:
+    """Words in more than half of the records' titles, targets and procedures.
+
+    Nine of ten runs here were titled "Run the <x> scenario on env1", so a
+    prompt containing "run" -- most prompts -- matched every one of them and
+    the brief listed scenario runs under a task about nothing of the kind. A
+    word that describes most of the ledger describes none of it.
+    """
+    if len(records) < 2:
+        return set()
+    counts: dict[str, int] = {}
+    for record in records:
+        text = " ".join(part for part in (record.title, record.target, record.procedure) if part)
+        for word in notes._words(text):
+            counts[word] = counts.get(word, 0) + 1
+    return {word for word, n in counts.items() if n * 2 > len(records)}
+
+
 def _task_overlap(record: Record, task_words: set[str]) -> int:
     text = " ".join(part for part in (record.title, record.target, record.procedure) if part)
     return len(notes._words(text) & task_words)
@@ -459,7 +477,7 @@ def ranked(project_root: str | Path, *, procedure: str | None = None, target: st
     if procedure:
         ordered = [r for r in ordered if r.procedure == procedure]
     elif task:
-        words = notes._words(task)
+        words = notes._words(task) - _ubiquitous(found)
         scored = [(r, _task_overlap(r, words)) for r in ordered]
         ordered = [r for r, overlap in sorted(scored, key=lambda pair: -pair[1]) if overlap > 0]
     if target:
