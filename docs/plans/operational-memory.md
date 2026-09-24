@@ -1,6 +1,6 @@
 # Plan: operational memory — target 1.0.0
 
-**Status of this plan: ACTIVE.** Engine at the time of writing: 0.38.0; M0 landed in 0.39.0, M1 in 0.40.0, M2 in 0.41.0, M3 in 0.42.0, M4 in 0.43.0, M5 in 0.44.0, OM-60 in 0.45.0; 1.0.0 is cut by OM-61 alone.
+**Status of this plan: ACTIVE.** Engine at the time of writing: 0.38.0; M0 landed in 0.39.0, M1 in 0.40.0, M2 in 0.41.0, M3 in 0.42.0, M4 in 0.43.0, M5 in 0.44.0, OM-60 in 0.45.0, the host's H-03/H-06 against 0.46.0; 1.0.0 is cut by OM-61 alone.
 **Target: 1.0.0**, defined as "the acceptance harness in M0 is green in full."
 
 This file is the one place a session resumes from. It is a ledger, not an
@@ -123,10 +123,10 @@ milestone.
 | H-00 | H | Baseline: the fresh-session eval run in the host, report kept | — | C-21 | DONE |
 | H-01 | H | Capture: every external-action wrapper appends one `eos run event` | after M1 | C-06 C-12 | DONE |
 | H-02 | H | Hooks registered where sessions actually start: SessionStart + UserPromptSubmit | after M3 | C-21 | DONE |
-| H-03 | H | Procedures written once: each recurring task becomes a `kind: procedure` note | after M2 | C-03 C-07 | TODO |
+| H-03 | H | Procedures written once: each recurring task becomes a `kind: procedure` note | after M2 | C-03 C-07 | DONE |
 | H-04 | H | Step catalogues indexed through the extension (`[index] extensions`) | after M2 | C-03 | TODO |
 | H-05 | H | The always-loaded instruction set split: index ≤ 4k tokens, pages on demand | — | C-20 | DONE |
-| H-06 | H | Golden sets: a second project, and procedure questions | after M3 | C-09 | TODO |
+| H-06 | H | Golden sets: a second project, and procedure questions | after M3 | C-09 | DONE |
 | H-07 | H | Re-audit in the host: `eos doctor --memory` green on real projects; eval re-run | after M6 | all | TODO |
 
 **Order:** every M row before any H row except H-00 and H-05, which depend
