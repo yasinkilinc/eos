@@ -1690,6 +1690,136 @@ def _hours(value: float) -> str:
     return f"{value / 24:.0f}d"
 
 
+def _run_line(record) -> str:
+    state = record.outcome or "open"
+    return (f"{record.id}\t{state}\t{record.started_at or '-'}\t"
+            f"{record.target or '-'}\t{len(record.events)} event(s)\t{record.title}")
+
+
+def cmd_run_start(args: argparse.Namespace) -> int:
+    from core import executions
+
+    try:
+        record = executions.start(args.path, args.title, procedure=args.procedure,
+                                  work_item=args.work, session=args.session,
+                                  agent=args.agent, target=args.target)
+    except (ValueError, OSError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+    print(record.id)
+    if not record.session:
+        # Nothing to key the pointer on, so wrappers cannot find this run on
+        # their own. Say how to reach it rather than let capture go quiet.
+        print(f"No session id found; wrappers will not attach events on their own. "
+              f"Export {executions.EXECUTION_ENV}={record.id} and "
+              f"{executions.LEDGER_ENV}={executions.path_for(args.path)}, "
+              f"or pass --session.", file=sys.stderr)
+    return 0
+
+
+def cmd_run_event(args: argparse.Namespace) -> int:
+    from core import executions
+
+    try:
+        entry = executions.event(args.path, args.execution, kind=args.kind, tool=args.tool,
+                                 target=args.target, ref=args.ref, exit_code=args.exit,
+                                 ms=args.ms, body=args.body, session=args.session)
+    except (ValueError, OSError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+    print(f"{entry.execution}\t{entry.kind}\t{entry.tool or '-'}\t{entry.target or '-'}")
+    return 0
+
+
+def cmd_run_finish(args: argparse.Namespace) -> int:
+    from core import executions
+
+    try:
+        record = executions.finish(args.path, args.execution, outcome=args.outcome,
+                                   lesson=args.lesson, session=args.session)
+    except (ValueError, OSError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+    print(_run_line(record))
+    return 0
+
+
+def cmd_run_list(args: argparse.Namespace) -> int:
+    from core import executions
+
+    found = executions.load(args.path)
+    if args.session:
+        found = [r for r in found if r.session == args.session
+                 or any(e.session == args.session for e in r.events)]
+    if args.procedure:
+        found = [r for r in found if r.procedure == args.procedure]
+    if args.target:
+        found = [r for r in found if r.target == args.target]
+    if args.outcome:
+        wanted = None if args.outcome == "open" else args.outcome
+        found = [r for r in found if r.outcome == wanted]
+    if args.since:
+        found = [r for r in found if (r.started_at or "") >= args.since]
+    found = found[-args.limit:] if args.limit else found
+    if args.format == "json":
+        print(json.dumps([r.to_dict() for r in found], indent=2, ensure_ascii=False))
+        return 0
+    if not found:
+        total = len(executions.load(args.path))
+        print(f"No execution matches ({total} recorded in {executions.path_for(args.path)}). "
+              "`eos run start` opens one.")
+        return 0
+    for record in reversed(found):
+        print(_run_line(record))
+    return 0
+
+
+def cmd_run_show(args: argparse.Namespace) -> int:
+    from core import executions
+
+    try:
+        record = executions.resolve(executions.load(args.path), args.execution)
+    except ValueError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+    if args.format == "json":
+        print(json.dumps(record.to_dict(), indent=2, ensure_ascii=False))
+        return 0
+    print(f"{record.id}  {record.title}")
+    print(f"  outcome   {record.outcome or 'open'}")
+    print(f"  started   {record.started_at or '-'}   finished {record.finished_at or '-'}")
+    print(f"  session   {record.session or '-'}   agent {record.agent or '-'}")
+    for label, value in (("procedure", record.procedure), ("work", record.work_item),
+                         ("target", record.target), ("branch", record.branch),
+                         ("commits", " .. ".join(c[:9] for c in (record.commit_start, record.commit_end) if c)),
+                         ("lesson", record.lesson)):
+        if value:
+            print(f"  {label:<9} {value}")
+    print(f"  events    {len(record.events)}")
+    for e in record.events:
+        tail = " ".join(part for part in (
+            f"exit={e.exit_code}" if e.exit_code is not None else "",
+            f"{e.ms}ms" if e.ms is not None else "", e.ref or "") if part)
+        print(f"    {e.ord:>3}  {e.at}  {e.kind:<8} {e.tool or '-':<12} {e.target or '-':<10} {tail}")
+    return 0
+
+
+_FILL_SESSION = frozenset(
+    {("work", verb) for verb in ("add", "claim", "log", "block", "unblock", "done", "drop")}
+    | {("note", verb) for verb in ("add", "amend", "skip")}
+)
+
+
+def cmd_run(args: argparse.Namespace) -> int:
+    return {
+        "start": cmd_run_start,
+        "event": cmd_run_event,
+        "finish": cmd_run_finish,
+        "list": cmd_run_list,
+        "show": cmd_run_show,
+    }[args.run_command](args)
+
+
 def cmd_work(args: argparse.Namespace) -> int:
     return {
         "add": cmd_work_add,
@@ -2131,6 +2261,59 @@ def main(argv: list[str] | None = None) -> int:
     brief_p.add_argument("--session", default=None, help="Session id, so 'yours' means something")
     brief_p.add_argument("--agent", default=None, help="Which agent this is, e.g. claude or devin")
 
+    run_p = sub.add_parser("run", help="What a session did: executions and their events (ADR-022)")
+    run_sub = run_p.add_subparsers(dest="run_command", required=True)
+
+    def run_actor(p):
+        p.add_argument("--session", default=None,
+                       help="Session id; defaults to the harness's own (EOS_SESSION, CLAUDE_CODE_SESSION_ID)")
+
+    run_start_p = run_sub.add_parser("start", help="Open an execution; prints its id")
+    add_path(run_start_p)
+    run_start_p.add_argument("--title", required=True, help="What this run is, as the session declares it")
+    run_start_p.add_argument("--procedure", help="Slug of the procedure this run follows")
+    run_start_p.add_argument("--work", help="Work item id this run belongs to")
+    run_start_p.add_argument("--target", help="Environment or system this run acts on")
+    run_start_p.add_argument("--agent", help="Which agent this is, e.g. claude or devin")
+    run_actor(run_start_p)
+
+    run_event_p = run_sub.add_parser("event", help="Append one thing the session did")
+    add_path(run_event_p)
+    run_event_p.add_argument("execution", nargs="?", default=None,
+                             help="Execution id; defaults to this session's open one")
+    run_event_p.add_argument("--kind", required=True,
+                             choices=("ran", "read", "changed", "called", "verified", "noted", "decided"))
+    run_event_p.add_argument("--tool", help="The wrapper or program that did it")
+    run_event_p.add_argument("--target", help="Environment or system it acted on")
+    run_event_p.add_argument("--ref", help="Log path, cache path, build id or file -- a reference, never a payload")
+    run_event_p.add_argument("--exit", type=int, default=None, help="Exit code")
+    run_event_p.add_argument("--ms", type=int, default=None, help="Duration in milliseconds")
+    run_event_p.add_argument("--body", help="One sentence, when the ref does not say it")
+    run_actor(run_event_p)
+
+    run_finish_p = run_sub.add_parser("finish", help="Close an execution with its outcome")
+    add_path(run_finish_p)
+    run_finish_p.add_argument("execution", nargs="?", default=None,
+                              help="Execution id; defaults to this session's open one")
+    run_finish_p.add_argument("--outcome", required=True, choices=("ok", "failed", "abandoned"))
+    run_finish_p.add_argument("--lesson", help="What went wrong and what to do differently")
+    run_actor(run_finish_p)
+
+    run_list_p = run_sub.add_parser("list", help="Executions, most recent first")
+    add_path(run_list_p)
+    run_list_p.add_argument("--session", default=None)
+    run_list_p.add_argument("--procedure")
+    run_list_p.add_argument("--target")
+    run_list_p.add_argument("--outcome", choices=("ok", "failed", "abandoned", "open"))
+    run_list_p.add_argument("--since", help="ISO date; runs started on or after it")
+    run_list_p.add_argument("--limit", type=int, default=20)
+    run_list_p.add_argument("--format", choices=("text", "json"), default="text")
+
+    run_show_p = run_sub.add_parser("show", help="One execution and its timeline")
+    add_path(run_show_p)
+    run_show_p.add_argument("execution", help="Execution id, id prefix, or part of its title")
+    run_show_p.add_argument("--format", choices=("text", "json"), default="text")
+
     work_p = sub.add_parser("work", help="What is in flight, across sessions")
     work_sub = work_p.add_subparsers(dest="work_command", required=True)
 
@@ -2250,11 +2433,21 @@ def main(argv: list[str] | None = None) -> int:
         "parents": cmd_parents,
         "note": cmd_note,
         "work": cmd_work,
+        "run": cmd_run,
         "brief": cmd_brief,
         "ai": cmd_ai,
     }
     handler = commands[args.command]
     path = getattr(args, "path", None)
+    # One session id across every store (ADR-022). A write that names no
+    # session gets the harness's own, the way telemetry reads it, so "what did
+    # this session do" joins executions, work and notes without anyone having
+    # remembered to pass --session. Writes only: on `work list` and `run list`
+    # --session is a filter, and filling it would silently narrow the answer.
+    sub_command = getattr(args, f"{args.command}_command", None)
+    if (args.command, sub_command) in _FILL_SESSION and not getattr(args, "session", None) and path:
+        from core import telemetry
+        args.session, _ = telemetry.detect_session(path)
     if path is None or args.command in ("init", "ui", "mcp", "cost"):
         # init has no project yet, ui and mcp are long-running rather than one
         # answer, and cost reading itself would be a call that changes what it

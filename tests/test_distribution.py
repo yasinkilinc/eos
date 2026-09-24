@@ -37,6 +37,9 @@ def test_install_launcher_and_cli_commands(tmp_path):
     binary = prefix / "bin" / "eos"
     assert binary.is_file()
     assert run_cli(binary, "--version").stdout.strip() == f"eos {VERSION}"
+    # The capture helper lands beside the launcher, where a wrapper can
+    # reach it by name (ADR-022).
+    assert os.access(prefix / "bin" / "eos-event", os.X_OK)
 
     project = tmp_path / "project"
     project.mkdir()

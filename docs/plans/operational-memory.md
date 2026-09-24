@@ -1,6 +1,6 @@
 # Plan: operational memory — target 1.0.0
 
-**Status of this plan: ACTIVE.** Engine at the time of writing: 0.38.0; M0 landed in 0.39.0.
+**Status of this plan: ACTIVE.** Engine at the time of writing: 0.38.0; M0 landed in 0.39.0, M1 in 0.40.0.
 **Target: 1.0.0**, defined as "the acceptance harness in M0 is green in full."
 
 This file is the one place a session resumes from. It is a ledger, not an
@@ -97,12 +97,12 @@ milestone.
 |---|---|---|---|---|---|
 | OM-00 | M0 | Acceptance harness `tests/test_operational_memory.py` + `eos doctor --memory` | 0.39.0 | — | DONE |
 | OM-01 | M0 | Fresh-session eval scenario `evals/scenarios/where-did-we-leave-off.md` | 0.39.0 | C-21 | DONE |
-| OM-10 | M1 | ADR-022: the execution ledger | 0.40.0 | — | TODO |
-| OM-11 | M1 | `core/executions.py`: record + event model, append, fold | 0.40.0 | C-04 C-05 | TODO |
-| OM-12 | M1 | `eos run start\|event\|finish\|list\|show` | 0.40.0 | C-04 C-05 C-06 | TODO |
-| OM-13 | M1 | `execution`, `execution_event` tables; `_load_executions` | 0.40.0 | C-04 C-09 | TODO |
-| OM-14 | M1 | Session threading: one id across executions, work, notes, verifications | 0.40.0 | C-19 | TODO |
-| OM-15 | M1 | Host capture contract: `eos run event` from a wrapper in one line | 0.40.0 | C-06 C-12 | TODO |
+| OM-10 | M1 | ADR-022: the execution ledger | 0.40.0 | — | DONE |
+| OM-11 | M1 | `core/executions.py`: record + event model, append, fold | 0.40.0 | C-04 C-05 | DONE |
+| OM-12 | M1 | `eos run start\|event\|finish\|list\|show` | 0.40.0 | C-04 C-05 C-06 | DONE |
+| OM-13 | M1 | `execution`, `execution_event` tables; `_load_executions` | 0.40.0 | C-04 C-09 | DONE |
+| OM-14 | M1 | Session threading: one id across executions, work, notes (verifications: OM-43) | 0.40.0 | C-19 | DONE |
+| OM-15 | M1 | Host capture contract: `eos run event` from a wrapper in one line | 0.40.0 | C-06 C-12 | DONE |
 | OM-20 | M2 | ADR-023: procedures are notes | 0.41.0 | — | TODO |
 | OM-21 | M2 | `kind: procedure` — front matter, `## Steps` parsing, validation | 0.41.0 | C-03 | TODO |
 | OM-22 | M2 | `eos procedure list\|show\|new\|audit` | 0.41.0 | C-03 | TODO |

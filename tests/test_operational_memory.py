@@ -116,7 +116,6 @@ def test_doctor_memory_prints_the_matrix_and_exits_1_while_open(tmp_path):
 # --- M1: the execution ledger ------------------------------------------------------
 
 
-@pytest.mark.xfail(strict=True, reason="OM-11/OM-12 (M1): core.executions does not exist")
 def test_c04_an_execution_with_events_is_readable_back(tmp_path):
     from core import executions
     project = _project(tmp_path)
@@ -130,7 +129,6 @@ def test_c04_an_execution_with_events_is_readable_back(tmp_path):
     assert _status("C-04", project).status == IMPLEMENTED
 
 
-@pytest.mark.xfail(strict=True, reason="OM-11 (M1): no execution timeline")
 def test_c05_events_come_back_in_time_order_with_session_tool_target(tmp_path):
     from core import executions
     project = _project(tmp_path)
@@ -147,7 +145,6 @@ def test_c05_events_come_back_in_time_order_with_session_tool_target(tmp_path):
     assert _status("C-05", project).status == IMPLEMENTED
 
 
-@pytest.mark.xfail(strict=True, reason="OM-12/OM-15 (M1): no `eos run event` on the CLI")
 def test_c06_an_event_appended_from_a_shell_one_liner_lands(tmp_path):
     from core import executions
     project = _project(tmp_path)
@@ -161,19 +158,19 @@ def test_c06_an_event_appended_from_a_shell_one_liner_lands(tmp_path):
     assert _status("C-06", project).status == IMPLEMENTED
 
 
-@pytest.mark.xfail(strict=True, reason="OM-14 (M1): no session threading across stores")
 def test_c19_one_session_id_joins_executions_work_and_notes(tmp_path):
     from core import executions, work
     project = _project(tmp_path)
 
     run = executions.start(project, "Deploy", session="s-9")
     executions.finish(project, run.id, outcome="ok")
-    work.add(project, title="Deploy", claim=True, session="s-9")
+    work.open_item(project, "Deploy", claim=True, session="s-9")
     notes.add_note(project, kind="finding", title="Staging needs the VPN",
                    body="Without it the health check times out.", session="s-9")
 
     assert [x.id for x in executions.by_session(project, "s-9")] == [run.id]
-    assert any("s-9" in item.holders for item in work.items(project))
+    assert any(holder.get("session") == "s-9"
+               for item in work.items(project) for holder in item.holders)
     assert any(n.session == "s-9" for n in notes.load_notes(project))
     assert _status("C-19", project).status == IMPLEMENTED
 

@@ -90,6 +90,20 @@ launcher.write_text(
 launcher.chmod(0o755)
 PY
 
+# The capture helper beside the launcher, so a wrapper reaches it by name
+# (ADR-022). A copy, not a symlink into the versioned tree: the pruning below
+# removes old versions, and a wrapper must never be the thing that breaks.
+# Only replaced when it is ours, by the same rule as the launcher.
+EVENT_HELPER="$BIN_DIR/eos-event"
+if [ -f "$SOURCE_ROOT/bin/eos-event" ]; then
+  if [ ! -e "$EVENT_HELPER" ] || grep -q '^# Append one event to the execution this session has open' "$EVENT_HELPER" 2>/dev/null; then
+    cp "$SOURCE_ROOT/bin/eos-event" "$EVENT_HELPER"
+    chmod 755 "$EVENT_HELPER"
+  else
+    printf '%s\n' "Not replacing an unrelated $EVENT_HELPER; wrappers can call 'eos run event' instead." >&2
+  fi
+fi
+
 # Drop every other installed version. The launcher just written names exactly
 # one of them, so the rest are unreachable -- 19 of them had accumulated here
 # before this pruned, none reachable. The canonical source is tracked in git,

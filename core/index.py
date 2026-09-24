@@ -31,7 +31,7 @@ from core import links
 from core import notes
 from core.lib.config_io import ConfigIO
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 
 # Bounds measured on the 18 FM repos: the longest history is 1,339 commits and
 # only one commit anywhere touches more than 200 files (430).
@@ -125,6 +125,47 @@ CREATE TABLE work_event (
     PRIMARY KEY (item, ord)
 ) WITHOUT ROWID;
 CREATE INDEX work_event_by_session ON work_event(session);
+
+-- What a session did (ADR-022). Folded from executions.jsonl by the same
+-- code the CLI reads it with. Like work_item, no column answers a question
+-- about now: an open execution is one with no outcome, and how long it has
+-- been open is the caller's arithmetic against its own clock.
+CREATE TABLE execution (
+    id TEXT PRIMARY KEY,
+    title TEXT NOT NULL,
+    procedure TEXT,
+    work_item TEXT,
+    session TEXT,
+    agent TEXT,
+    started_at TEXT,
+    finished_at TEXT,
+    outcome TEXT,
+    target TEXT,
+    branch TEXT,
+    commit_start TEXT,
+    commit_end TEXT,
+    lesson TEXT,
+    events INTEGER NOT NULL
+);
+CREATE INDEX execution_by_session ON execution(session);
+CREATE INDEX execution_by_procedure ON execution(procedure);
+CREATE INDEX execution_by_target ON execution(target);
+CREATE TABLE execution_event (
+    execution TEXT NOT NULL REFERENCES execution(id),
+    ord INTEGER NOT NULL,
+    at TEXT NOT NULL,
+    kind TEXT NOT NULL,
+    tool TEXT,
+    target TEXT,
+    ref TEXT,
+    exit_code INTEGER,
+    ms INTEGER,
+    body TEXT,
+    session TEXT,
+    PRIMARY KEY (execution, ord)
+) WITHOUT ROWID;
+CREATE INDEX execution_event_by_tool ON execution_event(tool);
+CREATE INDEX execution_event_by_session ON execution_event(session);
 
 CREATE TABLE brain_doc (name TEXT PRIMARY KEY, content TEXT NOT NULL, sha256 TEXT NOT NULL);
 CREATE TABLE node (
@@ -622,6 +663,7 @@ def _populate(conn: sqlite3.Connection, root: Path, sources: str) -> tuple[bool,
 
     build.notes_dir = _load_notes(build)
     _load_work(build)
+    _load_executions(build)
     _load_brain(build)
     _load_evidence(build)
     for extension in usable:
@@ -716,6 +758,8 @@ def _sources_digest(root: Path) -> str:
     from core import work
 
     add("work", _file_digest(work.path_for(root)))
+    from core import executions
+    add("executions", _file_digest(executions.path_for(root)))
     data = root / ".eos" / "data"
     for path in (data / "last_scan.json", data / "brain" / "graph.json",
                  data / "brain" / "evidence.jsonl",
@@ -912,6 +956,43 @@ def _load_work(build: BuildContext) -> None:
         # the note written about it last month.
         body = " ".join(part for part in (item.ticket, item.reason, item.last) if part)
         _add_search(build, "work", item.id, item.title, body)
+
+
+def _load_executions(build: BuildContext) -> None:
+    """Fold the execution ledger into the index (ADR-022).
+
+    Through `executions.load_path`, for the reason `_load_work` goes through
+    `work.fold`: one answer to "what happened in this run", the one the CLI
+    prints. Searchable by title, target, tool and lesson, so a session looking
+    for "deploy staging" finds the runs beside the notes.
+    """
+    from core import executions
+
+    ledger = executions.path_for(build.root)
+    build.meta["execution_ledger"] = str(ledger)
+    records = executions.load_path(ledger)
+    for record in records:
+        build.conn.execute(
+            "INSERT OR IGNORE INTO execution(id, title, procedure, work_item, session, agent, "
+            "started_at, finished_at, outcome, target, branch, commit_start, commit_end, "
+            "lesson, events) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (record.id, record.title, record.procedure, record.work_item, record.session,
+             record.agent, record.started_at, record.finished_at, record.outcome,
+             record.target, record.branch, record.commit_start, record.commit_end,
+             record.lesson, len(record.events)),
+        )
+        build.conn.executemany(
+            "INSERT OR IGNORE INTO execution_event(execution, ord, at, kind, tool, target, ref, "
+            "exit_code, ms, body, session) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            [(record.id, e.ord, e.at or "", e.kind, e.tool, e.target, e.ref,
+              e.exit_code if isinstance(e.exit_code, int) else None,
+              e.ms if isinstance(e.ms, int) else None, e.body, e.session)
+             for e in record.events],
+        )
+        tools = " ".join(sorted({e.tool for e in record.events if e.tool}))
+        body = " ".join(part for part in (record.outcome, record.target, record.procedure,
+                                          tools, record.lesson) if part)
+        _add_search(build, "execution", record.id, record.title, body)
 
 
 # --- brain and graph ---------------------------------------------------------------
