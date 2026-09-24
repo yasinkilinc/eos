@@ -405,3 +405,53 @@ def audit_procedures(project_root: str | Path, now: str | None = None) -> list[d
                        "problems": problems,
                        "mismatch": any(p.startswith("counters say") for p in problems)})
     return report
+
+
+# --- retrieval (M3) --------------------------------------------------------------
+
+
+def _task_overlap(record: Record, task_words: set[str]) -> int:
+    text = " ".join(part for part in (record.title, record.target, record.procedure) if part)
+    return len(notes._words(text) & task_words)
+
+
+def ranked(project_root: str | Path, *, procedure: str | None = None, target: str | None = None,
+           task: str | None = None, limit: int = 3, records: list[Record] | None = None
+           ) -> list[Record]:
+    """The executions a session about to do this should read, best first.
+
+    Recency decides the order, because the last run is the one most likely to
+    still describe the system. The ledger's own line order breaks ties: runs
+    finished inside one second share a timestamp, and the later line is the
+    later run. Which runs are candidates is decided before that:
+
+      procedure given   runs of that procedure only
+      else task given   runs whose title/target/procedure share a word with it
+      else              every run
+
+    and, when a target is given, runs against it lead -- a staging run says
+    more about the next staging run than a production one does.
+
+    A failed run with a lesson is not promoted above newer runs here; the
+    brief shows it separately when it falls outside the top N, so the order
+    stays "most recent first" and nothing a session needs is cut.
+    """
+    found = records if records is not None else load(project_root)
+    ordered = list(reversed(found))  # ledger order, newest first
+    if procedure:
+        ordered = [r for r in ordered if r.procedure == procedure]
+    elif task:
+        words = notes._words(task)
+        scored = [(r, _task_overlap(r, words)) for r in ordered]
+        ordered = [r for r, overlap in sorted(scored, key=lambda pair: -pair[1]) if overlap > 0]
+    if target:
+        ordered = sorted(ordered, key=lambda r: r.target != target)
+    return ordered[:limit] if limit else ordered
+
+
+def last_lesson(records: list[Record]) -> Record | None:
+    """The most recent failed run that left a lesson, among `records`."""
+    for record in reversed(records):
+        if record.outcome == "failed" and record.lesson:
+            return record
+    return None

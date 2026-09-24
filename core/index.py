@@ -33,6 +33,14 @@ from core.lib.config_io import ConfigIO
 
 SCHEMA_VERSION = 4
 
+# Search results scoring below this fraction of the best BM25 score are cut.
+# The OR query (0.35.0) made a question in a sentence find its answer; it also
+# made every row sharing one word a result. Swept on the golden set over a
+# real 106-note service index: recall@1/@5 unchanged at every floor up to 0.5,
+# mean rows per query 20 -> 6.8 at 0.5. BM25 is on its own scale, so this is
+# not the same number as notes.SCORE_FLOOR and is not meant to be.
+SCORE_FLOOR = 0.5
+
 # Bounds measured on the 18 FM repos: the longest history is 1,339 commits and
 # only one commit anywhere touches more than 200 files (430).
 MAX_COMMITS = 2000
@@ -610,11 +618,14 @@ def search(path: str | Path, text: str, limit: int = 20) -> tuple[list[str], lis
         row = conn.execute("SELECT value FROM meta WHERE key = 'fts5'").fetchone()
         if row and row[0] == "1":
             query = " OR ".join('"' + word.replace('"', '""') + '"' for word in words)
-            rows = conn.execute(
-                "SELECT source, ref, title, snippet(search, 3, '[', ']', '...', 12) FROM search "
+            ranked = conn.execute(
+                "SELECT source, ref, title, snippet(search, 3, '[', ']', '...', 12), rank FROM search "
                 "WHERE search MATCH ? ORDER BY rank LIMIT ?",
                 (query, limit),
             ).fetchall()
+            # rank is BM25 negated: smaller is better, so the cut is a ceiling.
+            cut = ranked[0][4] * SCORE_FLOOR if ranked else 0.0
+            rows = [row[:4] for row in ranked if row[4] <= cut]
         else:
             # No BM25 without FTS5, so rank by how many of the query's words the
             # row carries. That is a coarser signal -- it cannot tell a rare word
@@ -626,12 +637,16 @@ def search(path: str | Path, text: str, limit: int = 20) -> tuple[list[str], lis
                 "(title LIKE ? ESCAPE '\\' OR body LIKE ? ESCAPE '\\')" for _ in words
             )
             params = [pattern for word in words for pattern in (_like(word), _like(word))]
-            rows = conn.execute(
-                "SELECT source, ref, title, substr(body, 1, 160) FROM "
+            counted = conn.execute(
+                "SELECT source, ref, title, substr(body, 1, 160), hits FROM "
                 f"(SELECT source, ref, title, body, {hits} AS hits FROM search) "
                 "WHERE hits > 0 ORDER BY hits DESC LIMIT ?",
                 (*params, limit),
             ).fetchall()
+            # No BM25 here; the same promise on the coarser signal: a row
+            # carrying far fewer of the query's words than the best one is cut.
+            best = counted[0][4] if counted else 0
+            rows = [row[:4] for row in counted if row[4] >= best * SCORE_FLOOR]
     finally:
         conn.close()
     return columns, rows

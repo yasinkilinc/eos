@@ -1638,7 +1638,10 @@ def cmd_brief(args: argparse.Namespace) -> int:
     """
     from core import brief
 
-    print(brief.build(args.path, session=args.session, agent=args.agent))
+    text = brief.build(args.path, session=args.session, agent=args.agent,
+                       task=args.task, budget=args.budget, task_only=args.task_only)
+    if text:
+        print(text, end="" if text.endswith("\n") else "\n")
     return 0
 
 
@@ -2379,6 +2382,14 @@ def main(argv: list[str] | None = None) -> int:
     add_path(brief_p)
     brief_p.add_argument("--session", default=None, help="Session id, so 'yours' means something")
     brief_p.add_argument("--agent", default=None, help="Which agent this is, e.g. claude or devin")
+    brief_p.add_argument("--task", default=None,
+                         help="What this session is about to do; leads the brief with the procedure, "
+                              "its last runs and lessons. Used as a query and never stored")
+    brief_p.add_argument("--budget", type=int, default=None,
+                         help="Token budget for a --task brief (default 1500)")
+    brief_p.add_argument("--task-only", action="store_true",
+                         help="Only the task sections, and nothing at all when none found anything "
+                              "(for a hook that fires on every prompt)")
 
     proc_p = sub.add_parser("procedure", help="How a recurring task is done here, and how it has gone (ADR-023)")
     proc_sub = proc_p.add_subparsers(dest="procedure_command", required=True)

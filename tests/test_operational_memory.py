@@ -216,7 +216,6 @@ def test_c17_a_finished_execution_moves_the_procedure_counters(tmp_path):
 # --- M3: task-aware retrieval -------------------------------------------------------
 
 
-@pytest.mark.xfail(strict=True, reason="OM-30 (M3): brief.build takes no task")
 def test_c07_the_brief_picks_the_procedure_that_matches_the_task(tmp_path):
     project = _project(tmp_path)
     _procedure(project, "deploy-to-staging")
@@ -230,7 +229,6 @@ def test_c07_the_brief_picks_the_procedure_that_matches_the_task(tmp_path):
     assert _status("C-07", project).status == IMPLEMENTED
 
 
-@pytest.mark.xfail(strict=True, reason="OM-30/OM-31 (M3): no execution ranking in the brief")
 def test_c08_the_brief_lists_the_last_executions_failed_ones_with_their_lesson(tmp_path):
     from core import executions
     project = _project(tmp_path)
@@ -248,7 +246,6 @@ def test_c08_the_brief_lists_the_last_executions_failed_ones_with_their_lesson(t
     assert _status("C-08", project).status == IMPLEMENTED
 
 
-@pytest.mark.xfail(strict=True, reason="OM-33 (M3): no score floor on OR retrieval")
 def test_c09_a_score_floor_keeps_or_retrieval_from_returning_the_whole_corpus(tmp_path):
     from core import executions
     project = _project(tmp_path)
@@ -269,7 +266,6 @@ def test_c09_a_score_floor_keeps_or_retrieval_from_returning_the_whole_corpus(tm
     assert _status("C-09", project).status == IMPLEMENTED
 
 
-@pytest.mark.xfail(strict=True, reason="OM-30 (M3): no budgeted task brief")
 def test_c11_the_task_brief_fits_the_budget(tmp_path):
     project = _project(tmp_path)
     _procedure(project)
@@ -280,7 +276,6 @@ def test_c11_the_task_brief_fits_the_budget(tmp_path):
     assert _status("C-11", project).status == IMPLEMENTED
 
 
-@pytest.mark.xfail(strict=True, reason="OM-30 (M3): the budget is proven at volume")
 def test_c20_a_thousand_executions_cost_the_same_brief_as_ten(tmp_path):
     from core import executions
     project = _project(tmp_path)
@@ -295,7 +290,6 @@ def test_c20_a_thousand_executions_cost_the_same_brief_as_ten(tmp_path):
     assert _status("C-20", project).status == IMPLEMENTED
 
 
-@pytest.mark.xfail(strict=True, reason="OM-32 (M3): no UserPromptSubmit hook template")
 def test_c21_both_hooks_are_written_and_registered_by_the_writer(tmp_path):
     from core.ai import writer
     project = _project(tmp_path)

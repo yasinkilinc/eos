@@ -1153,6 +1153,17 @@ def load_notes(project_root: str | Path) -> list[Note]:
 # the threshold treated as no match. Deliberately not embeddings — the runtime
 # is copied into arbitrary projects and has to stay stdlib-only and offline.
 _RELEVANCE_THRESHOLD = 0.15
+
+# Relative to the best match, not absolute. The threshold above decides what
+# counts as a match at all; this decides how far below the answer a result may
+# sit and still be worth showing. Without it a vague question returned the
+# whole neighbourhood -- "deploy" gave 14 notes and "deploy env1" 19 on a
+# 106-note service, and a fresh session could not tell a strong match from a
+# weak one because no score is printed. Swept against the 20-question golden
+# set: recall@1 and recall@5 are unchanged at every floor up to 0.5; at 0.4 the
+# mean result count falls 4.3 -> 2.8 and those two queries return 3 each.
+# 0.4 rather than 0.5 keeps a margin under a floor that already cut to one.
+SCORE_FLOOR = 0.4
 _WORD = re.compile(r"[a-z0-9]+")
 
 
@@ -1252,6 +1263,9 @@ def search_notes(project_root: str | Path, query: str, limit: int | None = None)
     scored = [(relevance(note, query_words, weights), note) for note in corpus]
     matches = [pair for pair in scored if pair[0] >= _RELEVANCE_THRESHOLD]
     matches.sort(key=lambda pair: (-pair[0], pair[1].path.name))
+    if matches:
+        floor = matches[0][0] * SCORE_FLOOR
+        matches = [pair for pair in matches if pair[0] >= floor]
     ranked = [note for _, note in matches]
     return ranked[:limit] if limit else ranked
 

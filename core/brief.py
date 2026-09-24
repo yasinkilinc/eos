@@ -25,6 +25,18 @@ from pathlib import Path
 from core import notes
 from core import work
 
+# The task brief's budget, in tokens, and the rate it is converted at. The
+# conversion is conservative on purpose: markdown with identifiers and paths
+# tokenizes denser than prose (measured 2.7-4.4 chars/token on a real note
+# store), and a budget that is exceeded by exactly the dense cases is not one.
+TASK_BUDGET = 1500
+CHARS_PER_TOKEN = 3.0
+
+RUN_LIMIT = 3
+RELATED_LIMIT = 3
+FAILURE_LIMIT = 3
+STEP_CHARS = 160
+
 # Caps, not budgets. Everything here is one line, and the value of the block
 # is that it is read rather than skimmed -- twenty items is a document, five
 # is a glance.
@@ -65,11 +77,32 @@ def query_from(branch: str | None, keys: list[str]) -> str:
 
 
 def build(project_root: str | Path, *, session: str | None = None,
-          agent: str | None = None) -> str:
-    """The session-start block, as text meant to be read once and acted on."""
+          agent: str | None = None, task: str | None = None,
+          budget: int | None = None, task_only: bool = False) -> str:
+    """The session-start block, as text meant to be read once and acted on.
+
+    With `task`, the block leads with what this task needs and nothing else
+    can supply cheaply: the procedure recorded for it, the last runs of it and
+    what the failed ones taught, then the notes nearest to it -- under one
+    budget (tokens, default TASK_BUDGET). The task text is a query and is
+    discarded: nothing here writes it anywhere (ADR-019).
+
+    `task_only` is for the hook that fires on every prompt: it returns only
+    the task sections, and an empty string when none of them found anything,
+    so a prompt with nothing recorded behind it costs nothing.
+    """
+    root = Path(project_root).expanduser().resolve()
+    if task and task.strip():
+        return _with_task(root, task, session=session, agent=agent,
+                          budget=budget or TASK_BUDGET, task_only=task_only)
+    if task_only:
+        return ""
+    return _branch_brief(root, session=session, agent=agent)
+
+
+def _branch_brief(root: Path, *, session: str | None, agent: str | None) -> str:
     import datetime
 
-    root = Path(project_root).expanduser().resolve()
     now = datetime.datetime.now(datetime.timezone.utc)
     commit, branch = work.git_head(root)
     keys = ticket_keys(root, branch or "")
@@ -110,6 +143,14 @@ def build(project_root: str | Path, *, session: str | None = None,
         lines.append("KNOWN HERE (0 notes) — nothing has been recorded in this "
                      "project yet. `eos note add` records the first.")
 
+    open_runs = _open_runs(root)
+    if open_runs:
+        lines.append("")
+        lines.append(f"RUNS OPEN ({len(open_runs)}) — finish them: eos run finish . <id> --outcome ok|failed|abandoned")
+        for record in open_runs[:RUN_LIMIT]:
+            lines.append(f"  {record.id}  {record.title}  [{record.session or 'no session'}, "
+                         f"{work.ago(record.started_at, now)}, {len(record.events)} event(s)]")
+
     state = work.sync_state(root)
     if state.get("state") not in ("pushed", "committed", "absent"):
         # Printed only when something written here cannot be seen by anyone
@@ -139,3 +180,139 @@ def _work_lines(item, now, session: str | None) -> list[str]:
     elif item.last:
         lines.append(f"      last: {item.last}")
     return lines
+
+
+# --- the task brief (M3) -------------------------------------------------------------
+
+
+def _open_runs(root: Path) -> list:
+    from core import executions
+    return [r for r in reversed(executions.load(root)) if r.open]
+
+
+def best_procedure(root: Path, task: str, corpus: list | None = None):
+    """The procedure note that best matches the task, or None.
+
+    Ranked by the same weighted coverage note search uses, with word weights
+    taken over the whole corpus -- a procedure's own few words are too small a
+    sample to say which of them are rare.
+    """
+    corpus = corpus if corpus is not None else notes.load_notes(root)
+    candidates = [n for n in corpus if n.kind == "procedure"]
+    if not candidates:
+        return None
+    words = notes._words(task)
+    weights = notes.word_weights(corpus, words)
+    if not any(weight > 0 for weight in weights.values()):
+        weights = None
+    score, note = max(((notes.relevance(n, words, weights), n) for n in candidates),
+                      key=lambda pair: pair[0])
+    return note if score >= notes._RELEVANCE_THRESHOLD else None
+
+
+def _clip(text: str, limit: int = STEP_CHARS) -> str:
+    text = " ".join(text.split())
+    return text if len(text) <= limit else text[: limit - 1] + "…"
+
+
+def _run_line(record) -> str:
+    from core.executions import Record  # noqa: F401 - the type this reads
+    tools = []
+    for e in record.events:
+        if e.tool and e.tool not in tools:
+            tools.append(e.tool)
+    when = (record.finished_at or record.started_at or "")[:10]
+    parts = [f"  {when}  {(record.outcome or 'open'):<9}", record.target or "-"]
+    if tools:
+        parts.append(f"{len(record.events)} event(s): {', '.join(tools[:4])}")
+    if record.outcome == "failed" and record.lesson:
+        parts.append(f"lesson: {_clip(record.lesson.splitlines()[0], 100)}")
+    parts.append(record.id)
+    return "  ".join(parts)
+
+
+def _task_sections(root: Path, task: str) -> tuple[list[list[str]], bool]:
+    """The task brief as prioritised sections, and whether any found anything."""
+    from core import executions
+
+    corpus = notes.load_notes(root)
+    procedure = best_procedure(root, task, corpus)
+    records = executions.load(root)
+    sections: list[list[str]] = []
+    found = False
+
+    if procedure is not None:
+        found = True
+        head = [f"PROCEDURE  {procedure.title}  [{procedure.procedure}]  "
+                f"{procedure.runs_ok or 0} ok / {procedure.runs_failed or 0} failed, "
+                f"last verified {(procedure.last_verified or 'never')[:10]}"]
+        head += [f"  {n}. {_clip(step)}" for n, step in enumerate(notes.procedure_steps(procedure), start=1)]
+        for label, items in (("prerequisites", notes.procedure_prerequisites(procedure)),
+                             ("success", notes.procedure_success(procedure))):
+            if items:
+                head.append(f"  {label}: " + "; ".join(_clip(item, 100) for item in items))
+        sections.append(head)
+        runs = executions.ranked(root, procedure=procedure.procedure, limit=RUN_LIMIT, records=records)
+        pool = [r for r in records if r.procedure == procedure.procedure]
+    else:
+        sections.append(["PROCEDURE — none recorded for this task. Do not present improvised steps "
+                         "as this project's; `eos procedure new` records one once it has been done."])
+        runs = executions.ranked(root, task=task, limit=RUN_LIMIT, records=records)
+        words = notes._words(task)
+        pool = [r for r in records if executions._task_overlap(r, words) > 0]
+
+    if runs:
+        found = True
+        total = len(pool)
+        block = [f"LAST RUNS ({len(runs)} of {total})"] + [_run_line(r) for r in runs]
+        lesson = executions.last_lesson(pool)
+        if lesson is not None and lesson.id not in {r.id for r in runs}:
+            block.append(f"  earlier failure worth reading: {(lesson.finished_at or '')[:10]} {lesson.id}: "
+                         f"{_clip(lesson.lesson.splitlines()[0], 100)}")
+        block.append("  Timeline of one: eos run show . <id>")
+        sections.append(block)
+    elif procedure is not None:
+        sections.append(["LAST RUNS (0) — this procedure has no recorded run yet."])
+
+    if procedure is not None:
+        failures = notes.procedure_known_failures(procedure)[-FAILURE_LIMIT:]
+        if failures:
+            sections.append(["KNOWN FAILURES"] + [f"  - {_clip(item, 140)}" for item in failures])
+
+    related = [n for n in notes.search_notes(root, task, limit=RELATED_LIMIT + 2)
+               if n.kind != "procedure"][:RELATED_LIMIT]
+    if related:
+        found = True
+        sections.append(["RELATED NOTES"] + [f"  - {n.title}" for n in related]
+                        + ['  Read one: eos note show . "<title>"'])
+
+    slug = procedure.procedure if procedure is not None else "<slug>"
+    sections.append([f"Record this run: eos run start . --title \"…\" "
+                     + (f"--procedure {slug}" if procedure is not None else "")
+                     + "  (wrappers add events; finish with eos run finish . --outcome ok|failed|abandoned)"])
+    return sections, found
+
+
+def _with_task(root: Path, task: str, *, session, agent, budget: int, task_only: bool) -> str:
+    sections, found = _task_sections(root, task)
+    if task_only and not found:
+        return ""
+    lines = [f"EOS brief for this task — {root.name}"]
+    if not task_only:
+        branch_lines = _branch_brief(root, session=session, agent=agent).splitlines()[1:]
+        while branch_lines and not branch_lines[0].strip():
+            branch_lines.pop(0)
+        sections.append(branch_lines)
+    cap = int(budget * CHARS_PER_TOKEN)
+    trimmed = False
+    for section in sections:
+        for line in [""] + section:
+            if len("\n".join(lines + [line])) > cap:
+                trimmed = True
+                break
+            lines.append(line)
+        if trimmed:
+            break
+    if trimmed:
+        lines.append("…trimmed to the brief's budget — eos procedure show / eos run list / eos note search for the rest")
+    return "\n".join(lines).rstrip() + "\n"

@@ -15,6 +15,7 @@ def test_the_cli_surface_writes_no_mcp_registration(tmp_path):
         ".claude/skills/eos/SKILL.md",
         ".claude/agents/eos-researcher.md",
         ".claude/hooks/eos-brief.py",
+        ".claude/hooks/eos-prompt.py",
         ".claude/hooks/eos-close.py",
         ".claude/settings.json",
         "AGENTS.md",

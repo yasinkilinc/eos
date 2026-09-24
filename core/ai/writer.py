@@ -87,12 +87,15 @@ def _write_mcp(root: Path) -> Path:
 
 
 HOOK_FILE = ".claude/hooks/eos-brief.py"
+PROMPT_HOOK_FILE = ".claude/hooks/eos-prompt.py"
 STOP_HOOK_FILE = ".claude/hooks/eos-close.py"
 
-# The two ends of one loop: what is in flight when a session opens, and what
-# it left behind when it ends.
+# The loop, in the order a session lives it: what is in flight when it opens,
+# what is recorded about the task it is given, what it left behind when it
+# ends. The prompt hook is the one that knows the task (ADR-022/023, M3).
 _HOOKS = (
     ("SessionStart", HOOK_FILE, "session_start.py"),
+    ("UserPromptSubmit", PROMPT_HOOK_FILE, "prompt_submit.py"),
     ("Stop", STOP_HOOK_FILE, "session_stop.py"),
 )
 
