@@ -236,11 +236,15 @@ def best_procedure(root: Path, task: str, corpus: list | None = None):
     # upgrade'ine ekle" at 0.147 against 0.15. So a procedure is also named
     # when its title and tags hold enough of the prompt's information on their
     # own, whatever else the prompt says.
+    # Two words at least: one word rare only because the notes are in another
+    # language is a verb as often as a task -- "koş" (run) named the scenario
+    # procedure for "run a service's tests", "aç" (open) would name the PR
+    # procedure for "open the file". A task is named by an object and a verb.
     heading = notes._words(note.title) | notes._words(" ".join(note.tags))
     matched = words & heading
     named = sum(weights[word] for word in matched) if weights else float(len(matched))
     floor = math.log(min(PROCEDURE_NAMED_RARITY, math.sqrt(len(corpus))))
-    return note if matched and named >= floor else None
+    return note if len(matched) >= 2 and named >= floor else None
 
 
 def _clip(text: str, limit: int = STEP_CHARS) -> str:

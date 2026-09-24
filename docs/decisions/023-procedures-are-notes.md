@@ -114,4 +114,8 @@ filler in another language — rare only because the notes are in English, so
 they outweighed the word that named the task. A procedure therefore also
 counts as named when the prompt words its title and tags hold weigh at least
 as much as one word carried by fewer than one note in seven (one in √N on a
-store too small for that).
+store too small for that). That second path needs **two** matched
+words (1.1.1): one word rare only because the notes are in English is a verb as
+often as a task — "koş" (run) named the scenario procedure for "run the
+service's tests", and "aç" (open) would name the PR procedure for "open the
+file". An object and a verb name a task; a lone verb does not.

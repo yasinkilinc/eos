@@ -243,12 +243,30 @@ def test_filler_in_another_language_does_not_hide_the_word_that_names_the_task(p
     """Words rare only because the notes are in English weighed more than the
     task word and left the coverage share under the threshold."""
     _procedure(project, title="Upgrade the services to a new product version")
-    for n, word in enumerate(["bunu", "ekle", "ine", "neden", "yeni", "sadece"]):
-        (notes.notes_dir(project) / f"2026090{n}-{word}.md").write_text(
+    _filler(project, ["bunu", "ekle", "ine", "neden", "yeni", "sadece"])
+    assert "[upgrade-the-services" in brief.build(project, task="bunu product upgrade'ine ekle", task_only=True)
+    assert brief.build(project, task="bunu env1'e ekle", task_only=True) == ""
+
+
+def _filler(project, words):
+    directory = notes.notes_dir(project)
+    directory.mkdir(parents=True, exist_ok=True)
+    for n, word in enumerate(words):
+        (directory / f"2026090{n}-{word}.md").write_text(
             f"---\nkind: finding\ntitle: Note {n}\ncreated: 2026-09-01\n---\n\n{word} is in this body\n",
             encoding="utf-8")
-    assert "[upgrade-the-services" in brief.build(project, task="bunu env1 upgrade'ine ekle", task_only=True)
-    assert brief.build(project, task="bunu env1'e ekle", task_only=True) == ""
+
+
+def test_one_rare_word_alone_does_not_name_a_procedure(project):
+    """"koş" (run) is rare in English notes and named the scenario procedure
+    for "run the wallet service's tests, show the first failing one"; a lone verb is
+    not a task. With a second word of the procedure's it is."""
+    notes.add_note(project, kind="procedure", title="Run an order scenario (senaryoyu koş)",
+                   body=STEPS, tags=["scenario", "koş"])
+    _filler(project, ["testlerini", "kırılırsa", "başarısız", "göster", "wallet", "sırayla"])
+    prompt = "svc-wallet'in testlerini koş, bir test kırılırsa ilk başarısız testi sırayla göster"
+    assert brief.build(project, task=prompt, task_only=True) == ""
+    assert "[run-an-order-scenario" in brief.build(project, task="topup senaryoyu koş", task_only=True)
 
 
 def test_words_are_letters_of_any_script_and_an_issue_key_is_one_word():

@@ -170,4 +170,7 @@ def test_no_agents_md_refreshes_the_skill_without_touching_a_tracked_file(tmp_pa
 
     assert rc == 0
     assert house.read_text(encoding="utf-8") == "# House rules\n", "AGENTS.md was modified"
-    assert "0." in (tmp_path / ".claude" / "skills" / "eos" / "SKILL.md").read_text(encoding="utf-8")
+    # The engine version it was generated under, not a digit that happened to
+    # be in every 0.x and 1.0.0 version string and in no 1.1.x one.
+    version = (Path(__file__).resolve().parents[1] / "core" / "VERSION").read_text(encoding="utf-8").strip()
+    assert f"engine {version}" in (tmp_path / ".claude" / "skills" / "eos" / "SKILL.md").read_text(encoding="utf-8")
