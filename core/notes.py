@@ -86,7 +86,7 @@ def _scalar(value) -> str:
     return json.dumps(text, ensure_ascii=False)
 
 
-KINDS = ("defect", "finding", "procedure")
+KINDS = ("defect", "finding", "procedure", "lesson", "decision")
 
 # Words that routinely follow "password:" or "token=" in prose about an API.
 # Without them the guard fires on ordinary sentences, and a guard that fires on
@@ -300,6 +300,14 @@ def _find_credential(text: str) -> str | None:
     return None
 
 
+# ADR-024. A lesson and a decision are only worth re-reading with all three;
+# the defect schema's history is the evidence (see `_compose_body`).
+_REQUIRED_SECTIONS = {
+    "lesson": ("What went wrong", "What was learned", "Next time"),
+    "decision": ("Why", "When", "Component"),
+}
+
+
 def _compose_body(kind, body, cause, solution, metric) -> str:
     """Validate the fields this kind requires and render the note body.
 
@@ -328,6 +336,15 @@ def _compose_body(kind, body, cause, solution, metric) -> str:
             "## Metric", "", metric.strip(),
         ]
         return "\n".join(sections)
+
+    if kind in _REQUIRED_SECTIONS:
+        missing = [name for name in _REQUIRED_SECTIONS[kind] if not section_in(body or "", name)]
+        if missing:
+            raise ValueError(
+                f"A {kind} note must have these sections, each with something under it: "
+                + ", ".join(f"`## {name}`" for name in _REQUIRED_SECTIONS[kind])
+                + f"; missing or empty: {', '.join(missing)}")
+        return body.strip()
 
     if kind == "procedure":
         if not steps_in(body or ""):
@@ -627,6 +644,7 @@ def add_note(
     metric: str | None = None,
     session: str | None = None,
     procedure: str | None = None,
+    execution: str | None = None,
 ) -> Path:
     """Write one note and return its path.
 
@@ -710,7 +728,8 @@ def add_note(
             "scope_hashes": scope_hashes,
             "session": session,
             **(_procedure_front(procedure or _slug(title), 0, 0, None, None)
-               if kind == "procedure" else {}),
+               if kind == "procedure" else {"procedure": procedure}),
+            "execution": execution,
         }
     )
     path.write_text(f"{document}\n\n{content}\n", encoding="utf-8")
@@ -1041,7 +1060,9 @@ def amend_note(
             # A revised step list must not reset a procedure's history to zero.
             **(_procedure_front(note.procedure or _slug(note.title), note.runs_ok or 0,
                                 note.runs_failed or 0, note.last_verified, note.last_execution)
-               if note.kind == "procedure" else {}),
+               if note.kind == "procedure" else {"procedure": note.procedure}),
+            # A lesson keeps the run that taught it through any rewrite.
+            "execution": note.execution,
         }
     )
     path.write_text(f"{document}\n\n{content}\n", encoding="utf-8")
@@ -1069,6 +1090,8 @@ class Note:
     runs_failed: int | None = None
     last_verified: str | None = None
     last_execution: str | None = None
+    # kind: lesson (ADR-024) -- the execution that taught it.
+    execution: str | None = None
 
 
 def _unscalar(text: str) -> str:
@@ -1128,6 +1151,7 @@ def parse_note(path: Path) -> Note:
         runs_failed=_count(meta.get("runs_failed")),
         last_verified=meta.get("last_verified") or None,
         last_execution=meta.get("last_execution") or None,
+        execution=meta.get("execution") or None,
     )
 
 
@@ -1580,13 +1604,18 @@ def _set_front(raw: str, fields: dict) -> str:
 
 
 def _append_known_failure(body: str, line: str) -> str:
-    """One bullet under `## Known failures`, the section created at the end
-    when it does not exist yet."""
+    return append_bullet(body, KNOWN_FAILURES, line)
+
+
+def append_bullet(body: str, section: str, line: str) -> str:
+    """One bullet under `## <section>`, the section created at the end when it
+    does not exist yet."""
+    KNOWN = section
     bullet = f"- {line}"
     lines = body.rstrip("\n").split("\n")
     for index, current in enumerate(lines):
         heading = _HEADING.match(current)
-        if heading and heading.group("name").strip().casefold() == KNOWN_FAILURES.casefold():
+        if heading and heading.group("name").strip().casefold() == KNOWN.casefold():
             end = index + 1
             while end < len(lines) and not _HEADING.match(lines[end]):
                 end += 1
@@ -1594,7 +1623,7 @@ def _append_known_failure(body: str, line: str) -> str:
                 end -= 1
             lines.insert(end, bullet)
             return "\n".join(lines) + "\n"
-    return "\n".join(lines) + f"\n\n## {KNOWN_FAILURES}\n\n{bullet}\n"
+    return "\n".join(lines) + f"\n\n## {KNOWN}\n\n{bullet}\n"
 
 
 def record_procedure_run(project_root: str | Path, slug: str, *, outcome: str,
@@ -1627,3 +1656,58 @@ def record_procedure_run(project_root: str | Path, slug: str, *, outcome: str,
         updated = "---\n" + front + separator + _append_known_failure(body, f"{at[:10]} {execution}: {first}")
     note.path.write_text(updated, encoding="utf-8")
     return note.path
+
+
+# --- confidence (ADR-024) -------------------------------------------------------------
+
+FRESH_DAYS = 30
+AGING_DAYS = 90
+CONFIDENCE_WORDS = ("failing", "unverified", "fresh", "aging", "stale")
+
+
+def procedure_confidence(note: Note, now: str | None = None) -> str:
+    """One word for "can I follow this", derived when asked and never stored.
+
+    From the ledger beside the note and the note's own observations: the
+    latest finished run failing outranks everything, then whether any run
+    ever finished ok, then how long ago one did. Stored, the word would be
+    true when written and false a month later with nothing to say so -- the
+    shape ADR-020 refuses for `stale`.
+    """
+    import datetime
+
+    from core import executions
+
+    ledger = note.path.parent / executions.FILENAME
+    finished = [r for r in executions.load_path(ledger)
+                if r.procedure == note.procedure and r.outcome in ("ok", "failed")]
+    if finished and finished[-1].outcome == "failed":
+        return "failing"
+    verified = note.last_verified or max(
+        (r.finished_at for r in finished if r.outcome == "ok" and r.finished_at), default=None)
+    if not verified:
+        return "unverified"
+    clock = datetime.datetime.fromisoformat(now) if now else datetime.datetime.now(datetime.timezone.utc)
+    try:
+        age = (clock - datetime.datetime.fromisoformat(verified)).days
+    except ValueError:
+        return "unverified"
+    if age <= FRESH_DAYS:
+        return "fresh"
+    return "aging" if age <= AGING_DAYS else "stale"
+
+
+def lessons_for(project_root: str | Path, *, execution: str | None = None,
+                procedure: str | None = None) -> list[Note]:
+    return [n for n in load_notes(project_root) if n.kind == "lesson"
+            and (execution is None or n.execution == execution)
+            and (procedure is None or n.procedure == procedure)]
+
+
+def append_to_note_section(path: Path, section: str, line: str) -> None:
+    """Append one bullet to a section of an existing note, front matter untouched."""
+    raw = path.read_text(encoding="utf-8")
+    if not raw.startswith("---\n"):
+        raise ValueError(f"{path} is not a note")
+    front, separator, body = raw[4:].partition("\n---\n")
+    path.write_text("---\n" + front + separator + append_bullet(body, section, line), encoding="utf-8")

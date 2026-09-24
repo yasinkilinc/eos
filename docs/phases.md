@@ -7,7 +7,7 @@
 | 2 | eos-ui: SQLite, scan-root management, reconcile trigger, list view | 🚧 In progress |
 | 3 | Graph visualization (Cytoscape.js) | ✅ Done (instance list + drill-down graph) |
 | 4 | File watcher (watchdog), Tauri packaging, monorepo/nested support | 🚧 File watcher done; Tauri/nested planned |
-| 5 | Operational memory: execution ledger, procedures, task-aware brief, lessons, learning — target **1.0.0** | 🚧 M0 (0.39.0) harness, M1 (0.40.0) execution ledger, M2 (0.41.0) procedures, M3 (0.42.0) task-aware brief done — [`plans/operational-memory.md`](plans/operational-memory.md) is the resume point |
+| 5 | Operational memory: execution ledger, procedures, task-aware brief, lessons, learning — target **1.0.0** | 🚧 M0 (0.39.0) harness, M1 (0.40.0) execution ledger, M2 (0.41.0) procedures, M3 (0.42.0) task-aware brief, M4 (0.43.0) lessons and confidence done — [`plans/operational-memory.md`](plans/operational-memory.md) is the resume point |
 
 ## Phase 5 — Operational memory (in progress, target 1.0.0)
 

@@ -829,13 +829,26 @@ def cmd_verify(args: argparse.Namespace) -> int:
         except OSError as exc:
             print(f"error: cannot read {args.output} ({exc})", file=sys.stderr)
             return 1
+    # ADR-024: inside an open run, the check belongs to it.
+    from core import executions, telemetry
+    session = getattr(args, "session", None) or telemetry.detect_session(args.path)[0]
+    current = executions.current(args.path, session)
+    execution = current[0] if current else None
     try:
         entry = verification.record(
             args.path, args.code, args.outcome, args.ran, exit_code=args.exit_code,
-            log=args.log, output=output, verdict=args.verdict, note=args.note)
+            log=args.log, output=output, verdict=args.verdict, note=args.note,
+            session=session, execution=execution)
     except ValueError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1
+    if execution:
+        try:
+            executions.event(args.path, execution, kind="verified", tool="eos verify",
+                             ref=f"{entry.code}:{entry.outcome}", exit_code=entry.exit_code,
+                             session=session)
+        except (ValueError, OSError):
+            pass  # the verification is recorded; the timeline line is a convenience
 
     print(f"recorded {entry.outcome} for {entry.code} at {entry.recorded_at}")
     print(f"  {entry.command}")
@@ -1112,6 +1125,8 @@ def cmd_note_add(args: argparse.Namespace) -> int:
             solution=args.solution,
             metric=args.metric,
             session=args.session,
+            procedure=args.procedure,
+            execution=args.execution,
         )
     except (ValueError, FileExistsError) as exc:
         print(f"error: {exc}", file=sys.stderr)
@@ -1739,7 +1754,8 @@ def cmd_run_finish(args: argparse.Namespace) -> int:
 
     try:
         record = executions.finish(args.path, args.execution, outcome=args.outcome,
-                                   lesson=args.lesson, session=args.session)
+                                   lesson=args.lesson, session=args.session,
+                                   next_time=args.next_time)
     except (ValueError, OSError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1
@@ -1798,6 +1814,10 @@ def cmd_run_show(args: argparse.Namespace) -> int:
                          ("lesson", record.lesson)):
         if value:
             print(f"  {label:<9} {value}")
+    from core import verification
+    checks = [v for v in verification.load(args.path) if v.execution == record.id]
+    for check in checks:
+        print(f"  verified  {check.code} {check.outcome} (exit {check.exit_code}) — {check.command}")
     print(f"  events    {len(record.events)}")
     for e in record.events:
         tail = " ".join(part for part in (
@@ -1854,7 +1874,8 @@ def cmd_procedure_show(args: argparse.Namespace) -> int:
         return 0
     print(f"{note.title}   [{note.procedure}]")
     print(f"  runs      {note.runs_ok or 0} ok / {note.runs_failed or 0} failed   "
-          f"last verified {note.last_verified or 'never'}")
+          f"last verified {note.last_verified or 'never'}   "
+          f"confidence {notes.procedure_confidence(note)}")
     for label, items in (("prerequisites", notes.procedure_prerequisites(note)),
                          ("success", notes.procedure_success(note))):
         for i, item in enumerate(items):
@@ -2332,6 +2353,9 @@ def main(argv: list[str] | None = None) -> int:
     note_add_p.add_argument("--solution", help="Fix applied (required for 'defect')")
     note_add_p.add_argument("--metric", help="Measured before/after (required for 'defect')")
     note_add_p.add_argument("--session", default=None, help="Session id, set by the gate hook")
+    note_add_p.add_argument("--execution", help="For a lesson: the run that taught it (eos run list)")
+    note_add_p.add_argument("--procedure", help="For a lesson: the procedure it concerns; for a "
+                            "procedure: its slug")
 
     note_list_p = note_sub.add_parser("list", help="List notes")
     add_path(note_list_p)
@@ -2458,7 +2482,9 @@ def main(argv: list[str] | None = None) -> int:
     run_finish_p.add_argument("execution", nargs="?", default=None,
                               help="Execution id; defaults to this session's open one")
     run_finish_p.add_argument("--outcome", required=True, choices=("ok", "failed", "abandoned"))
-    run_finish_p.add_argument("--lesson", help="What went wrong and what to do differently")
+    run_finish_p.add_argument("--lesson", help="What was learned; required for --outcome failed "
+                              "unless a lesson note already names this run. Written as a lesson note")
+    run_finish_p.add_argument("--next-time", help="What the next run of this should do differently")
     run_actor(run_finish_p)
 
     run_list_p = run_sub.add_parser("list", help="Executions, most recent first")

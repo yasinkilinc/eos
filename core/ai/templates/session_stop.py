@@ -88,6 +88,31 @@ def _held(root, session):
     return None
 
 
+def _open_runs(root, session):
+    """Executions this session started and did not finish, or None if unknown.
+
+    ADR-024: an open run reads to the next session as one still in progress,
+    and a failed one left open never leaves its lesson. An `eos` too old to
+    have `run` answers None, which blocks nothing.
+    """
+    arguments = ["run", "list", root, "--session", session, "--outcome", "open", "--format", "json"]
+    for runner in _runners(root):
+        try:
+            done = subprocess.run(runner + arguments, capture_output=True, text=True,
+                                  timeout=TIMEOUT_SECONDS)
+        except (OSError, subprocess.TimeoutExpired):
+            continue
+        if done.returncode != 0:
+            continue
+        try:
+            runs = json.loads(done.stdout or "[]")
+        except ValueError:
+            return None
+        if isinstance(runs, list):
+            return [run for run in runs if isinstance(run, dict) and run.get("session") == session]
+    return None
+
+
 def _record(root, session, clean):
     """One line per session this hook asked about, whichever way it went.
 
@@ -145,23 +170,39 @@ def main() -> int:
 
     root = payload.get("cwd") or os.environ.get("CLAUDE_PROJECT_DIR") or os.getcwd()
     held = _held(root, session)
-    if held is None:
+    runs = _open_runs(root, session)
+    if held is None and runs is None:
         return 0
-    _record(root, session, clean=not held)
-    if not held:
+    held, runs = held or [], runs or []
+    _record(root, session, clean=not held and not runs)
+    if not held and not runs:
         return 0
 
-    lines = [f"This session still holds {len(held)} work item(s). "
-             "The next session reads them as work in progress:"]
-    for item in held[:5]:
-        lines.append(f"  {item.get('id')}  {item.get('title')}  [{item.get('status')}]")
-    if len(held) > 5:
-        lines.append(f"  ...and {len(held) - 5} more")
-    lines.append("")
-    lines.append("Close each one, in whichever way is true:")
-    lines.append(f'  eos work done {root} <id> --note "what was done"')
-    lines.append(f'  eos work block {root} <id> --reason "what it is waiting on"')
-    lines.append(f'  eos work drop {root} <id> --reason "why it will not be done"')
+    lines = []
+    if held:
+        lines.append(f"This session still holds {len(held)} work item(s). "
+                     "The next session reads them as work in progress:")
+        for item in held[:5]:
+            lines.append(f"  {item.get('id')}  {item.get('title')}  [{item.get('status')}]")
+        if len(held) > 5:
+            lines.append(f"  ...and {len(held) - 5} more")
+        lines.append("")
+        lines.append("Close each one, in whichever way is true:")
+        lines.append(f'  eos work done {root} <id> --note "what was done"')
+        lines.append(f'  eos work block {root} <id> --reason "what it is waiting on"')
+        lines.append(f'  eos work drop {root} <id> --reason "why it will not be done"')
+    if runs:
+        if lines:
+            lines.append("")
+        lines.append(f"This session left {len(runs)} run(s) open. The next session reads them as "
+                     "still running, and a failed one leaves no lesson until it is finished:")
+        for run in runs[:5]:
+            lines.append(f"  {run.get('id')}  {run.get('title')}")
+        lines.append("")
+        lines.append("Finish each one with what happened:")
+        lines.append(f"  eos run finish {root} <id> --outcome ok")
+        lines.append(f'  eos run finish {root} <id> --outcome failed --lesson "what to do differently"')
+        lines.append(f"  eos run finish {root} <id> --outcome abandoned")
     sys.stderr.write("\n".join(lines) + "\n")
     return 2
 

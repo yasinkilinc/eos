@@ -65,6 +65,10 @@ class Record:
     output_sha256: str | None = None
     verdict: str | None = None
     note: str | None = None
+    # ADR-024: the session and the run this check happened in, so a run's
+    # timeline lists the checks next to the steps they checked.
+    session: str | None = None
+    execution: str | None = None
 
     def to_dict(self) -> dict:
         return dataclasses.asdict(self)
@@ -77,7 +81,8 @@ def path_for(project_root: str | Path) -> Path:
 def record(project_root: str | Path, code: str, outcome: str, command: str,
            exit_code: int | None = None, log: str | None = None,
            output: str | None = None, verdict: str | None = None,
-           note: str | None = None) -> Record:
+           note: str | None = None, session: str | None = None,
+           execution: str | None = None) -> Record:
     """Append one execution record. Nothing here interprets the result."""
     from core.knowledge.evidence import utc_now
 
@@ -92,7 +97,7 @@ def record(project_root: str | Path, code: str, outcome: str, command: str,
         code=code, outcome=outcome, command=command.strip(), exit_code=exit_code,
         recorded_at=utc_now(), commit=_head(project_root), log=log,
         output_sha256=hashlib.sha256(output.encode("utf-8")).hexdigest() if output else None,
-        verdict=verdict, note=note,
+        verdict=verdict, note=note, session=session, execution=execution,
     )
     target = path_for(project_root)
     target.parent.mkdir(parents=True, exist_ok=True)

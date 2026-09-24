@@ -109,7 +109,9 @@ def test_doctor_memory_prints_the_matrix_and_exits_1_while_open(tmp_path):
     project = _project(tmp_path)
     done = _run(["doctor", str(project), "--memory"])
     assert done.returncode == 1, done.stderr
-    assert "C-04" in done.stdout and "MISSING" in done.stdout
+    # On an unused project nothing is MISSING any more, only unexercised
+    # (PARTIAL); what must hold is that it says so and names the next row.
+    assert "C-04" in done.stdout and "PARTIAL" in done.stdout and "Next:" in done.stdout
     assert "operational-memory.md" in done.stdout
 
 
@@ -304,7 +306,6 @@ def test_c21_both_hooks_are_written_and_registered_by_the_writer(tmp_path):
 # --- M4: lessons, decisions, learning ---------------------------------------------
 
 
-@pytest.mark.xfail(strict=True, reason="OM-40 (M4): no `decision` note kind")
 def test_c14_a_decision_note_validates_its_sections(tmp_path):
     project = _project(tmp_path)
 
@@ -317,7 +318,6 @@ def test_c14_a_decision_note_validates_its_sections(tmp_path):
     assert _status("C-14", project).status == IMPLEMENTED
 
 
-@pytest.mark.xfail(strict=True, reason="OM-40/OM-41 (M4): no `lesson` note kind")
 def test_c15_a_lesson_links_to_the_execution_that_taught_it(tmp_path):
     from core import executions
     project = _project(tmp_path)
@@ -332,7 +332,6 @@ def test_c15_a_lesson_links_to_the_execution_that_taught_it(tmp_path):
     assert _status("C-15", project).status == IMPLEMENTED
 
 
-@pytest.mark.xfail(strict=True, reason="OM-43 (M4): verification records carry no session/execution")
 def test_c16_a_verification_inside_an_execution_is_tied_to_it(tmp_path):
     from core import executions, verification
     project = _project(tmp_path)
@@ -345,7 +344,6 @@ def test_c16_a_verification_inside_an_execution_is_tied_to_it(tmp_path):
     assert _status("C-16", project).status == IMPLEMENTED
 
 
-@pytest.mark.xfail(strict=True, reason="OM-42 (M4): confidence is not derived yet")
 def test_c18_confidence_is_derived_at_read_time_and_never_stored(tmp_path):
     from core import executions
     project = _project(tmp_path)

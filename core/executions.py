@@ -229,7 +229,8 @@ def event(project_root: str | Path, execution: str | None = None, *, kind: str,
 
 
 def finish(project_root: str | Path, execution: str | None = None, *, outcome: str,
-           lesson: str | None = None, session: str | None = None) -> Record:
+           lesson: str | None = None, session: str | None = None,
+           next_time: str | None = None) -> Record:
     """Close an execution with the outcome the session declares.
 
     Idempotent: finishing again with the same outcome changes nothing. A
@@ -248,12 +249,27 @@ def finish(project_root: str | Path, execution: str | None = None, *, outcome: s
             raise ValueError("no execution given and none is open for this session")
         execution, ledger = found
     _checked(lesson, "lesson")
+    _checked(next_time, "next time")
     existing = {r.id: r for r in load_path(ledger)}.get(execution)
     if existing is not None and existing.outcome is not None:
         if existing.outcome == outcome:
             return existing
         raise ValueError(f"{execution} already finished as {existing.outcome!r}; "
                          f"it cannot also be {outcome!r}")
+    has_lesson = bool(lesson and lesson.strip())
+    if outcome == "failed" and not has_lesson and not notes.lessons_for(project_root, execution=execution):
+        # ADR-024: a failure nobody learned from is paid for again by the next
+        # session. Refused before anything is written, with both ways through.
+        raise ValueError(
+            f"a failed run must leave a lesson. Finish it with --lesson \"<what went wrong and "
+            f"what to do differently>\", or record one first: eos note add . --kind lesson "
+            f"--execution {execution} --title \"…\" --body \"## What went wrong ... "
+            f"## What was learned ... ## Next time ...\"")
+    if outcome == "failed" and has_lesson:
+        # Written before the finish line: if the note cannot be written, the
+        # run stays open rather than finished with its lesson lost.
+        _write_lesson(project_root, existing or Record(id=execution, title=execution),
+                      lesson, next_time)
     commit, _ = work.git_head(project_root)
     at = utc_now()
     _append(ledger, {"type": LINE_FINISH, "id": execution, "at": at,
@@ -455,3 +471,42 @@ def last_lesson(records: list[Record]) -> Record | None:
         if record.outcome == "failed" and record.lesson:
             return record
     return None
+
+
+# --- lessons (ADR-024) ------------------------------------------------------------
+
+SEEN_AGAIN = "Seen again"
+
+
+def _write_lesson(project_root: str | Path, record: Record, lesson: str, next_time: str | None) -> Path:
+    """The lesson note a failed run leaves behind, or one more sighting of it."""
+    first = " ".join(lesson.strip().splitlines()[0].split())
+    title = first if len(first) <= 100 else first[:99] + "…"
+    broke = [e for e in record.events if isinstance(e.exit_code, int) and e.exit_code != 0]
+    went_wrong = [f"The run \"{record.title}\"" + (f" against {record.target}" if record.target else "")
+                  + f" ({record.id}) failed."]
+    for e in broke[:5]:
+        went_wrong.append(f"- {e.tool or e.kind} exited {e.exit_code}" + (f" ({e.ref})" if e.ref else ""))
+    body = "\n".join([
+        "## What went wrong", "", *went_wrong, "",
+        "## What was learned", "", lesson.strip(), "",
+        "## Next time", "",
+        (next_time or "").strip() or f"Read this before running "
+        f"{record.procedure or record.title} again.",
+    ])
+    try:
+        return notes.add_note(project_root, kind="lesson", title=title, body=body, tags=["lesson"],
+                              session=record.session, procedure=record.procedure,
+                              execution=record.id)
+    except notes.DuplicateNoteError:
+        # The same lesson again is a recurring failure, and should read as one.
+        key = notes.normalized_title_key(title)
+        for note in notes.lessons_for(project_root):
+            if notes.normalized_title_key(note.title) == key:
+                notes.append_to_note_section(note.path, SEEN_AGAIN,
+                                             f"{(record.started_at or '')[:10]} {record.id}")
+                return note.path
+        # A different note already holds this title; keep the lesson, under the run's name.
+        return notes.add_note(project_root, kind="lesson", title=f"{title} ({record.id})", body=body,
+                              tags=["lesson"], session=record.session, procedure=record.procedure,
+                              execution=record.id)

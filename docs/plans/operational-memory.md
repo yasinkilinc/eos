@@ -1,6 +1,6 @@
 # Plan: operational memory — target 1.0.0
 
-**Status of this plan: ACTIVE.** Engine at the time of writing: 0.38.0; M0 landed in 0.39.0, M1 in 0.40.0, M2 in 0.41.0, M3 in 0.42.0.
+**Status of this plan: ACTIVE.** Engine at the time of writing: 0.38.0; M0 landed in 0.39.0, M1 in 0.40.0, M2 in 0.41.0, M3 in 0.42.0, M4 in 0.43.0.
 **Target: 1.0.0**, defined as "the acceptance harness in M0 is green in full."
 
 This file is the one place a session resumes from. It is a ledger, not an
@@ -112,10 +112,10 @@ milestone.
 | OM-31 | M3 | Execution ranking: procedure, target, outcome, recency | 0.42.0 | C-08 | DONE |
 | OM-32 | M3 | UserPromptSubmit hook template; SessionStart template extended | 0.42.0 | C-07 C-21 | DONE |
 | OM-33 | M3 | Score floor for OR retrieval (the audit's side finding) | 0.42.0 | C-09 | DONE |
-| OM-40 | M4 | `kind: lesson`, `kind: decision` — sections, validation | 0.43.0 | C-14 C-15 | TODO |
-| OM-41 | M4 | `eos run finish --outcome failed` asks for a lesson; Stop hook enforces | 0.43.0 | C-17 | TODO |
-| OM-42 | M4 | Derived confidence at read time; never stored | 0.43.0 | C-18 | TODO |
-| OM-43 | M4 | Verification records carry `session` and `execution` | 0.43.0 | C-16 | TODO |
+| OM-40 | M4 | `kind: lesson`, `kind: decision` — sections, validation | 0.43.0 | C-14 C-15 | DONE |
+| OM-41 | M4 | `eos run finish --outcome failed` asks for a lesson; Stop hook enforces | 0.43.0 | C-17 | DONE |
+| OM-42 | M4 | Derived confidence at read time; never stored | 0.43.0 | C-18 | DONE |
+| OM-43 | M4 | Verification records carry `session` and `execution` | 0.43.0 | C-16 | DONE |
 | OM-50 | M5 | Event `tool` / `target` vocabulary; `eos run tools` | 0.44.0 | C-12 | TODO |
 | OM-51 | M5 | `changed` events + finish-time git delta; `eos run diff` | 0.44.0 | C-13 | TODO |
 | OM-60 | M6 | Skill/agent templates teach the loop; `docs/phases.md`; README | 1.0.0 | C-21 | TODO |
@@ -200,7 +200,7 @@ the harness and this list in one commit.
 |---|---|
 | `core/executions.py` (M1) | `start(root, title, *, procedure, work_item, session, agent, target) → Record`; `event(root, id, *, kind, tool, target, ref, exit_code, ms, body) → Event`; `finish(root, id, *, outcome, lesson) → Record` — refuses `failed` without a lesson (M4); `load(root)`; `by_session(root, session)`; `ranked(root, *, procedure, target, limit)` (M3); `tools(root, *, procedure, target) → [ToolUse(tool, count, last_outcome)]` (M5); `diff(root, id) → {paths, commit_start, commit_end}` (M5). `Record`: `id, title, procedure, work_item, session, agent, started_at, finished_at, outcome, target, branch, commit_start, commit_end, lesson, events`. `Event`: `execution, ord, at, kind, tool, target, ref, exit_code, ms, body, session`. |
 | `core/eos.py` (M1) | `cmd_run_start`, `cmd_run_event`, `cmd_run_finish`, `cmd_run_list`, `cmd_run_show`; `eos run event <path> <id> --kind … --tool … --target … --ref … --exit N` |
-| `core/notes.py` (M2, M4) | `KINDS` gains `procedure`, `lesson`, `decision`; `Note` gains `procedure` (slug), `runs_ok`, `runs_failed`, `last_verified`, `execution`; `procedure_steps(note) → [str]` from `## Steps`; `procedure_confidence(note) → fresh\|aging\|stale\|failing`; `add_note(kind=…)` validates `## Steps` / `## Why, ## When, ## Component` / `## What went wrong, ## What was learned, ## Next time`; `SCORE_FLOOR` (M3) |
+| `core/notes.py` (M2, M4) | `KINDS` gains `procedure`, `lesson`, `decision`; `Note` gains `procedure` (slug), `runs_ok`, `runs_failed`, `last_verified`, `execution`; `procedure_steps(note) → [str]` from `## Steps`; `procedure_confidence(note, now=None) → failing\|unverified\|fresh\|aging\|stale` (`unverified` added in M4: a procedure never run ok is not "stale"); `add_note(kind=…)` validates `## Steps` / `## Why, ## When, ## Component` / `## What went wrong, ## What was learned, ## Next time`; `SCORE_FLOOR` (M3) |
 | `core/index.py` (M1, M3) | `execution`, `execution_event` tables; `search` rows with `source` in `execution`, `procedure`; `SCORE_FLOOR` |
 | `core/brief.py` (M3) | `build(root, *, session, agent, task=None, budget=None)` |
 | `core/verification.py` (M4) | `Record.session`, `Record.execution`; `record(…, session=, execution=)` |
@@ -323,20 +323,24 @@ the harness and this list in one commit.
   front matter `execution: <id>`, `procedure: <slug>` — all validated.
   `decision`: `## Why`, `## When`, `## Component`, front matter `supersedes:`
   optional. Retrieval treats both as findings (never bulk).
-- **OM-41** `eos run finish --outcome failed` without `--lesson` and without
-  an existing lesson linked to the execution is refused with the command
-  that would satisfy it; the Stop hook (`session_stop.py`) asks once about
-  executions this session left unfinished, as it asks about work today.
-- **OM-42** Confidence is **derived at read time** from `runs_ok`,
-  `runs_failed` and the age of `last_verified`, printed by `eos procedure
-  show` as a word (`fresh`, `aging`, `stale`, `failing`) with the numbers
-  beside it, and never stored — the same reasoning ADR-020 gives for not
-  storing `stale`. The `fact.confidence` column is left as it is; the audit's
-  finding that three of four `origin` values are never written is recorded
-  in the ADR as a known limit, not fixed here.
-- **OM-43** `core/verification.py` `Record` gains `session` and `execution`;
-  `eos verify` inside a running execution fills both from the environment;
-  `eos run show` lists the execution's verifications.
+- **OM-41** `eos run finish --outcome failed` is refused unless it carries
+  `--lesson` or a lesson note already names the run (`eos note add --kind
+  lesson --execution <id>`); the refusal prints both. With `--lesson` the
+  finish writes the lesson note first (what went wrong: the run and its
+  non-zero exits; what was learned: the lesson; next time: `--next-time` or a
+  pointer back to the procedure), so a failure to write it leaves the run open
+  rather than finished with the lesson lost. The same lesson again is appended
+  under `## Seen again` instead of duplicated. The Stop hook asks once about
+  runs this session left open, next to the work it holds.
+- **OM-42** `notes.procedure_confidence(note, now=None)` → `failing` (latest
+  finished run failed), `unverified` (none finished ok), `fresh` (≤ 30 days),
+  `aging` (≤ 90), `stale`. Computed from the ledger beside the note and never
+  stored; shown by `procedure show` and in the task brief's procedure line.
+  The `fact.confidence` column is left as it is — static-fact provenance, a
+  known limit recorded in ADR-024, not conflated with this.
+- **OM-43** `verification.Record` gains `session` and `execution`; `eos verify`
+  inside an open run fills both and appends a `verified` event to it, and `eos
+  run show` lists the run's verifications.
 
 ### M5 — tool and change memory (0.44.0)
 

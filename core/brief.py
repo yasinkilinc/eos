@@ -245,7 +245,8 @@ def _task_sections(root: Path, task: str) -> tuple[list[list[str]], bool]:
         found = True
         head = [f"PROCEDURE  {procedure.title}  [{procedure.procedure}]  "
                 f"{procedure.runs_ok or 0} ok / {procedure.runs_failed or 0} failed, "
-                f"last verified {(procedure.last_verified or 'never')[:10]}"]
+                f"last verified {(procedure.last_verified or 'never')[:10]}, "
+                f"{notes.procedure_confidence(procedure).upper()}"]
         head += [f"  {n}. {_clip(step)}" for n, step in enumerate(notes.procedure_steps(procedure), start=1)]
         for label, items in (("prerequisites", notes.procedure_prerequisites(procedure)),
                              ("success", notes.procedure_success(procedure))):
