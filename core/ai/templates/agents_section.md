@@ -5,21 +5,24 @@ project graph, git history, notes recorded by earlier sessions, and a ledger
 of what those sessions took on, all under `.eos/`. `eos scan` refreshes the
 index; a stale index is the usual reason an answer looks wrong.
 
-Start with one command:
+Start with one command, and give it the task once you have one:
 
 ```bash
 eos brief .
+eos brief . --task "<what you were asked to do>"
 ```
 
-It prints what is in flight here — claimed, blocked, stale, or held by two
-sessions at once — and the notes that match this branch. Nothing else can tell
-you that another session is already on the thing you are about to start. Where
-`.claude/hooks/eos-brief.py` is installed it has already run at session start.
+The first prints what is in flight here — claimed, blocked, stale, held by two
+sessions at once, or left running — and the notes that match this branch. The
+second prints the procedure this project follows for the task, its last runs
+and what the failed ones taught. Where `.claude/hooks/eos-brief.py` and
+`.claude/hooks/eos-prompt.py` are installed, both have already run.
 
-Two habits are worth keeping regardless of the tool: claim work before you
-start it (`eos work add . --title "..." --claim`), and record a note afterwards
-if you learned something a future `eos scan` could not re-derive
-(`eos note add .`).
+Around a task someone will ask about later: `eos run start . --title "..."`
+before the first action, `eos run finish . --outcome ok|failed|abandoned`
+after (a failed run needs `--lesson`). Claim work before you start it
+(`eos work add . --title "..." --claim`), and record a note afterwards if you
+learned something a future `eos scan` could not re-derive (`eos note add .`).
 
 <!-- eos:mcp-only:begin -->
 EOS's read-only tools are also registered as an MCP server in `.mcp.json`.

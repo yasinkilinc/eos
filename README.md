@@ -544,6 +544,42 @@ which the hook exports so that every later call in the session is attributed
 too. Telemetry records the id and nothing else new — it is an opaque marker a
 harness generated, never anything a person typed.
 
+## Operational memory: how a task is done here, and what happened last time
+
+Notes say what is true and the work ledger what a session intends. Two more
+stores answer the two questions a fresh session is otherwise left to
+rediscover or improvise:
+
+```bash
+eos brief . --task "deploy the service to staging"     # what to do, and how it went before
+eos run start . --title "Deploy wallet" --procedure deploy-to-staging --target staging
+eos-event --kind ran --tool jenkins --target staging --ref build#118 --exit 0   # from a wrapper
+eos run finish . --outcome failed --lesson "Built from main; check the branch first"
+eos procedure show . deploy-to-staging                  # steps, counts, confidence, recent runs
+eos run show . <id> | eos run tools . | eos run diff . <id>
+```
+
+- **Executions** (ADR-022) — `executions.jsonl`, append-only: each run's
+  start, the events of what it did (kind, tool, target, a reference — never a
+  payload), and its declared outcome. Wrappers append events with no id and no
+  interpreter; capture never fails the command around it.
+- **Procedures** (ADR-023) — notes of `kind: procedure` with `## Steps`. Their
+  run counters and `last_verified` move only when a run naming them finishes;
+  `eos procedure audit` recomputes them from the ledger.
+- **Lessons and decisions** (ADR-024) — note kinds with required sections. A
+  failed run must leave a lesson; the same lesson again reads as recurring.
+  Confidence (`failing`, `unverified`, `fresh`, `aging`, `stale`) is derived
+  when asked and never stored.
+- **The task brief** — `eos brief --task` hands a session the procedure, its
+  last three runs and the last failure's lesson under 1,500 tokens. A
+  UserPromptSubmit hook runs it on every prompt, prints nothing when nothing is
+  recorded, and nothing when the same block was already delivered; the prompt
+  is never written anywhere.
+
+`eos doctor --memory` prints the 21-row capability matrix for a project, and
+`docs/plans/operational-memory.md` is the plan these came from, with its
+acceptance protocol.
+
 ## Linked parent projects
 
 A project that is a thin overlay on another codebase can link it, so both are

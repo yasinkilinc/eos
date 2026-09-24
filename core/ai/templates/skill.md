@@ -18,20 +18,22 @@ frequently the cheaper way to the same fact, and this file says so per entry
 rather than pretending otherwise. Decide per question; a command being
 available is not a reason to run it.
 
-## Two calls that are not a judgement call
+## What is not a judgement call
 
 Everything else here competes with a `Read` you can do without asking, and
-frequently loses. These two do not, because nothing else produces what they
-hold:
+frequently loses. These do not, because nothing else produces what they hold:
 
-- **`eos brief .`** at the start — what another session is doing right now
-  (claimed, blocked, stale), and which recorded notes match this branch. A
-  SessionStart hook runs it for you where one is installed; run it yourself
-  where one is not. It is one screen, and it is the only way to find out that
-  the thing you are about to start is already half-done next door.
-- **`eos work claim .` / `eos note add .`** at the end — what you took, and
-  what you learned. A finding that lives only in a conversation is a finding
-  the next session pays for again.
+- **`eos brief .`** at the start — what another session is doing right now,
+  runs left open, and which notes match this branch. A SessionStart hook runs
+  it for you where one is installed.
+- **`eos brief . --task "…"`** when you are given a task — the procedure this
+  project follows for it, the last runs of it and what the failed ones taught.
+  A prompt hook runs it for you where one is installed, and prints nothing when
+  nothing is recorded.
+- **`eos run start` … `eos run finish`** around a task someone will ask about
+  later, and **`eos note add` / `eos procedure new`** for what you learned — a
+  run that is not recorded, and a lesson that lives only in this conversation,
+  are paid for again by the next session.
 
 <!-- eos:mcp-only:begin -->
 ## The 12 tools
@@ -132,34 +134,36 @@ here, not elsewhere. Prefer it over the table above whenever the two disagree
 
 ## The session loop
 
-This is the one part nothing else substitutes for. Four steps, two of them at
-the start and two at the end.
+This is the one part nothing else substitutes for. Six steps, in the order a
+session lives them. Where the hooks are installed, steps 1 and 2 have already
+happened and their output is above.
 
-1. **Open with `eos brief <project>`** — what is claimed, blocked or stale
-   here, and which notes match this branch. Where a SessionStart hook is
-   installed this has already run and its output is above; otherwise it is the
-   cheapest call you will make all session.
-2. **Before starting on a subject** — `eos note search <project> "<query>"`,
-   then `eos note show <project> "<name>"` for one that looks relevant. An
-   earlier session may have already paid for the discovery, and re-deriving it
-   from source is real cost paid twice. `eos compose <project> "<task>"`
-   returns the bodies of the notes ranking highest against a task, which is how
-   to read several at once.
-3. **Claim what you take** — `eos work add <project> --title "…" --claim
-   --session <id>`, or `eos work claim <project> <id>` for an item that already
-   exists. A parallel session reads the ledger you did not write, and two
-   agents on one item costs both of them a session.
-4. **Close what you learned** — `eos note add <project> --kind finding --title
-   "..." --body "..."` for anything the next `eos scan` could not re-derive (a
-   non-obvious cause, a measured cost, a constraint invisible in the code), and
-   `eos work done <project> <id> --note "…"`, `eos work block <project> <id>
-   --reason "…"` or `eos work drop <project> <id> --reason "…"` for where the
-   work got to. A finding that lives only in this conversation is a finding the
-   next one pays for again; a claim never closed reads to the next session as an
-   agent that vanished mid-task. Where a Stop hook is installed it will ask you
-   for exactly this once, before the session ends — all three answers are
-   accepted, and "it is blocked" or "it will not be done" are as good as "done"
-   as long as one of them is recorded.
+1. **Open** — `eos brief <project>`: what is claimed, blocked, stale or left
+   running here, and the notes that match this branch.
+2. **Take the task** — `eos brief <project> --task "<the task>"`: the procedure
+   recorded for it, as steps, with its success criteria, run counts and a
+   confidence word (`failing`, `unverified`, `fresh`, `aging`, `stale`); its
+   last three runs and the lesson of the last failure; the nearest notes. If a
+   procedure is recorded, follow it. If none is, say so and work from source —
+   do not present improvised steps as this project's.
+3. **Start** — `eos work add <project> --title "…" --claim` for the work, and
+   `eos run start <project> --title "…" [--procedure <slug>] [--target <env>]`
+   for this attempt at it. The run is what the next session will read as "what
+   happened last time".
+4. **Act** — through the project's wrappers where it has them; each one
+   appends an event to your open run on its own (`eos-event`, or `eos run
+   event` by hand for anything done outside them). `eos verify` inside the run
+   lands on its timeline.
+5. **Finish** — `eos run finish <project> --outcome ok|failed|abandoned`. A
+   failed run must carry `--lesson "what to do differently"`; it becomes a
+   lesson note linked to the run, and the procedure's counters move. Abandoned
+   says nothing about whether the procedure works, and counts nothing.
+6. **Record** — `eos procedure new` the first time a recurring task was done
+   well enough to repeat; `eos note add` for anything the next `eos scan`
+   could not re-derive (a non-obvious cause, a measured cost, a constraint
+   invisible in the code); `eos work done|block|drop` for where the work got
+   to. Where a Stop hook is installed it asks once about work you hold and
+   runs you left open — every honest answer is accepted.
 
 ---
 

@@ -1,6 +1,6 @@
 # Plan: operational memory — target 1.0.0
 
-**Status of this plan: ACTIVE.** Engine at the time of writing: 0.38.0; M0 landed in 0.39.0, M1 in 0.40.0, M2 in 0.41.0, M3 in 0.42.0, M4 in 0.43.0, M5 in 0.44.0.
+**Status of this plan: ACTIVE.** Engine at the time of writing: 0.38.0; M0 landed in 0.39.0, M1 in 0.40.0, M2 in 0.41.0, M3 in 0.42.0, M4 in 0.43.0, M5 in 0.44.0, OM-60 in 0.45.0; 1.0.0 is cut by OM-61 alone.
 **Target: 1.0.0**, defined as "the acceptance harness in M0 is green in full."
 
 This file is the one place a session resumes from. It is a ledger, not an
@@ -118,7 +118,7 @@ milestone.
 | OM-43 | M4 | Verification records carry `session` and `execution` | 0.43.0 | C-16 | DONE |
 | OM-50 | M5 | Event `tool` / `target` vocabulary; `eos run tools` | 0.44.0 | C-12 | DONE |
 | OM-51 | M5 | `changed` events + finish-time git delta; `eos run diff` | 0.44.0 | C-13 | DONE |
-| OM-60 | M6 | Skill/agent templates teach the loop; `docs/phases.md`; README | 1.0.0 | C-21 | TODO |
+| OM-60 | M6 | Skill/agent templates teach the loop; `docs/phases.md`; README | 0.45.0 | C-21 | DONE |
 | OM-61 | M6 | Full harness green; audit protocol re-run and recorded | 1.0.0 | all | TODO |
 | H-00 | H | Baseline: the fresh-session eval run in the host, report kept | — | C-21 | DONE |
 | H-01 | H | Capture: every external-action wrapper appends one `eos run event` | after M1 | C-06 C-12 | TODO |
