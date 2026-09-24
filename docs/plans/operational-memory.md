@@ -124,7 +124,7 @@ milestone.
 | H-01 | H | Capture: every external-action wrapper appends one `eos run event` | after M1 | C-06 C-12 | DONE |
 | H-02 | H | Hooks registered where sessions actually start: SessionStart + UserPromptSubmit | after M3 | C-21 | DONE |
 | H-03 | H | Procedures written once: each recurring task becomes a `kind: procedure` note | after M2 | C-03 C-07 | DONE |
-| H-04 | H | Step catalogues indexed through the extension (`[index] extensions`) | after M2 | C-03 | TODO |
+| H-04 | H | Step catalogues indexed through the extension (`[index] extensions`) | after M2 | C-03 | DONE |
 | H-05 | H | The always-loaded instruction set split: index ≤ 4k tokens, pages on demand | — | C-20 | DONE |
 | H-06 | H | Golden sets: a second project, and procedure questions | after M3 | C-09 | DONE |
 | H-07 | H | Re-audit in the host: `eos doctor --memory` green on real projects; eval re-run | after M6 | all | TODO |
