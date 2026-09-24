@@ -1884,6 +1884,9 @@ def cmd_procedure_show(args: argparse.Namespace) -> int:
     print("  steps")
     for number, step in enumerate(notes.procedure_steps(note), start=1):
         print(f"    {number:>2}. {step}")
+    avoid = notes._items(notes.section_in(note.body, "When not to use this"))
+    for i, item in enumerate(avoid):
+        print(f"  {'not for' if i == 0 else '':<13} {item}")
     failures = notes.procedure_known_failures(note)
     if failures:
         print("  known failures")

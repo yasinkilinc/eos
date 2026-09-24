@@ -35,7 +35,10 @@ CHARS_PER_TOKEN = 3.0
 RUN_LIMIT = 3
 RELATED_LIMIT = 3
 FAILURE_LIMIT = 3
-STEP_CHARS = 160
+# A step is clipped at this many characters. 160 clipped four of eight lines of
+# a real procedure and sent the fresh-session eval to `procedure show` for the
+# rest; at 240 the same brief is ~950 tokens against the 1,500 budget, whole.
+STEP_CHARS = 240
 
 # Caps, not budgets. Everything here is one line, and the value of the block
 # is that it is read rather than skimmed -- twenty items is a document, five
