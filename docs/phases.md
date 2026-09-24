@@ -7,9 +7,9 @@
 | 2 | eos-ui: SQLite, scan-root management, reconcile trigger, list view | 🚧 In progress |
 | 3 | Graph visualization (Cytoscape.js) | ✅ Done (instance list + drill-down graph) |
 | 4 | File watcher (watchdog), Tauri packaging, monorepo/nested support | 🚧 File watcher done; Tauri/nested planned |
-| 5 | Operational memory: execution ledger, procedures, task-aware brief, lessons, learning — target **1.0.0** | 📋 Planned — [`plans/operational-memory.md`](plans/operational-memory.md) is the resume point |
+| 5 | Operational memory: execution ledger, procedures, task-aware brief, lessons, learning — target **1.0.0** | 🚧 M0 done (0.39.0): harness + `eos doctor --memory` — [`plans/operational-memory.md`](plans/operational-memory.md) is the resume point |
 
-## Phase 5 — Operational memory (planned, target 1.0.0)
+## Phase 5 — Operational memory (in progress, target 1.0.0)
 
 The engine remembers what is true (notes) and what a session intends (work
 ledger). It does not remember **how** a task should be done or **what

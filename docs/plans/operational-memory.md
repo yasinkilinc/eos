@@ -1,6 +1,6 @@
 # Plan: operational memory — target 1.0.0
 
-**Status of this plan: ACTIVE.** Engine at the time of writing: 0.38.0.
+**Status of this plan: ACTIVE.** Engine at the time of writing: 0.38.0; M0 landed in 0.39.0.
 **Target: 1.0.0**, defined as "the acceptance harness in M0 is green in full."
 
 This file is the one place a session resumes from. It is a ledger, not an
@@ -95,8 +95,8 @@ milestone.
 
 | ID | Milestone | Deliverable | Version | Checks | Status |
 |---|---|---|---|---|---|
-| OM-00 | M0 | Acceptance harness `tests/test_operational_memory.py` + `eos doctor --memory` | 0.39.0 | — | TODO |
-| OM-01 | M0 | Fresh-session eval scenario `evals/scenarios/where-did-we-leave-off.md` | 0.39.0 | C-21 | TODO |
+| OM-00 | M0 | Acceptance harness `tests/test_operational_memory.py` + `eos doctor --memory` | 0.39.0 | — | DONE |
+| OM-01 | M0 | Fresh-session eval scenario `evals/scenarios/where-did-we-leave-off.md` | 0.39.0 | C-21 | DONE |
 | OM-10 | M1 | ADR-022: the execution ledger | 0.40.0 | — | TODO |
 | OM-11 | M1 | `core/executions.py`: record + event model, append, fold | 0.40.0 | C-04 C-05 | TODO |
 | OM-12 | M1 | `eos run start\|event\|finish\|list\|show` | 0.40.0 | C-04 C-05 C-06 | TODO |
@@ -120,6 +120,19 @@ milestone.
 | OM-51 | M5 | `changed` events + finish-time git delta; `eos run diff` | 0.44.0 | C-13 | TODO |
 | OM-60 | M6 | Skill/agent templates teach the loop; `docs/phases.md`; README | 1.0.0 | C-21 | TODO |
 | OM-61 | M6 | Full harness green; audit protocol re-run and recorded | 1.0.0 | all | TODO |
+| H-00 | H | Baseline: the fresh-session eval run in the host, report kept | — | C-21 | TODO |
+| H-01 | H | Capture: every external-action wrapper appends one `eos run event` | after M1 | C-06 C-12 | TODO |
+| H-02 | H | Hooks registered where sessions actually start: SessionStart + UserPromptSubmit | after M3 | C-21 | TODO |
+| H-03 | H | Procedures written once: each recurring task becomes a `kind: procedure` note | after M2 | C-03 C-07 | TODO |
+| H-04 | H | Step catalogues indexed through the extension (`[index] extensions`) | after M2 | C-03 | TODO |
+| H-05 | H | The always-loaded instruction set split: index ≤ 4k tokens, pages on demand | — | C-20 | TODO |
+| H-06 | H | Golden sets: a second project, and procedure questions | after M3 | C-09 | TODO |
+| H-07 | H | Re-audit in the host: `eos doctor --memory` green on real projects; eval re-run | after M6 | all | TODO |
+
+**Order:** every M row before any H row except H-00 and H-05, which depend
+on nothing in the engine and can be done at any time. The H rows are the
+host's half of the same plan (§6); a host records what each one maps to in
+its own documentation, and this table is where their status lives.
 
 ## 4. Acceptance checks
 
@@ -162,15 +175,36 @@ and its status rows flipped in the same commits.
 
 Nothing is built before the thing that says whether it worked exists.
 
-- **OM-00** `tests/test_operational_memory.py`: the 21 checks above, each a
-  test with the check id in its name, each red. `eos doctor --memory`: the
-  same checks run against a real project, printed as the matrix. Skipping a
-  check is a failure; the harness may not silently shrink.
+- **OM-00** `core/memory_audit.py`: the 21 checks above as read-only
+  functions, one per row, each answering "capability present, and used
+  here?" with `IMPLEMENTED / PARTIAL / MISSING / DECIDED` and one evidence
+  line. `eos doctor --memory [--format json]` runs them on a real project,
+  prints the matrix with the next open row, exits 1 while any row is open.
+  `tests/test_operational_memory.py`: one test per row that exercises the
+  milestone's interface on a fixture and then asks the same check. The
+  eighteen red ones are `xfail(strict=True)` naming the OM row they wait
+  for, so the suite stays green and the moment a milestone makes one pass
+  the marker must go in the same commit or the suite fails loudly. Nothing
+  may `skip`; the matrix must always render all 21 rows.
 - **OM-01** `evals/scenarios/where-did-we-leave-off.md`: the protocol in
   `evals/README.md`, applied to this question — a fresh session is given a
   task the project has executed before, and reports whether it found the
-  procedure and the prior runs, in what order, at what cost. Recorded now as
-  the baseline (expected: not found), re-run at M6.
+  procedure and the prior runs, in what order, at what cost. Recorded in the
+  host as the baseline (H-00, expected: not found), re-run at H-07.
+
+**Interfaces the harness pins.** The tests call these names; a milestone
+implements to them, and a name that turns out wrong is changed in the test,
+the harness and this list in one commit.
+
+| Where | Names |
+|---|---|
+| `core/executions.py` (M1) | `start(root, title, *, procedure, work_item, session, agent, target) → Record`; `event(root, id, *, kind, tool, target, ref, exit_code, ms, body) → Event`; `finish(root, id, *, outcome, lesson) → Record` — refuses `failed` without a lesson (M4); `load(root)`; `by_session(root, session)`; `ranked(root, *, procedure, target, limit)` (M3); `tools(root, *, procedure, target) → [ToolUse(tool, count, last_outcome)]` (M5); `diff(root, id) → {paths, commit_start, commit_end}` (M5). `Record`: `id, title, procedure, work_item, session, agent, started_at, finished_at, outcome, target, branch, commit_start, commit_end, lesson, events`. `Event`: `execution, ord, at, kind, tool, target, ref, exit_code, ms, body, session`. |
+| `core/eos.py` (M1) | `cmd_run_start`, `cmd_run_event`, `cmd_run_finish`, `cmd_run_list`, `cmd_run_show`; `eos run event <path> <id> --kind … --tool … --target … --ref … --exit N` |
+| `core/notes.py` (M2, M4) | `KINDS` gains `procedure`, `lesson`, `decision`; `Note` gains `procedure` (slug), `runs_ok`, `runs_failed`, `last_verified`, `execution`; `procedure_steps(note) → [str]` from `## Steps`; `procedure_confidence(note) → fresh\|aging\|stale\|failing`; `add_note(kind=…)` validates `## Steps` / `## Why, ## When, ## Component` / `## What went wrong, ## What was learned, ## Next time`; `SCORE_FLOOR` (M3) |
+| `core/index.py` (M1, M3) | `execution`, `execution_event` tables; `search` rows with `source` in `execution`, `procedure`; `SCORE_FLOOR` |
+| `core/brief.py` (M3) | `build(root, *, session, agent, task=None, budget=None)` |
+| `core/verification.py` (M4) | `Record.session`, `Record.execution`; `record(…, session=, execution=)` |
+| `core/ai/templates/` (M3) | `prompt_submit.py`; `writer._HOOKS` gains `("UserPromptSubmit", ".claude/hooks/eos-prompt.py", "prompt_submit.py")` |
 
 ### M1 — the execution ledger (0.40.0)
 
@@ -313,29 +347,58 @@ Nothing is built before the thing that says whether it worked exists.
   protocol (§8) re-run by a fresh session and the report committed beside the
   baseline from OM-01. Version 1.0.0 is cut only when both are true.
 
-## 6. Host integration contract
+## 6. Host milestones (H) — the half the engine cannot do
 
-The engine cannot see a tool call it did not make. The host workspace owns
-the capture points, and this plan asks three things of it, all optional in
-the sense that the engine works without them and honest in the sense that
-without them C-06, C-12 and C-21 cannot pass:
+The engine cannot see a tool call it did not make, cannot register a hook in
+a directory it does not own, and cannot shrink a document it did not write.
+The audit found the engine's 1.0.0 would be **unfed** without these: the
+brief was installed in thirteen projects and had run in none, because
+sessions start one directory up; the ledger had a schema and no writer. So
+the host's work is in the same status table, numbered H, and 1.0.0 in the
+host's sense (§8, step 1 on *real* projects) needs every H row `DONE`.
 
-1. **Capture** — every wrapper the host routes external actions through
-   appends one `eos run event` line (OM-15). Wrappers are the right place
-   because they are already the only door to the outside world in a
-   disciplined workspace, and because a hook sees a command string while a
-   wrapper sees a result.
-2. **Hooks at the directory sessions start from** — SessionStart and
-   UserPromptSubmit registered where the session's working directory
-   actually is (OM-32).
-3. **Procedures written down once** — the host's existing runbooks and step
-   catalogues either become `kind: procedure` notes (OM-21) or are indexed by
-   the extension (OM-24). A procedure that lives only inside a large
-   instruction document is invisible to the brief and costs the whole
-   document to reach.
+The rows are written for any host. A host keeps its own file mapping each
+H-xx to its concrete scripts, hooks and documents; that file is host
+documentation, this plan does not name hosts.
 
-A host records its own mapping of these three in its own documentation; the
-engine's plan does not name hosts.
+- **H-00 Baseline.** The fresh-session eval (OM-01) run once in the host
+  before anything changes, report kept beside the engine's. It is the number
+  H-07 is compared against. Depends on nothing.
+- **H-01 Capture.** Every wrapper through which the host routes an external
+  action — build, deploy, ticket, review, database, queue, observability,
+  test run, push — appends one `eos run event` (OM-15): `tool` = the wrapper,
+  `target` = the environment or system, `ref` = the log or cache path the
+  wrapper already writes, `exit` = its own exit. One shared helper, under 50
+  ms, never failing the wrapped command. Wrappers are the right place because
+  a hook sees a command string while a wrapper sees a result, and because in
+  a disciplined workspace they are already the only door out.
+- **H-02 Hooks where sessions start.** SessionStart → `eos brief` and
+  UserPromptSubmit → `eos brief --task` registered in the directory sessions
+  are actually opened from, not only in each project (OM-32). Where the host
+  has a non-hook agent, its start-of-task step runs the same one command.
+- **H-03 Procedures written once.** Each recurring task a session is given —
+  deploy to an environment, deliver a configuration change, take a change to
+  merge, run a regression, run a scenario, upgrade a product version —
+  becomes one `kind: procedure` note (OM-21) naming its tools and the wrapper
+  output that proves success. A procedure that lives only inside a large
+  instruction document is invisible to the brief and costs the whole document
+  to reach.
+- **H-04 Catalogues indexed.** Where the host already keeps machine-readable
+  step definitions with recorded state (a scenario engine, a runbook
+  directory), the extension (OM-24) is configured for them, so "which step
+  failed, when" is a query and not a table someone maintains by hand.
+- **H-05 The always-loaded set split.** Whatever the host loads into every
+  session unconditionally is measured, and anything over the brief's own
+  budget by an order of magnitude is split into an index plus pages opened by
+  name. Not engine work, and in the audited host larger than every engine
+  gain combined: 72% of what a session paid before its first tool call was
+  one document. Depends on nothing; can be done first.
+- **H-06 Golden sets.** A second project's question/answer set, and a set of
+  *procedure* questions ("how do I …"), so the score floor (OM-33) and the
+  task-brief ranking (OM-30) are measured in the host, not guessed.
+- **H-07 Re-audit in the host.** `eos doctor --memory` green on the host's
+  real projects, the eval re-run and compared with H-00, and the §8 protocol
+  applied by a reader who did not do the work.
 
 ## 7. What is deliberately not in this plan
 

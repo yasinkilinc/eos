@@ -65,6 +65,11 @@ codebase, because this repository deliberately carries no project identifiers
 or workspace paths (`tools/check-clean.sh` enforces that). Supply the concrete
 project when you run one.
 
+One of them, `where-did-we-leave-off.md`, is not a documentation check: it
+is the yardstick of `docs/plans/operational-memory.md`, run once before that
+plan's first milestone and once after its last, by different sessions, so
+that "done" is a comparison of two reports rather than a claim.
+
 ## Where results go
 
 Not here, for the same reason: a result names a real project, its real

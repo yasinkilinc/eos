@@ -328,6 +328,19 @@ def cmd_update(args: argparse.Namespace) -> int:
 def cmd_doctor(args: argparse.Namespace) -> int:
     from core import preflight
 
+    if getattr(args, "memory", False):
+        # Where the operational-memory plan stands, for this project, as the
+        # matrix the plan is judged by. Read-only. Exit 1 while any row is
+        # open, so a script can ask the same question a session does.
+        from core import memory_audit
+
+        results = memory_audit.run(args.path)
+        if args.format == "json":
+            print(json.dumps([r.__dict__ for r in results], indent=2))
+        else:
+            print(memory_audit.render(results))
+        return 0 if memory_audit.complete(results) else 1
+
     print("Dependencies:")
     blocking = []
     for req in preflight.report():
@@ -1896,6 +1909,11 @@ def main(argv: list[str] | None = None) -> int:
 
     doctor_p = sub.add_parser("doctor", help="Validate .eos/ integrity")
     add_path(doctor_p)
+    doctor_p.add_argument(
+        "--memory", action="store_true",
+        help="Instead: the operational-memory matrix for this project "
+             "(docs/plans/operational-memory.md); exit 1 while any row is open")
+    doctor_p.add_argument("--format", choices=("text", "json"), default="text")
 
     info_p = sub.add_parser("info", help="Show instance summary")
     add_path(info_p)
