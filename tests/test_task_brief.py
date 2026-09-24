@@ -269,6 +269,16 @@ def test_one_rare_word_alone_does_not_name_a_procedure(project):
     assert "[run-an-order-scenario" in brief.build(project, task="topup senaryoyu koş", task_only=True)
 
 
+def test_a_lone_word_names_a_task_only_when_it_is_the_prompt(project):
+    """The words around it in no note, "aç" (open) carried the whole share of
+    "dosyayı aç ve oku" (open the file and read it) and named the PR procedure."""
+    notes.add_note(project, kind="procedure", title="Open a PR (PR aç)", body=STEPS, tags=["pr", "aç", "push"])
+    assert brief.build(project, task="dosyayı aç ve oku", task_only=True) == ""
+    assert "[open-a-pr" in brief.build(project, task="PR aç", task_only=True)
+    assert "[open-a-pr" in brief.build(project, task="push'la", task_only=True)
+    assert "[open-a-pr" in brief.build(project, task="PROJ-1700 için aç", task_only=True)
+
+
 def test_words_are_letters_of_any_script_and_an_issue_key_is_one_word():
     assert notes._words("PR aç ama merge olmasın") == {"pr", "aç", "ama", "merge", "olmasın"}
     assert notes._words("planı incele") == {"planı", "incele"}

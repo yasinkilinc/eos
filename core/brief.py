@@ -228,6 +228,17 @@ def best_procedure(root: Path, task: str, corpus: list | None = None):
         weights = None
     score, note = max(((notes.relevance(n, words, weights, body=False), n) for n in candidates),
                       key=lambda pair: pair[0])
+    heading = notes._words(note.title) | notes._words(" ".join(note.tags))
+    matched = words & heading
+    # One matched word names a task only when it is most of the prompt
+    # ("push'la", "PR aç"). In a longer prompt a lone word whose neighbours
+    # are in no note carries the whole share by default: "dosyayı aç ve oku"
+    # (open the file and read it) named the PR procedure through "aç" alone.
+    # An issue key and a bare number are the task's reference, not its
+    # wording, so they do not count: "PROJ-1700'e başla" is one word long.
+    wording = {word for word in words if not word.isdigit() and not notes._KEY.fullmatch(word)}
+    if len(matched) == 1 and len(wording) > 2:
+        return None
     if score >= notes._RELEVANCE_THRESHOLD:
         return note
     # Coverage is a share of the prompt, and a prompt in another language than
@@ -240,8 +251,6 @@ def best_procedure(root: Path, task: str, corpus: list | None = None):
     # language is a verb as often as a task -- "koş" (run) named the scenario
     # procedure for "run a service's tests", "aç" (open) would name the PR
     # procedure for "open the file". A task is named by an object and a verb.
-    heading = notes._words(note.title) | notes._words(" ".join(note.tags))
-    matched = words & heading
     named = sum(weights[word] for word in matched) if weights else float(len(matched))
     floor = math.log(min(PROCEDURE_NAMED_RARITY, math.sqrt(len(corpus))))
     return note if len(matched) >= 2 and named >= floor else None

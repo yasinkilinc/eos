@@ -118,4 +118,8 @@ store too small for that). That second path needs **two** matched
 words (1.1.1): one word rare only because the notes are in English is a verb as
 often as a task — "koş" (run) named the scenario procedure for "run the
 service's tests", and "aç" (open) would name the PR procedure for "open the
-file". An object and a verb name a task; a lone verb does not.
+file". An object and a verb name a task; a lone verb does not. And on
+either path one matched word names a task only when it is most of the prompt —
+at most two words, an issue key and a bare number not counted (1.1.2): in
+"dosyayı aç ve oku" (open the file and read it) the other words are in no note,
+so "aç" carried the whole share and named the PR procedure.
