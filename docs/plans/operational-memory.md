@@ -1,6 +1,6 @@
 # Plan: operational memory — target 1.0.0
 
-**Status of this plan: ACTIVE.** Engine at the time of writing: 0.38.0; M0 landed in 0.39.0, M1 in 0.40.0, M2 in 0.41.0, M3 in 0.42.0, M4 in 0.43.0, M5 in 0.44.0, OM-60 in 0.45.0, the host's H-03/H-06 against 0.46.0; 1.0.0 is cut by OM-61 alone.
+**Status of this plan: CLOSED at 1.0.0, 2026-09-24.** Engine at the time of writing: 0.38.0; M0 landed in 0.39.0, M1 in 0.40.0, M2 in 0.41.0, M3 in 0.42.0, M4 in 0.43.0, M5 in 0.44.0, OM-60 in 0.45.0, the host's H rows against 0.46.0; 1.0.0 was cut when §8 held, with the record in §10.
 **Target: 1.0.0**, defined as "the acceptance harness in M0 is green in full."
 
 This file is the one place a session resumes from. It is a ledger, not an
@@ -119,7 +119,7 @@ milestone.
 | OM-50 | M5 | Event `tool` / `target` vocabulary; `eos run tools` | 0.44.0 | C-12 | DONE |
 | OM-51 | M5 | `changed` events + finish-time git delta; `eos run diff` | 0.44.0 | C-13 | DONE |
 | OM-60 | M6 | Skill/agent templates teach the loop; `docs/phases.md`; README | 0.45.0 | C-21 | DONE |
-| OM-61 | M6 | Full harness green; audit protocol re-run and recorded | 1.0.0 | all | TODO |
+| OM-61 | M6 | Full harness green; audit protocol re-run and recorded | 1.0.0 | all | DONE |
 | H-00 | H | Baseline: the fresh-session eval run in the host, report kept | — | C-21 | DONE |
 | H-01 | H | Capture: every external-action wrapper appends one `eos run event` | after M1 | C-06 C-12 | DONE |
 | H-02 | H | Hooks registered where sessions actually start: SessionStart + UserPromptSubmit | after M3 | C-21 | DONE |
@@ -127,7 +127,7 @@ milestone.
 | H-04 | H | Step catalogues indexed through the extension (`[index] extensions`) | after M2 | C-03 | DONE |
 | H-05 | H | The always-loaded instruction set split: index ≤ 4k tokens, pages on demand | — | C-20 | DONE |
 | H-06 | H | Golden sets: a second project, and procedure questions | after M3 | C-09 | DONE |
-| H-07 | H | Re-audit in the host: `eos doctor --memory` green on real projects; eval re-run | after M6 | all | TODO |
+| H-07 | H | Re-audit in the host: `eos doctor --memory` green on real projects; eval re-run | after M6 | all | DONE |
 
 **Order:** every M row before any H row except H-00 and H-05, which depend
 on nothing in the engine and can be done at any time. The H rows are the
@@ -468,3 +468,42 @@ For the session that picks this up:
 5. Record anything learned that this plan did not predict as a note — a
    `lesson` once M4 exists, a `finding` before — not as a comment in the
    plan.
+
+## 10. What 1.0.0 means, and what it does not
+
+Cut on 2026-09-24 when the four conditions of §8 held, each recorded where a
+later reader can check it:
+
+1. `eos doctor --memory` on the reference project (the host workspace's own
+   root): 21 of 21 rows, every one traced by an independent reader to code and
+   to a command it ran.
+2. `tests/test_operational_memory.py`: 23 of 23 green, no `xfail` left.
+3. The fresh-session eval re-run (`evals/scenarios/where-did-we-leave-off.md`),
+   by a session that did none of the work, handed what the two hooks print:
+   both halves answered before its first acting command — the procedure with
+   its steps and its honest `unverified`, and "no execution is recorded" as a
+   fact about the store confirmed three ways — at 3,402 characters of hook
+   context, against a baseline of ~20,000 characters that found nothing. Its
+   findings (a clipped step line, a `.` that pointed at the wrong store, a
+   section `procedure show` omitted) were fixed before the cut.
+4. The capability matrix re-filled by a reader who did not do the work. Its
+   caveats are the honest description of this version and are kept in the
+   host's records verbatim; four of them were fixed before the cut (the
+   catalogue's history folded into the brief, verification records indexed and
+   searchable, C-19 requiring a real join, two more wrappers capturing), one
+   was left as designed (C-20's volume proof is the 1,000-execution fixture in
+   the gate; the doctor's threshold is a floor for real projects).
+
+What it does not mean, in the reader's words: *"21/21 in the one project the
+work was seeded in, 6/21 in the projects the work is meant to serve."* The
+engine can remember; a project remembers only what runs are started in it.
+The reference project's ten executions were recorded by one session in one
+sitting, on real scenarios against a real environment, because the loop had
+to be exercised once to be judged — the counters and the lessons that came
+out of it are real, and so is the fact that they are one day old. Every
+other project in the host has the hooks, the wrappers and the procedures
+(which live in the host's root by decision) and an empty ledger. The next
+version of this matrix worth reading is the one taken a month of work later,
+and the plan's own rule for that reading stands: a row that is `IMPLEMENTED`
+because a similarly named thing exists is a failure of the plan, not of the
+reader.
