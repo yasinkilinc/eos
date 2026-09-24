@@ -32,7 +32,8 @@ intends and a procedure outlives every session that follows it.
 
 **Authored sections, parsed.** The body carries `## Steps` (an ordered list,
 required, at least one step; a step may name its tool as `(tool: <name>)`),
-and optionally `## Prerequisites`, `## Success`, `## When not to use this`.
+and optionally `## Prerequisites`, `## Success`, `## When not to use this`, and
+(1.1.0, see the addendum) `## Rules`.
 The engine parses these; it does not interpret them. Adding a note of this
 kind without steps is refused, as a defect without a cause is.
 
