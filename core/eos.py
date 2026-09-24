@@ -20,6 +20,7 @@ Commands:
   clean     Remove generated artifacts (cache/brain/graph/index).
 """
 import argparse
+import dataclasses
 import json
 import shutil
 import sqlite3
@@ -1953,6 +1954,52 @@ _FILL_SESSION = frozenset(
 )
 
 
+def cmd_run_tools(args: argparse.Namespace) -> int:
+    from core import executions
+
+    used = executions.tools(args.path, procedure=args.procedure, target=args.target)
+    if args.format == "json":
+        print(json.dumps([dataclasses.asdict(u) for u in used], indent=2, ensure_ascii=False))
+        return 0
+    if not used:
+        print("No tool use recorded" + (f" for {args.procedure}" if args.procedure else "")
+              + (f" against {args.target}" if args.target else "")
+              + ". Wrappers record it with eos-event / eos run event inside an open run.")
+        return 0
+    for u in used:
+        print(f"{u.tool:<16} {u.count:>4} call(s) in {u.runs} run(s)   {u.failures} non-zero   "
+              f"last run {u.last_outcome or 'open'} {(u.last_at or '')[:10]}   {', '.join(u.targets) or '-'}")
+    return 0
+
+
+def cmd_run_diff(args: argparse.Namespace) -> int:
+    from core import executions
+
+    try:
+        delta = executions.diff(args.path, args.execution)
+    except ValueError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+    if args.format == "json":
+        print(json.dumps(delta, indent=2, ensure_ascii=False))
+        return 0
+    start, end = delta["commit_start"], delta["commit_end"]
+    print(f"{delta['execution']}   commits {(start or '?')[:9]} .. {(end or 'open')[:9]}")
+    print(f"  changed (recorded)  {len(delta['paths'])}")
+    for path in delta["paths"]:
+        print(f"    {path}")
+    if delta["commits"]:
+        print(f"  commits in range    {len(delta['commits'])}")
+        for sha, subject in delta["commits"][:20]:
+            print(f"    {sha[:9]}  {subject}")
+        print(f"  files in range      {len(delta['committed_paths'])}")
+        for path in delta["committed_paths"][:40]:
+            print(f"    {path}")
+    elif start and end and start == end:
+        print("  no commit made during the run")
+    return 0
+
+
 def cmd_run(args: argparse.Namespace) -> int:
     return {
         "start": cmd_run_start,
@@ -1960,6 +2007,8 @@ def cmd_run(args: argparse.Namespace) -> int:
         "finish": cmd_run_finish,
         "list": cmd_run_list,
         "show": cmd_run_show,
+        "tools": cmd_run_tools,
+        "diff": cmd_run_diff,
     }[args.run_command](args)
 
 
@@ -2496,6 +2545,17 @@ def main(argv: list[str] | None = None) -> int:
     run_list_p.add_argument("--since", help="ISO date; runs started on or after it")
     run_list_p.add_argument("--limit", type=int, default=20)
     run_list_p.add_argument("--format", choices=("text", "json"), default="text")
+
+    run_tools_p = run_sub.add_parser("tools", help="Which tools ran, how often, and how the last run went")
+    add_path(run_tools_p)
+    run_tools_p.add_argument("--procedure")
+    run_tools_p.add_argument("--target")
+    run_tools_p.add_argument("--format", choices=("text", "json"), default="text")
+
+    run_diff_p = run_sub.add_parser("diff", help="What one execution changed: recorded paths and its commit range")
+    add_path(run_diff_p)
+    run_diff_p.add_argument("execution", help="Execution id, id prefix, or part of its title")
+    run_diff_p.add_argument("--format", choices=("text", "json"), default="text")
 
     run_show_p = run_sub.add_parser("show", help="One execution and its timeline")
     add_path(run_show_p)

@@ -362,7 +362,6 @@ def test_c18_confidence_is_derived_at_read_time_and_never_stored(tmp_path):
 # --- M5: tool and change memory -----------------------------------------------------
 
 
-@pytest.mark.xfail(strict=True, reason="OM-50 (M5): no tool memory")
 def test_c12_tools_answers_which_ran_how_often_and_with_what_outcome(tmp_path):
     from core import executions
     project = _project(tmp_path)
@@ -379,7 +378,6 @@ def test_c12_tools_answers_which_ran_how_often_and_with_what_outcome(tmp_path):
     assert _status("C-12", project).status == IMPLEMENTED
 
 
-@pytest.mark.xfail(strict=True, reason="OM-51 (M5): no change tracking")
 def test_c13_diff_lists_the_changed_paths_and_the_commit_range(tmp_path):
     from core import executions
     project = _project(tmp_path)

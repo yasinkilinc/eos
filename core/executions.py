@@ -221,8 +221,8 @@ def event(project_root: str | Path, execution: str | None = None, *, kind: str,
         execution, ledger = found
     _checked(ref, "ref")
     _checked(body, "body")
-    entry = Event(execution=execution, ord=None, at=utc_now(), kind=kind, tool=tool,
-                  target=target, ref=ref, exit_code=exit_code, ms=ms, body=body,
+    entry = Event(execution=execution, ord=None, at=utc_now(), kind=kind, tool=normalize_tool(tool),
+                  target=normalize_target(target), ref=ref, exit_code=exit_code, ms=ms, body=body,
                   session=session_for(project_root, session))
     _append(ledger, {"type": LINE_EVENT, **dataclasses.asdict(entry)})
     return entry
@@ -332,6 +332,8 @@ def load_path(ledger: Path) -> list[Record]:
             # harness variable did not stop being part of it.
             if not values.get("session"):
                 values["session"] = record.session
+            values["tool"] = normalize_tool(values.get("tool"))
+            values["target"] = normalize_target(values.get("target"))
             try:
                 record.events.append(Event(**values))
             except TypeError:
@@ -510,3 +512,104 @@ def _write_lesson(project_root: str | Path, record: Record, lesson: str, next_ti
         return notes.add_note(project_root, kind="lesson", title=f"{title} ({record.id})", body=body,
                               tags=["lesson"], session=record.session, procedure=record.procedure,
                               execution=record.id)
+
+
+# --- tool and change memory (M5) ----------------------------------------------------
+
+_TOOL_SUFFIXES = (".sh", ".py", ".js", ".ts", ".exe", ".cmd", ".bat")
+
+
+def normalize_tool(name: str | None) -> str | None:
+    """`automation/jenkins.sh`, `./Jenkins.sh` and `jenkins` are one tool.
+
+    The wrapper or program name, lower-cased, without a path or a script
+    suffix -- so "which tools ran" counts a tool once however a wrapper
+    happened to spell its own name.
+    """
+    if not name or not str(name).strip():
+        return None
+    base = str(name).strip().replace("\\", "/").rstrip("/").rsplit("/", 1)[-1].lower()
+    for suffix in _TOOL_SUFFIXES:
+        if base.endswith(suffix) and len(base) > len(suffix):
+            base = base[: -len(suffix)]
+            break
+    return base or None
+
+
+def normalize_target(name: str | None) -> str | None:
+    return str(name).strip().lower() or None if name else None
+
+
+@dataclasses.dataclass
+class ToolUse:
+    tool: str
+    count: int = 0
+    failures: int = 0
+    runs: int = 0
+    last_outcome: str | None = None
+    last_at: str | None = None
+    targets: list = dataclasses.field(default_factory=list)
+
+
+def tools(project_root: str | Path, *, procedure: str | None = None,
+          target: str | None = None, records: list[Record] | None = None) -> list[ToolUse]:
+    """Which tools ran, how often, how often they exited non-zero, and the
+    outcome of the most recent run each was part of -- most used first."""
+    found = records if records is not None else load(project_root)
+    wanted = normalize_target(target)
+    usage: dict[str, ToolUse] = {}
+    for record in found:  # ledger order, so "last" is the latest run
+        if procedure and record.procedure != procedure:
+            continue
+        seen_here: set[str] = set()
+        for e in record.events:
+            tool = normalize_tool(e.tool)
+            event_target = normalize_target(e.target) or normalize_target(record.target)
+            if not tool or (wanted and event_target != wanted):
+                continue
+            use = usage.setdefault(tool, ToolUse(tool=tool))
+            use.count += 1
+            if isinstance(e.exit_code, int) and e.exit_code != 0:
+                use.failures += 1
+            if event_target and event_target not in use.targets:
+                use.targets.append(event_target)
+            if tool not in seen_here:
+                use.runs += 1
+                seen_here.add(tool)
+            use.last_outcome = record.outcome
+            use.last_at = e.at
+    return sorted(usage.values(), key=lambda u: (-u.count, u.tool))
+
+
+def diff(project_root: str | Path, execution: str) -> dict:
+    """What an execution changed: the paths its `changed` events name, and the
+    commit range it ran across with the commits and files inside it.
+
+    References only (ADR-022): paths and commit ids, resolved through git for
+    as long as the repository holds them. No content is stored or printed.
+    """
+    import shutil
+    import subprocess
+
+    record = resolve(load(project_root), execution)
+    paths: list[str] = []
+    for e in record.events:
+        if e.kind == "changed" and e.ref and e.ref not in paths:
+            paths.append(e.ref)
+    out = {"execution": record.id, "paths": paths, "commit_start": record.commit_start,
+           "commit_end": record.commit_end, "commits": [], "committed_paths": []}
+    git = shutil.which("git")
+    if git and record.commit_start and record.commit_end and record.commit_start != record.commit_end:
+        span = f"{record.commit_start}..{record.commit_end}"
+        try:
+            log = subprocess.run([git, "-C", str(project_root), "log", "--format=%H%x09%s", span],
+                                 capture_output=True, text=True, timeout=30)
+            files = subprocess.run([git, "-C", str(project_root), "diff", "--name-only", span],
+                                   capture_output=True, text=True, timeout=30)
+        except (OSError, subprocess.TimeoutExpired):
+            return out
+        if log.returncode == 0:
+            out["commits"] = [line.split("\t", 1) for line in log.stdout.splitlines() if "\t" in line]
+        if files.returncode == 0:
+            out["committed_paths"] = [line for line in files.stdout.splitlines() if line.strip()]
+    return out
