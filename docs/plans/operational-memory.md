@@ -120,7 +120,7 @@ milestone.
 | OM-51 | M5 | `changed` events + finish-time git delta; `eos run diff` | 0.44.0 | C-13 | TODO |
 | OM-60 | M6 | Skill/agent templates teach the loop; `docs/phases.md`; README | 1.0.0 | C-21 | TODO |
 | OM-61 | M6 | Full harness green; audit protocol re-run and recorded | 1.0.0 | all | TODO |
-| H-00 | H | Baseline: the fresh-session eval run in the host, report kept | — | C-21 | TODO |
+| H-00 | H | Baseline: the fresh-session eval run in the host, report kept | — | C-21 | DONE |
 | H-01 | H | Capture: every external-action wrapper appends one `eos run event` | after M1 | C-06 C-12 | TODO |
 | H-02 | H | Hooks registered where sessions actually start: SessionStart + UserPromptSubmit | after M3 | C-21 | TODO |
 | H-03 | H | Procedures written once: each recurring task becomes a `kind: procedure` note | after M2 | C-03 C-07 | TODO |
