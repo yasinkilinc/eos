@@ -202,6 +202,6 @@ def test_a_word_in_most_run_titles_does_not_match_them_all(project):
     other = executions.start(project, "Rotate the database credentials", target="vault", session="s")
     executions.finish(project, other.id, outcome="ok")
 
-    assert executions.ranked(project, task="run the credential rotation") == \
+    assert executions.ranked(project, task="run the database credentials rotation") == \
         [executions.load(project)[-1]]
     assert executions.ranked(project, task="please run it") == []
