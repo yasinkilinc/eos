@@ -1849,7 +1849,7 @@ def cmd_procedure_list(args: argparse.Namespace) -> int:
         return 0
     for n in found:
         print(f"{n.procedure}\t{n.runs_ok or 0} ok / {n.runs_failed or 0} failed\t"
-              f"{(n.last_verified or 'never verified')[:10]}\t{n.title}")
+              f"{(n.last_verified or 'never')[:10]}\t{notes.procedure_confidence(n)}\t{n.title}")
     return 0
 
 

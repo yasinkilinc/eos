@@ -173,3 +173,21 @@ def test_an_endpoint_table_is_not_read_to_a_session_as_a_related_note(project):
         "source: api-inventory\n---\n\n/deploy /service /staging\n", encoding="utf-8")
 
     assert brief.build(project, task="deploy the service to staging", task_only=True) == ""
+
+
+def test_a_related_note_must_meet_the_task_in_its_title_or_tags(project):
+    """A one-word prompt that happens to be a word in some note's prose --
+    "continue", in any language -- is a reply, not a task, and the brief put
+    two unrelated notes in front of it. Body-only matches stay in search,
+    where somebody asked; they do not make it into unrequested context."""
+    directory = notes.notes_dir(project)
+    directory.mkdir(parents=True, exist_ok=True)
+    (directory / "20260901-prose.md").write_text(
+        "---\nkind: finding\ntitle: Wallet balance returns 400\ncreated: 2026-09-01\n---\n\n"
+        "Continue the investigation from the registry.\n", encoding="utf-8")
+    (directory / "20260902-tagged.md").write_text(
+        "---\nkind: finding\ntitle: Registry host was wrong\ncreated: 2026-09-02\ntags:\n  - continue\n"
+        "---\n\nUnrelated body.\n", encoding="utf-8")
+
+    assert "Wallet balance returns 400" not in brief.build(project, task="continue", task_only=True)
+    assert "Registry host was wrong" in brief.build(project, task="continue", task_only=True)

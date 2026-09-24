@@ -282,8 +282,16 @@ def _task_sections(root: Path, task: str) -> tuple[list[list[str]], bool]:
 
     # Findings only: an endpoint table matching "deploy" is not something a
     # session about to deploy needs read to it (notes.BULK_INDEX_SOURCES).
+    # And the note must share a word with the task in its title or tags: a
+    # match on body alone is one word of prose, and for a one-word prompt
+    # ("continue", in any language) it put two unrelated notes in front of a
+    # session that asked for nothing. The brief is unrequested context; it
+    # owes a higher bar than a search somebody typed.
+    task_words = notes._words(task)
     related = [n for n in notes.search_notes(root, task, limit=RELATED_LIMIT + 6)
-               if n.kind != "procedure" and not notes.is_bulk_index(n)][:RELATED_LIMIT]
+               if n.kind != "procedure" and not notes.is_bulk_index(n)
+               and (notes._words(n.title) | notes._words(" ".join(n.tags))) & task_words
+               ][:RELATED_LIMIT]
     if related:
         found = True
         sections.append(["RELATED NOTES"] + [f"  - {n.title}" for n in related]
