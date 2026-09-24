@@ -19,6 +19,7 @@ one thing the machine already knows about the work about to happen.
 """
 from __future__ import annotations
 
+import math
 import re
 from pathlib import Path
 
@@ -35,6 +36,16 @@ CHARS_PER_TOKEN = 3.0
 RUN_LIMIT = 3
 RELATED_LIMIT = 3
 FAILURE_LIMIT = 3
+# How much of a prompt's information a procedure's title and tags must hold to
+# count as named when the coverage share is diluted (see `best_procedure`):
+# the weight of one word that fewer than one note in seven carries, log(7).
+# "upgrade" weighed 2.56 on a real store and named its procedure; "env1"
+# weighed 0.62 and on its own names nothing. On a store too small for any word
+# to be that rare (log N < log 7 for N < 7), one note in sqrt(N) instead.
+PROCEDURE_NAMED_RARITY = 7.0
+# How a procedure's `## Rules` item is printed; also how the budget loop
+# recognises it.
+RULE_MARK = "  RULE  "
 # A step is clipped at this many characters. 160 clipped four of eight lines of
 # a real procedure and sent the fresh-session eval to `procedure show` for the
 # rest; at 240 the same brief is ~950 tokens against the 1,500 budget, whole.
@@ -199,6 +210,13 @@ def best_procedure(root: Path, task: str, corpus: list | None = None):
     Ranked by the same weighted coverage note search uses, with word weights
     taken over the whole corpus -- a procedure's own few words are too small a
     sample to say which of them are rare.
+
+    Title and tags only. A procedure's body is steps and known failures, and
+    one of its words is no sign the prompt names the task: measured, "ok,
+    continue" printed the scenario procedure because step 3 says "continue
+    from where it stopped" -- about 2,000 characters for a reply that asked
+    for nothing. A task is named in the words its procedure is titled and
+    tagged with; that is what tags are for.
     """
     corpus = corpus if corpus is not None else notes.load_notes(root)
     candidates = [n for n in corpus if n.kind == "procedure"]
@@ -208,9 +226,21 @@ def best_procedure(root: Path, task: str, corpus: list | None = None):
     weights = notes.word_weights(corpus, words)
     if not any(weight > 0 for weight in weights.values()):
         weights = None
-    score, note = max(((notes.relevance(n, words, weights), n) for n in candidates),
+    score, note = max(((notes.relevance(n, words, weights, body=False), n) for n in candidates),
                       key=lambda pair: pair[0])
-    return note if score >= notes._RELEVANCE_THRESHOLD else None
+    if score >= notes._RELEVANCE_THRESHOLD:
+        return note
+    # Coverage is a share of the prompt, and a prompt in another language than
+    # the notes carries words that are rare only because the notes are in
+    # English -- "bunu", "ekle" weigh more than "upgrade" and left "bunu env1
+    # upgrade'ine ekle" at 0.147 against 0.15. So a procedure is also named
+    # when its title and tags hold enough of the prompt's information on their
+    # own, whatever else the prompt says.
+    heading = notes._words(note.title) | notes._words(" ".join(note.tags))
+    matched = words & heading
+    named = sum(weights[word] for word in matched) if weights else float(len(matched))
+    floor = math.log(min(PROCEDURE_NAMED_RARITY, math.sqrt(len(corpus))))
+    return note if matched and named >= floor else None
 
 
 def _clip(text: str, limit: int = STEP_CHARS) -> str:
@@ -250,6 +280,8 @@ def _task_sections(root: Path, task: str) -> tuple[list[list[str]], bool]:
                 f"{procedure.runs_ok or 0} ok / {procedure.runs_failed or 0} failed, "
                 f"last verified {(procedure.last_verified or 'never')[:10]}, "
                 f"{notes.procedure_confidence(procedure).upper()}"]
+        # Whole, never clipped, never trimmed by the budget (`_with_task`).
+        head += [f"{RULE_MARK}{rule}" for rule in notes.procedure_rules(procedure)]
         head += [f"  {n}. {_clip(step)}" for n, step in enumerate(notes.procedure_steps(procedure), start=1)]
         for label, items in (("prerequisites", notes.procedure_prerequisites(procedure)),
                              ("success", notes.procedure_success(procedure))):
@@ -328,7 +360,11 @@ def _with_task(root: Path, task: str, *, session, agent, budget: int, task_only:
     trimmed = False
     for section in sections:
         for line in [""] + section:
-            if len("\n".join(lines + [line])) > cap:
+            # A procedure's header and its rules are past the budget: a rule
+            # cut for length did not arrive. Bounded at write time
+            # (notes.RULES_MAX_CHARS), so the exemption cannot grow.
+            exempt = line.startswith(("PROCEDURE  ", RULE_MARK))
+            if not exempt and len("\n".join(lines + [line])) > cap:
                 trimmed = True
                 break
             lines.append(line)

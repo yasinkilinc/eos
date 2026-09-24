@@ -80,3 +80,37 @@ taking either side and running the audit loses nothing.
 
 Confidence is not stored and not computed here. M4 derives it at read time
 from these counters and the age of `last_verified`.
+
+## Addendum (1.1.0): rules, and how a prompt names a procedure
+
+**`## Rules`.** A procedure may carry the rules that must hold while its task
+runs — typically ones a host moved out of its always-loaded instructions
+because they matter only during that task. Moving a rule there is only safe if
+it arrives, and an earlier measurement showed a rule that is findable but not
+delivered does not change behaviour. So the brief prints the section right
+under the procedure's header, **whole and past its budget**: a rule clipped
+for length did not arrive. The exemption is bounded where it cannot drift —
+when the note is written or amended, a Rules section longer than
+`RULES_MAX_CHARS` (600) is refused.
+
+**Naming.** The brief is context nobody asked for, so the bar for putting a
+procedure in it is that the prompt *names the task*. Measured on a host store,
+three things let the wrong one through or kept the right one out:
+
+- The picker scored a procedure's body too. One word of a step ("continue
+  from where it stopped") printed ~2,000 characters for "ok, continue". It
+  now reads title and tags only; body matches stay in search.
+- The tokenizer was ASCII-only, so "PR aç" lost both words and "planı" became
+  "plan", matching an unrelated "rate-plan-change". Words are now letters and
+  digits of any script, casefolded; a two-letter token survives when it is an
+  acronym in capitals (PR, CI) or contains a non-ASCII letter ("aç").
+- An issue key split into prefix and number, and the prefix alone matched
+  every note about another issue of the same project. `NAME-123` is now one
+  word (plus its number); the bare prefix is dropped from that text.
+
+Title-and-tags coverage alone then missed a prompt whose other words are
+filler in another language — rare only because the notes are in English, so
+they outweighed the word that named the task. A procedure therefore also
+counts as named when the prompt words its title and tags hold weigh at least
+as much as one word carried by fewer than one note in seven (one in √N on a
+store too small for that).

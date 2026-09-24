@@ -226,3 +226,72 @@ def test_the_catalogues_last_state_for_a_scenario_the_task_names_is_in_the_brief
 
     assert "catalogue: msisdn-change-fee at submit" in text and "2026-09-17  failed" in text
     assert "catalogue:" not in brief.build(project, task="deploy the wallet", task_only=True)
+
+
+# --- naming the task (1.1.0) ---------------------------------------------------------
+
+
+def test_a_word_in_a_procedures_body_does_not_name_it(project):
+    """Measured on a real store: "ok, continue" printed the scenario procedure,
+    ~2,000 characters, because its step 3 says "continue from where it stopped"."""
+    notes.add_note(project, kind="procedure", title="Run an order scenario",
+                   body="## Steps\n1. Run it (tool: scenario)\n2. Continue from where it stopped (tool: scenario)\n")
+    assert brief.build(project, task="ok, continue", task_only=True) == ""
+
+
+def test_filler_in_another_language_does_not_hide_the_word_that_names_the_task(project):
+    """Words rare only because the notes are in English weighed more than the
+    task word and left the coverage share under the threshold."""
+    _procedure(project, title="Upgrade the services to a new product version")
+    for n, word in enumerate(["bunu", "ekle", "ine", "neden", "yeni", "sadece"]):
+        (notes.notes_dir(project) / f"2026090{n}-{word}.md").write_text(
+            f"---\nkind: finding\ntitle: Note {n}\ncreated: 2026-09-01\n---\n\n{word} is in this body\n",
+            encoding="utf-8")
+    assert "[upgrade-the-services" in brief.build(project, task="bunu env1 upgrade'ine ekle", task_only=True)
+    assert brief.build(project, task="bunu env1'e ekle", task_only=True) == ""
+
+
+def test_words_are_letters_of_any_script_and_an_issue_key_is_one_word():
+    assert notes._words("PR aç ama merge olmasın") == {"pr", "aç", "ama", "merge", "olmasın"}
+    assert notes._words("planı incele") == {"planı", "incele"}
+    assert notes._words("pr to be merged") == {"merged"}
+    assert notes._words("PROJ-1700'e başla") == {"proj-1700", "1700", "başla"}
+
+
+def test_a_shared_issue_prefix_does_not_make_a_note_related(project):
+    """"PROJ-1700" matched every note about another PROJ issue through the
+    prefix alone -- a resume note for 1588 was read to a session starting 1700."""
+    directory = notes.notes_dir(project)
+    directory.mkdir(parents=True, exist_ok=True)
+    (directory / "20260901-status.md").write_text(
+        "---\nkind: finding\ntitle: PROJ-1588 status and resume point\ncreated: 2026-09-01\n---\n\nWhere we left off.\n",
+        encoding="utf-8")
+    assert brief.build(project, task="PROJ-1700'e başla", task_only=True) == ""
+    assert "PROJ-1588 status" in brief.build(project, task="PROJ-1588 ne durumda", task_only=True)
+
+
+# --- a procedure's rules (1.1.0) -------------------------------------------------------
+
+
+RULES = "## Rules\n- Never merge master into the task branch; replay the commits on its tip.\n"
+
+
+def test_a_procedures_rules_are_printed_whole_and_past_the_budget(project):
+    long_rule = "Read every worklog the user already has that day, on both sites, " * 3
+    notes.add_note(project, kind="procedure", title="Log work to the tracker",
+                   body=f"## Rules\n- {long_rule.strip()}\n\n{STEPS}")
+    whole = brief.build(project, task="log work to the tracker", task_only=True)
+    tight = brief.build(project, task="log work to the tracker", task_only=True, budget=40)
+
+    assert f"{brief.RULE_MARK}{long_rule.strip()}" in whole
+    assert f"{brief.RULE_MARK}{long_rule.strip()}" in tight and "trimmed to the brief's budget" in tight
+    assert "1. Check the branch" not in tight
+
+
+def test_a_rules_section_over_the_cap_is_refused_when_written_and_when_amended(project):
+    too_long = "## Rules\n- " + "x" * notes.RULES_MAX_CHARS + "\n\n" + STEPS
+    with pytest.raises(ValueError, match="capped at"):
+        notes.add_note(project, kind="procedure", title="Deploy", body=too_long)
+    path = notes.add_note(project, kind="procedure", title="Deploy", body=RULES + "\n" + STEPS)
+    with pytest.raises(ValueError, match="capped at"):
+        notes.amend_note(path, project, body=too_long)

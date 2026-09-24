@@ -352,6 +352,13 @@ def _compose_body(kind, body, cause, solution, metric) -> str:
                 "A procedure note must have a `## Steps` section with at least one "
                 "numbered or bulleted step. Without steps it is a finding, and "
                 "should be written as one.")
+        rules = section_in(body or "", RULES_SECTION) or ""
+        if len(rules) > RULES_MAX_CHARS:
+            raise ValueError(
+                f"A procedure's `## {RULES_SECTION}` section is printed whole by the task brief, "
+                f"past its budget, so it is capped at {RULES_MAX_CHARS} characters; this one is "
+                f"{len(rules)}. Keep the rules that must hold while the task runs and move the "
+                "explanation to `## Prerequisites` or a finding.")
         return body.strip()
 
     if not (body or "").strip():
@@ -909,6 +916,10 @@ def amend_note(
                     "A defect note must keep its Root cause, Solution and Metric "
                     f"sections; missing: {', '.join(missing)}"
                 )
+        if note.kind == "procedure":
+            # The same checks as when it was written: steps, and the Rules cap
+            # that keeps the brief's exemption bounded.
+            _compose_body("procedure", body, None, None, None)
         new_digest = body_digest(body)
         for other in load_notes(project_root):
             if other.path == path:
@@ -1188,11 +1199,38 @@ _RELEVANCE_THRESHOLD = 0.15
 # mean result count falls 4.3 -> 2.8 and those two queries return 3 each.
 # 0.4 rather than 0.5 keeps a margin under a floor that already cut to one.
 SCORE_FLOOR = 0.4
-_WORD = re.compile(r"[a-z0-9]+")
+# Letters and digits of any script. ASCII-only cut words in any other
+# language into fragments: a prompt "PR aç" lost both words, "planı" became
+# "plan" and matched an unrelated "rate-plan-change" in a procedure's body.
+_WORD = re.compile(r"[^\W_]+")
+# An issue key or any `NAME-123` identifier: kept whole, because its halves
+# are not evidence. Split, "PROJ-1700" matched every note about PROJ-1588
+# through the shared prefix alone.
+_KEY = re.compile(r"(?<![\w-])([^\W\d_][^\W_]*)-(\d+)(?![\w-])")
 
 
 def _words(text: str) -> set[str]:
-    return {word for word in _WORD.findall(text.lower()) if len(word) > 2}
+    """The words a query or a note is matched on.
+
+    Longer than two characters, casefolded. Two exceptions at two letters: a
+    token written in capitals (PR, CI, DB) is an acronym, and a token with a
+    letter outside ASCII ("aç" is Turkish for "open") is a word of another
+    language, where the short ones are often the verbs -- English filler at
+    that length is all ASCII. A word no note contains weighs nothing
+    (`word_weights`), so a short stopword kept here costs no ranking. An
+    identifier like PROJ-1700 counts as itself and its number, not its prefix.
+    """
+    words = set()
+    prefixes = set()
+    for match in _KEY.finditer(text):
+        words.add(f"{match.group(1)}-{match.group(2)}".casefold())
+        prefixes.add(match.group(1).casefold())
+    for token in _WORD.findall(text):
+        word = token.casefold()
+        if len(word) > 2 or (len(token) == 2 and token.isalpha()
+                             and (token.isupper() or not token.isascii())):
+            words.add(word)
+    return words - prefixes
 
 
 def word_weights(corpus: list[Note], query_words: set[str]) -> dict[str, float]:
@@ -1223,7 +1261,7 @@ def word_weights(corpus: list[Note], query_words: set[str]) -> dict[str, float]:
 
 
 def relevance(note: Note, query_words: set[str],
-              weights: dict[str, float] | None = None) -> float:
+              weights: dict[str, float] | None = None, *, body: bool = True) -> float:
     """How well one note answers a query, in 0.0 - 1.0.
 
     Scores how much of the *query* the note covers, rather than the Jaccard
@@ -1243,13 +1281,17 @@ def relevance(note: Note, query_words: set[str],
     it every word is worth the same, which is the behaviour this had before a
     golden set showed what it costs. Coverage stays a ratio either way, so the
     0.0-1.0 range and the threshold mean what they always did.
+
+    `body=False` scores the title and tags alone, for callers that put the
+    result in front of a session nobody asked (the task brief): there one
+    word of prose is not enough to speak.
     """
     if not query_words:
         return 0.0
 
     title_words = _words(note.title)
     tag_words = _words(" ".join(note.tags))
-    body_words = _words(note.body)
+    body_words = _words(note.body) if body else set()
 
     if weights:
         budget = sum(weights.get(word, 0.0) for word in query_words)
@@ -1493,6 +1535,13 @@ _HEADING = re.compile(r"^#{1,6}\s+(?P<name>.+?)\s*$")
 _LIST_ITEM = re.compile(r"^\s*(?:\d+[.)]|[-*+])\s+(?P<text>.+?)\s*$")
 _STEP_TOOL = re.compile(r"\(tool:\s*(?P<tool>[^)]+?)\s*\)", re.IGNORECASE)
 KNOWN_FAILURES = "Known failures"
+# ADR-023 addendum. The rules that must hold while a task runs -- the ones a
+# host moved out of its always-loaded instructions because they only matter
+# during this task. The brief prints them whole and past its budget, because a
+# clipped rule is a rule that did not arrive; the cap is enforced when the
+# note is written, so the exemption stays bounded.
+RULES_SECTION = "Rules"
+RULES_MAX_CHARS = 600
 
 
 def section_in(body: str, name: str) -> str | None:
@@ -1535,6 +1584,10 @@ def procedure_tools(note: Note) -> list[str]:
             if tool not in seen:
                 seen.append(tool)
     return seen
+
+
+def procedure_rules(note: Note) -> list[str]:
+    return _items(section_in(note.body, RULES_SECTION))
 
 
 def procedure_prerequisites(note: Note) -> list[str]:
