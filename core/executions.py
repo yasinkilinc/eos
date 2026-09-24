@@ -255,9 +255,16 @@ def finish(project_root: str | Path, execution: str | None = None, *, outcome: s
         raise ValueError(f"{execution} already finished as {existing.outcome!r}; "
                          f"it cannot also be {outcome!r}")
     commit, _ = work.git_head(project_root)
-    _append(ledger, {"type": LINE_FINISH, "id": execution, "at": utc_now(),
+    at = utc_now()
+    _append(ledger, {"type": LINE_FINISH, "id": execution, "at": at,
                      "outcome": outcome, "lesson": lesson, "commit_end": commit})
     _clear_pointer(existing.session if existing else session_for(project_root, session), execution)
+    # The one place a procedure's observations move (ADR-023). After the
+    # ledger line, so the ledger -- which `procedure audit` recomputes from --
+    # is never behind the counters it justifies.
+    if existing is not None and existing.procedure:
+        notes.record_procedure_run(project_root, existing.procedure, outcome=outcome,
+                                   execution=execution, at=at, lesson=lesson)
     return {r.id: r for r in load_path(ledger)}[execution]
 
 
@@ -348,3 +355,53 @@ def resolve(records: list[Record], needle: str) -> Record:
         raise ValueError(f"no execution matches {needle!r}")
     raise ValueError(f"{len(matches)} executions match {needle!r}: "
                      + ", ".join(r.id for r in matches[:5]))
+
+
+# --- procedures, from the ledger's side (ADR-023) ---------------------------------
+
+NOT_VERIFIED_AFTER_DAYS = 30
+
+
+def of_procedure(project_root: str | Path, slug: str) -> list[Record]:
+    return [r for r in load(project_root) if r.procedure == slug]
+
+
+def audit_procedures(project_root: str | Path, now: str | None = None) -> list[dict]:
+    """What `eos procedure audit` reports, one dict per procedure.
+
+    Counters are recomputed from the ledger, which is the source of truth
+    they summarise; a disagreement is a hand edit or a lost write, and is
+    reported rather than repaired -- which side is right is not knowable here.
+    """
+    import datetime
+
+    from core.knowledge.evidence import utc_now
+
+    clock = datetime.datetime.fromisoformat(now or utc_now())
+    stale_names = {entry["note"] for entry in notes.stale_notes(project_root)}
+    report = []
+    for note in notes.procedures(project_root):
+        runs = of_procedure(project_root, note.procedure or "")
+        ok = sum(1 for r in runs if r.outcome == "ok")
+        failed = sum(1 for r in runs if r.outcome == "failed")
+        verified = max((r.finished_at for r in runs if r.outcome == "ok" and r.finished_at), default=None)
+        finished = [r for r in runs if r.outcome]
+        problems = []
+        if (note.runs_ok or 0, note.runs_failed or 0) != (ok, failed):
+            problems.append(f"counters say {note.runs_ok or 0} ok / {note.runs_failed or 0} failed, "
+                            f"the ledger says {ok} / {failed}")
+        if finished and finished[-1].outcome == "failed":
+            problems.append(f"the latest run failed ({finished[-1].id})")
+        if verified is None:
+            problems.append("never verified by a finished run")
+        else:
+            age = (clock - datetime.datetime.fromisoformat(verified)).days
+            if age > NOT_VERIFIED_AFTER_DAYS:
+                problems.append(f"last verified {age} days ago")
+        if note.path.name in stale_names:
+            problems.append("a file it is scoped to changed since it was written")
+        report.append({"procedure": note.procedure, "title": note.title, "path": str(note.path),
+                       "runs_ok": ok, "runs_failed": failed, "last_verified": verified,
+                       "problems": problems,
+                       "mismatch": any(p.startswith("counters say") for p in problems)})
+    return report

@@ -1804,9 +1804,128 @@ def cmd_run_show(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_procedure_list(args: argparse.Namespace) -> int:
+    from core import executions
+
+    found = notes.procedures(args.path)
+    if args.tool:
+        found = [n for n in found if args.tool in notes.procedure_tools(n)]
+    if args.target:
+        ran_against = {r.procedure for r in executions.load(args.path) if r.target == args.target}
+        found = [n for n in found if n.procedure in ran_against]
+    if args.format == "json":
+        print(json.dumps([{"procedure": n.procedure, "title": n.title, "runs_ok": n.runs_ok or 0,
+                           "runs_failed": n.runs_failed or 0, "last_verified": n.last_verified,
+                           "tools": notes.procedure_tools(n), "path": str(n.path)} for n in found],
+                         indent=2, ensure_ascii=False))
+        return 0
+    if not found:
+        print(f"No procedure recorded here ({notes.notes_dir(args.path)}). "
+              "`eos procedure new --title \"…\" --step \"…\"` writes the first.")
+        return 0
+    for n in found:
+        print(f"{n.procedure}\t{n.runs_ok or 0} ok / {n.runs_failed or 0} failed\t"
+              f"{(n.last_verified or 'never verified')[:10]}\t{n.title}")
+    return 0
+
+
+def cmd_procedure_show(args: argparse.Namespace) -> int:
+    from core import executions
+
+    try:
+        note = notes.find_procedure(args.path, args.procedure)
+    except ValueError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+    runs = executions.of_procedure(args.path, note.procedure or "")[-3:]
+    if args.format == "json":
+        print(json.dumps({"procedure": note.procedure, "title": note.title,
+                          "steps": notes.procedure_steps(note),
+                          "prerequisites": notes.procedure_prerequisites(note),
+                          "success": notes.procedure_success(note),
+                          "known_failures": notes.procedure_known_failures(note),
+                          "runs_ok": note.runs_ok or 0, "runs_failed": note.runs_failed or 0,
+                          "last_verified": note.last_verified,
+                          "recent": [r.to_dict() for r in reversed(runs)],
+                          "path": str(note.path)}, indent=2, ensure_ascii=False))
+        return 0
+    print(f"{note.title}   [{note.procedure}]")
+    print(f"  runs      {note.runs_ok or 0} ok / {note.runs_failed or 0} failed   "
+          f"last verified {note.last_verified or 'never'}")
+    for label, items in (("prerequisites", notes.procedure_prerequisites(note)),
+                         ("success", notes.procedure_success(note))):
+        for i, item in enumerate(items):
+            print(f"  {label if i == 0 else '':<13} {item}")
+    print("  steps")
+    for number, step in enumerate(notes.procedure_steps(note), start=1):
+        print(f"    {number:>2}. {step}")
+    failures = notes.procedure_known_failures(note)
+    if failures:
+        print("  known failures")
+        for item in failures[-5:]:
+            print(f"    - {item}")
+    if runs:
+        print("  recent runs")
+        for r in reversed(runs):
+            print(f"    {(r.finished_at or r.started_at or '')[:16]}  {r.outcome or 'open':<9} "
+                  f"{r.target or '-':<10} {r.id}")
+    print(f"  file      {note.path}")
+    return 0
+
+
+def cmd_procedure_new(args: argparse.Namespace) -> int:
+    steps = list(args.step or [])
+    if args.steps == "-":
+        steps += [line.strip() for line in sys.stdin.read().splitlines() if line.strip()]
+    sections = ["## Steps", ""] + [f"{n}. {s}" for n, s in enumerate(steps, start=1)]
+    for heading, items in (("Prerequisites", args.prerequisite), ("Success", args.success)):
+        if items:
+            sections += ["", f"## {heading}", ""] + [f"- {item}" for item in items]
+    if args.body:
+        sections = [args.body.strip(), ""] + sections
+    try:
+        path = notes.add_note(args.path, kind="procedure", title=args.title,
+                              body="\n".join(sections), tags=_split_csv(args.tags),
+                              scope=_split_csv(args.scope), source=args.source,
+                              session=args.session, procedure=args.slug)
+    except (ValueError, OSError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+    note = notes.parse_note(path)
+    print(f"{note.procedure}\t{path}")
+    return 0
+
+
+def cmd_procedure_audit(args: argparse.Namespace) -> int:
+    from core import executions
+
+    report = executions.audit_procedures(args.path)
+    if args.format == "json":
+        print(json.dumps(report, indent=2, ensure_ascii=False))
+    elif not report:
+        print("No procedure recorded here; nothing to audit.")
+    else:
+        for entry in report:
+            state = "ok" if not entry["problems"] else "; ".join(entry["problems"])
+            print(f"{entry['procedure']}\t{entry['runs_ok']} ok / {entry['runs_failed']} failed\t{state}")
+    # Exit 1 only for the one problem that is an integrity failure: counters
+    # the ledger does not support. The rest are observations for a person.
+    return 1 if any(entry["mismatch"] for entry in report) else 0
+
+
+def cmd_procedure(args: argparse.Namespace) -> int:
+    return {
+        "list": cmd_procedure_list,
+        "show": cmd_procedure_show,
+        "new": cmd_procedure_new,
+        "audit": cmd_procedure_audit,
+    }[args.procedure_command](args)
+
+
 _FILL_SESSION = frozenset(
     {("work", verb) for verb in ("add", "claim", "log", "block", "unblock", "done", "drop")}
     | {("note", verb) for verb in ("add", "amend", "skip")}
+    | {("procedure", "new")}
 )
 
 
@@ -2261,6 +2380,38 @@ def main(argv: list[str] | None = None) -> int:
     brief_p.add_argument("--session", default=None, help="Session id, so 'yours' means something")
     brief_p.add_argument("--agent", default=None, help="Which agent this is, e.g. claude or devin")
 
+    proc_p = sub.add_parser("procedure", help="How a recurring task is done here, and how it has gone (ADR-023)")
+    proc_sub = proc_p.add_subparsers(dest="procedure_command", required=True)
+
+    proc_list_p = proc_sub.add_parser("list", help="Procedures with their run counts")
+    add_path(proc_list_p)
+    proc_list_p.add_argument("--tool", help="Only procedures whose steps name this tool")
+    proc_list_p.add_argument("--target", help="Only procedures that have run against this target")
+    proc_list_p.add_argument("--format", choices=("text", "json"), default="text")
+
+    proc_show_p = proc_sub.add_parser("show", help="One procedure: steps, counts, recent runs")
+    add_path(proc_show_p)
+    proc_show_p.add_argument("procedure", help="Slug, slug prefix, or part of the title")
+    proc_show_p.add_argument("--format", choices=("text", "json"), default="text")
+
+    proc_new_p = proc_sub.add_parser("new", help="Write a procedure note")
+    add_path(proc_new_p)
+    proc_new_p.add_argument("--title", required=True)
+    proc_new_p.add_argument("--step", action="append", help="One step; repeat in order. `(tool: X)` names its tool")
+    proc_new_p.add_argument("--steps", choices=("-",), help="Read steps from stdin, one per line")
+    proc_new_p.add_argument("--prerequisite", action="append", help="Repeat for each")
+    proc_new_p.add_argument("--success", action="append", help="What proves it worked; repeat for each")
+    proc_new_p.add_argument("--body", help="Prose before the steps")
+    proc_new_p.add_argument("--slug", help="Slug executions will name; defaults to the title's")
+    proc_new_p.add_argument("--tags")
+    proc_new_p.add_argument("--scope", help="Comma-separated files this procedure depends on")
+    proc_new_p.add_argument("--source")
+    proc_new_p.add_argument("--session", default=None)
+
+    proc_audit_p = proc_sub.add_parser("audit", help="Counters against the ledger, failing and unverified procedures")
+    add_path(proc_audit_p)
+    proc_audit_p.add_argument("--format", choices=("text", "json"), default="text")
+
     run_p = sub.add_parser("run", help="What a session did: executions and their events (ADR-022)")
     run_sub = run_p.add_subparsers(dest="run_command", required=True)
 
@@ -2434,6 +2585,7 @@ def main(argv: list[str] | None = None) -> int:
         "note": cmd_note,
         "work": cmd_work,
         "run": cmd_run,
+        "procedure": cmd_procedure,
         "brief": cmd_brief,
         "ai": cmd_ai,
     }

@@ -178,7 +178,6 @@ def test_c19_one_session_id_joins_executions_work_and_notes(tmp_path):
 # --- M2: procedures ---------------------------------------------------------------
 
 
-@pytest.mark.xfail(strict=True, reason="OM-21/OM-22 (M2): no `procedure` note kind")
 def test_c03_a_procedure_note_parses_into_ordered_steps(tmp_path):
     project = _project(tmp_path)
     path = _procedure(project)
@@ -188,7 +187,6 @@ def test_c03_a_procedure_note_parses_into_ordered_steps(tmp_path):
     assert _status("C-03", project).status == IMPLEMENTED
 
 
-@pytest.mark.xfail(strict=True, reason="OM-23 (M2): counters move only from `eos run finish`")
 def test_c17_a_finished_execution_moves_the_procedure_counters(tmp_path):
     from core import executions
     project = _project(tmp_path)
@@ -201,12 +199,17 @@ def test_c17_a_finished_execution_moves_the_procedure_counters(tmp_path):
     assert (after_ok.runs_ok, after_ok.runs_failed) == (1, 0) and after_ok.last_verified
 
     failed = executions.start(project, "Deploy again", procedure=slug)
-    with pytest.raises(ValueError):
-        executions.finish(project, failed.id, outcome="failed")  # no lesson: refused
     executions.finish(project, failed.id, outcome="failed",
                       lesson="The image was built from the wrong branch; check it first.")
     after_failed = notes.parse_note(path)
     assert (after_failed.runs_ok, after_failed.runs_failed) == (1, 1)
+    assert "wrong branch" in "\n".join(notes.procedure_known_failures(after_failed))
+
+    abandoned = executions.start(project, "Deploy, given up", procedure=slug)
+    executions.finish(project, abandoned.id, outcome="abandoned")
+    after_abandoned = notes.parse_note(path)
+    assert (after_abandoned.runs_ok, after_abandoned.runs_failed) == (1, 1)
+    assert after_abandoned.last_execution == abandoned.id
     assert _status("C-17", project).status == IMPLEMENTED
 
 
@@ -325,6 +328,8 @@ def test_c15_a_lesson_links_to_the_execution_that_taught_it(tmp_path):
     from core import executions
     project = _project(tmp_path)
     run = executions.start(project, "Deploy")
+    with pytest.raises(ValueError):
+        executions.finish(project, run.id, outcome="failed")  # OM-41: no lesson, refused
     executions.finish(project, run.id, outcome="failed", lesson="Wrong branch")
 
     lessons = [n for n in notes.load_notes(project) if n.kind == "lesson"]

@@ -86,7 +86,7 @@ def _scalar(value) -> str:
     return json.dumps(text, ensure_ascii=False)
 
 
-KINDS = ("defect", "finding")
+KINDS = ("defect", "finding", "procedure")
 
 # Words that routinely follow "password:" or "token=" in prose about an API.
 # Without them the guard fires on ordinary sentences, and a guard that fires on
@@ -328,6 +328,14 @@ def _compose_body(kind, body, cause, solution, metric) -> str:
             "## Metric", "", metric.strip(),
         ]
         return "\n".join(sections)
+
+    if kind == "procedure":
+        if not steps_in(body or ""):
+            raise ValueError(
+                "A procedure note must have a `## Steps` section with at least one "
+                "numbered or bulleted step. Without steps it is a finding, and "
+                "should be written as one.")
+        return body.strip()
 
     if not (body or "").strip():
         raise ValueError("A finding note must have a body")
@@ -618,6 +626,7 @@ def add_note(
     solution: str | None = None,
     metric: str | None = None,
     session: str | None = None,
+    procedure: str | None = None,
 ) -> Path:
     """Write one note and return its path.
 
@@ -700,6 +709,8 @@ def add_note(
             "scope": scope,
             "scope_hashes": scope_hashes,
             "session": session,
+            **(_procedure_front(procedure or _slug(title), 0, 0, None, None)
+               if kind == "procedure" else {}),
         }
     )
     path.write_text(f"{document}\n\n{content}\n", encoding="utf-8")
@@ -1027,6 +1038,10 @@ def amend_note(
             "scope": effective_scope,
             "scope_hashes": scope_hashes,
             "session": session if session is not None else note.session,
+            # A revised step list must not reset a procedure's history to zero.
+            **(_procedure_front(note.procedure or _slug(note.title), note.runs_ok or 0,
+                                note.runs_failed or 0, note.last_verified, note.last_execution)
+               if note.kind == "procedure" else {}),
         }
     )
     path.write_text(f"{document}\n\n{content}\n", encoding="utf-8")
@@ -1047,6 +1062,13 @@ class Note:
     scope_hashes: list[str | None]
     body: str
     session: str | None = None
+    # kind: procedure (ADR-023). `procedure` is the slug an execution names;
+    # the other four are observations only `eos run finish` writes.
+    procedure: str | None = None
+    runs_ok: int | None = None
+    runs_failed: int | None = None
+    last_verified: str | None = None
+    last_execution: str | None = None
 
 
 def _unscalar(text: str) -> str:
@@ -1101,7 +1123,21 @@ def parse_note(path: Path) -> Note:
         scope_hashes=list(meta.get("scope_hashes") or []),
         body=body.strip(),
         session=meta.get("session") or None,
+        procedure=meta.get("procedure") or None,
+        runs_ok=_count(meta.get("runs_ok")),
+        runs_failed=_count(meta.get("runs_failed")),
+        last_verified=meta.get("last_verified") or None,
+        last_execution=meta.get("last_execution") or None,
     )
+
+
+def _count(value) -> int | None:
+    """A counter from front matter; anything that is not a whole number is
+    absent rather than zero, so a hand-mangled count reads as missing."""
+    try:
+        return int(str(value).strip()) if value not in (None, "") else None
+    except ValueError:
+        return None
 
 
 def load_notes(project_root: str | Path) -> list[Note]:
@@ -1407,3 +1443,173 @@ def _gitignore_pattern_matches(rel_path: str, pattern: str) -> bool:
         if fnmatch.fnmatch(prefix, pattern) or fnmatch.fnmatch(parts[i - 1], pattern):
             return True
     return False
+
+
+# --- procedures (ADR-023) -----------------------------------------------------------
+#
+# A procedure is a note whose body carries `## Steps`. The engine parses the
+# sections and never interprets them; the only fields it writes are the four
+# observations below, and only `record_procedure_run` writes those.
+
+_HEADING = re.compile(r"^#{1,6}\s+(?P<name>.+?)\s*$")
+_LIST_ITEM = re.compile(r"^\s*(?:\d+[.)]|[-*+])\s+(?P<text>.+?)\s*$")
+_STEP_TOOL = re.compile(r"\(tool:\s*(?P<tool>[^)]+?)\s*\)", re.IGNORECASE)
+KNOWN_FAILURES = "Known failures"
+
+
+def section_in(body: str, name: str) -> str | None:
+    """The text under one `## <name>` heading, up to the next heading of any
+    level; None when there is no such heading. Case-insensitive, so a person
+    writing `## steps` is not told their procedure has none."""
+    lines = (body or "").splitlines()
+    inside, found = False, []
+    for line in lines:
+        heading = _HEADING.match(line)
+        if heading:
+            if inside:
+                break
+            inside = heading.group("name").strip().casefold() == name.casefold()
+            continue
+        if inside:
+            found.append(line)
+    return "\n".join(found).strip() if inside or found else None
+
+
+def _items(text: str | None) -> list[str]:
+    return [m.group("text") for m in map(_LIST_ITEM.match, (text or "").splitlines()) if m]
+
+
+def steps_in(body: str) -> list[str]:
+    return _items(section_in(body, "Steps"))
+
+
+def procedure_steps(note: Note) -> list[str]:
+    """The ordered steps, as written, markers stripped."""
+    return steps_in(note.body)
+
+
+def procedure_tools(note: Note) -> list[str]:
+    """Tools named by the steps' `(tool: …)` marks, in first-use order."""
+    seen: list[str] = []
+    for step in procedure_steps(note):
+        for m in _STEP_TOOL.finditer(step):
+            tool = m.group("tool").strip()
+            if tool not in seen:
+                seen.append(tool)
+    return seen
+
+
+def procedure_prerequisites(note: Note) -> list[str]:
+    return _items(section_in(note.body, "Prerequisites"))
+
+
+def procedure_success(note: Note) -> list[str]:
+    return _items(section_in(note.body, "Success"))
+
+
+def procedure_known_failures(note: Note) -> list[str]:
+    return _items(section_in(note.body, KNOWN_FAILURES))
+
+
+def _procedure_front(slug: str, runs_ok: int, runs_failed: int,
+                     last_verified: str | None, last_execution: str | None) -> dict:
+    # Counts are written as strings: `_front_matter` drops falsy values, and a
+    # procedure that has run zero times must still say so rather than look as
+    # though nobody ever counted.
+    return {"procedure": slug, "runs_ok": str(runs_ok), "runs_failed": str(runs_failed),
+            "last_verified": last_verified, "last_execution": last_execution}
+
+
+def procedures(project_root: str | Path) -> list[Note]:
+    return [n for n in load_notes(project_root) if n.kind == "procedure"]
+
+
+def find_procedure(project_root: str | Path, needle: str) -> Note:
+    """By slug, then by slug prefix, then by title words -- one match or an error."""
+    found = procedures(project_root)
+    exact = [n for n in found if n.procedure == needle]
+    if exact:
+        return exact[0]
+    matches = [n for n in found if (n.procedure or "").startswith(needle)] or \
+              [n for n in found if needle.casefold() in n.title.casefold()]
+    if len(matches) == 1:
+        return matches[0]
+    if not matches:
+        raise ValueError(f"no procedure matches {needle!r} "
+                         f"({len(found)} recorded; `eos procedure list` names them)")
+    raise ValueError(f"{len(matches)} procedures match {needle!r}: "
+                     + ", ".join(n.procedure or n.path.name for n in matches[:5]))
+
+
+def _set_front(raw: str, fields: dict) -> str:
+    """Replace or add scalar front-matter lines, leaving every other byte alone.
+
+    A targeted edit rather than a re-serialisation: the file carries fields
+    this module did not write (`updated`, a person's own keys), and a counter
+    update must not be the thing that loses them.
+    """
+    if not raw.startswith("---\n"):
+        raise ValueError("not a note: no front matter")
+    front, separator, rest = raw[4:].partition("\n---\n")
+    if not separator:
+        raise ValueError("not a note: front matter is not closed")
+    lines = front.splitlines()
+    for key, value in fields.items():
+        rendered = f"{key}: {_scalar(value)}"
+        for index, line in enumerate(lines):
+            if line.split(":", 1)[0].strip() == key and not line.startswith("  - "):
+                lines[index] = rendered
+                break
+        else:
+            lines.append(rendered)
+    return "---\n" + "\n".join(lines) + "\n---\n" + rest
+
+
+def _append_known_failure(body: str, line: str) -> str:
+    """One bullet under `## Known failures`, the section created at the end
+    when it does not exist yet."""
+    bullet = f"- {line}"
+    lines = body.rstrip("\n").split("\n")
+    for index, current in enumerate(lines):
+        heading = _HEADING.match(current)
+        if heading and heading.group("name").strip().casefold() == KNOWN_FAILURES.casefold():
+            end = index + 1
+            while end < len(lines) and not _HEADING.match(lines[end]):
+                end += 1
+            while end > index + 1 and not lines[end - 1].strip():
+                end -= 1
+            lines.insert(end, bullet)
+            return "\n".join(lines) + "\n"
+    return "\n".join(lines) + f"\n\n## {KNOWN_FAILURES}\n\n{bullet}\n"
+
+
+def record_procedure_run(project_root: str | Path, slug: str, *, outcome: str,
+                         execution: str, at: str, lesson: str | None = None) -> Path | None:
+    """Move a procedure's observations for one finished execution (ADR-023).
+
+    The only writer of `runs_ok`, `runs_failed`, `last_verified` and
+    `last_execution`. `abandoned` moves `last_execution` alone: a run given up
+    says nothing about whether the procedure works. Returns the note's path, or
+    None when the project has no procedure by that slug -- an execution may
+    name one recorded elsewhere, and that is not an error here.
+    """
+    try:
+        note = find_procedure(project_root, slug)
+    except ValueError:
+        return None
+    if note.procedure != slug:
+        return None  # only an exact slug moves counters; a prefix is a guess
+    fields: dict = {"last_execution": execution}
+    if outcome == "ok":
+        fields["runs_ok"] = str((note.runs_ok or 0) + 1)
+        fields["last_verified"] = at
+    elif outcome == "failed":
+        fields["runs_failed"] = str((note.runs_failed or 0) + 1)
+    raw = note.path.read_text(encoding="utf-8")
+    updated = _set_front(raw, fields)
+    if outcome == "failed" and lesson and lesson.strip():
+        front, separator, body = updated[4:].partition("\n---\n")
+        first = lesson.strip().splitlines()[0]
+        updated = "---\n" + front + separator + _append_known_failure(body, f"{at[:10]} {execution}: {first}")
+    note.path.write_text(updated, encoding="utf-8")
+    return note.path

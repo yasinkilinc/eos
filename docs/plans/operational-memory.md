@@ -1,6 +1,6 @@
 # Plan: operational memory — target 1.0.0
 
-**Status of this plan: ACTIVE.** Engine at the time of writing: 0.38.0; M0 landed in 0.39.0, M1 in 0.40.0.
+**Status of this plan: ACTIVE.** Engine at the time of writing: 0.38.0; M0 landed in 0.39.0, M1 in 0.40.0, M2 in 0.41.0.
 **Target: 1.0.0**, defined as "the acceptance harness in M0 is green in full."
 
 This file is the one place a session resumes from. It is a ledger, not an
@@ -103,11 +103,11 @@ milestone.
 | OM-13 | M1 | `execution`, `execution_event` tables; `_load_executions` | 0.40.0 | C-04 C-09 | DONE |
 | OM-14 | M1 | Session threading: one id across executions, work, notes (verifications: OM-43) | 0.40.0 | C-19 | DONE |
 | OM-15 | M1 | Host capture contract: `eos run event` from a wrapper in one line | 0.40.0 | C-06 C-12 | DONE |
-| OM-20 | M2 | ADR-023: procedures are notes | 0.41.0 | — | TODO |
-| OM-21 | M2 | `kind: procedure` — front matter, `## Steps` parsing, validation | 0.41.0 | C-03 | TODO |
-| OM-22 | M2 | `eos procedure list\|show\|new\|audit` | 0.41.0 | C-03 | TODO |
-| OM-23 | M2 | Counters + `last_verified` moved only by `eos run finish` | 0.41.0 | C-17 C-18 | TODO |
-| OM-24 | M2 | Index extension for host step catalogues (steps + last state) | 0.41.0 | C-03 | TODO |
+| OM-20 | M2 | ADR-023: procedures are notes | 0.41.0 | — | DONE |
+| OM-21 | M2 | `kind: procedure` — front matter, `## Steps` parsing, validation | 0.41.0 | C-03 | DONE |
+| OM-22 | M2 | `eos procedure list\|show\|new\|audit` | 0.41.0 | C-03 | DONE |
+| OM-23 | M2 | Counters + `last_verified` moved only by `eos run finish` | 0.41.0 | C-17 C-18 | DONE |
+| OM-24 | M2 | Index extension for host step catalogues (steps + last state) | 0.41.0 | C-03 | DONE |
 | OM-30 | M3 | `eos brief --task` — procedure + executions + lessons, budgeted | 0.42.0 | C-07 C-08 C-11 C-20 | TODO |
 | OM-31 | M3 | Execution ranking: procedure, target, outcome, recency | 0.42.0 | C-08 | TODO |
 | OM-32 | M3 | UserPromptSubmit hook template; SessionStart template extended | 0.42.0 | C-07 C-21 | TODO |
@@ -251,14 +251,17 @@ the harness and this list in one commit.
   retrieval, touch injection, scope hashes, the staleness audit and the Stop
   gate. Why not a work item: work is what one session intends; a procedure is
   what every session should do.
-- **OM-21** Front matter: `procedure: <slug>`, `tools: [...]`, `targets:
-  [...]`, `prerequisites: [...]` (free text each), `success: [...]`,
-  `runs_ok`, `runs_failed`, `last_verified`, `last_execution`. Body sections
-  `## Steps` (an ordered list, parsed; each step may name a tool), `## When
-  not to use this`, `## Known failures` (auto-maintained: lesson titles).
-  `_compose_body` (`core/notes.py:303`) validates as it does for `defect`.
-  The counters are the only front-matter fields the engine rewrites, and only
-  from `eos run finish` (OM-23); everything else is authored.
+- **OM-21** Front matter: `procedure: <slug>` (derived from the title unless
+  given) and the four engine-owned observations `runs_ok`, `runs_failed`,
+  `last_verified`, `last_execution`, written as `0`/absent at creation. Body
+  sections, parsed case-insensitively: `## Steps` (required, an ordered or
+  bulleted list; a step names its tool as `(tool: <name>)`), `## Prerequisites`,
+  `## Success`, `## When not to use this`, and `## Known failures`
+  (engine-appended on a failed run). Prerequisites and success live in the
+  body rather than the front matter because they are prose a person edits,
+  and the front matter is where the engine writes. `_compose_body` refuses a
+  procedure without steps. `note amend` carries the procedure fields through
+  a rewrite, so revising the steps never resets the history.
 - **OM-22** `eos procedure list [--target T] [--tool X]`, `show <slug>`
   (steps numbered, counters, derived confidence, last three executions),
   `new --title … --steps -` (from stdin), `audit` (procedures with a failed
