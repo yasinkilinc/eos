@@ -173,3 +173,19 @@ def test_the_stop_hook_lets_a_session_with_nothing_open_end(project):
     run = executions.start(project, "Deploy", session="s-stop")
     executions.finish(project, run.id, outcome="ok")
     assert _stop(project, "s-stop").returncode == 0
+
+
+def test_a_verification_is_indexed_and_searchable(project):
+    """Verification records lived only in their JSONL and no query could
+    reach them -- an audit's finding. They are a table now, and a search row."""
+    import sqlite3
+    from core import index
+    run = executions.start(project, "Deploy", session="s")
+    verification.record(project, "HEALTH_OK", "passed", "health-check staging", 0,
+                        session="s", execution=run.id)
+
+    db = index.build(project).path
+
+    _, rows = index.search(db, "HEALTH_OK health-check")
+    assert ("verification", "HEALTH_OK#0") in {(r[0], r[1]) for r in rows}
+    assert sqlite3.connect(db).execute("SELECT execution, session FROM verification").fetchone() == (run.id, "s")

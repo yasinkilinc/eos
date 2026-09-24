@@ -390,3 +390,15 @@ def test_c13_diff_lists_the_changed_paths_and_the_commit_range(tmp_path):
     assert delta["paths"] == ["src/main/App.java"]
     assert "commit_start" in delta and "commit_end" in delta
     assert _status("C-13", project).status == IMPLEMENTED
+
+
+def test_c19_a_session_id_nothing_else_shares_is_not_a_join(tmp_path):
+    """An audit found the row satisfied by executions carrying a session id
+    that no other store shared -- lenient by construction. A join needs two
+    sides."""
+    from core import executions
+    project = _project(tmp_path)
+    run = executions.start(project, "Deploy", session="s-lonely")
+    executions.finish(project, run.id, outcome="ok")
+
+    assert _status("C-19", project).status == memory_audit.PARTIAL

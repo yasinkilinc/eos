@@ -205,3 +205,24 @@ def test_a_word_in_most_run_titles_does_not_match_them_all(project):
     assert executions.ranked(project, task="run the database credentials rotation") == \
         [executions.load(project)[-1]]
     assert executions.ranked(project, task="please run it") == []
+
+
+def test_the_catalogues_last_state_for_a_scenario_the_task_names_is_in_the_brief(project):
+    """A second history the audit found the brief never read: the host's own
+    step catalogue, indexed through the procedures extension, with the last
+    state per environment. A task that names the scenario gets it."""
+    from core import index
+    (project / "catalogue.json").write_text(json.dumps([{
+        "name": "msisdn-change-fee", "summary": "Change a number with the fee",
+        "steps": [{"name": "line"}, {"name": "submit"}],
+        "state": [{"env": "env1", "status": "FAILED", "updated_at": "2026-09-17T16:51:36Z",
+                   "failed_step": "submit"}]}]), encoding="utf-8")
+    (project / ".eos" / "config.toml").write_text(
+        f'[index]\nextensions = ["{(REPO / "extensions" / "procedures.py").as_posix()}"]\n\n'
+        '[procedures]\ncatalogue = "catalogue.json"\n', encoding="utf-8")
+    index.build(project)
+
+    text = brief.build(project, task="run the msisdn-change-fee scenario on env1", task_only=True)
+
+    assert "catalogue: msisdn-change-fee at submit" in text and "2026-09-17  failed" in text
+    assert "catalogue:" not in brief.build(project, task="deploy the wallet", task_only=True)

@@ -174,6 +174,25 @@ CREATE TABLE execution_event (
 ) WITHOUT ROWID;
 CREATE INDEX execution_event_by_tool ON execution_event(tool);
 CREATE INDEX execution_event_by_session ON execution_event(session);
+-- What was run for a behaviour code and what came back (ADR-018), folded from
+-- verifications.jsonl. Joinable to the run it happened in (ADR-024) and
+-- searchable, which it was not until an audit asked why.
+CREATE TABLE verification (
+    ord INTEGER PRIMARY KEY,
+    code TEXT NOT NULL,
+    outcome TEXT NOT NULL,
+    command TEXT NOT NULL,
+    exit_code INTEGER,
+    recorded_at TEXT NOT NULL,
+    commit_sha TEXT,
+    log TEXT,
+    verdict TEXT,
+    note TEXT,
+    session TEXT,
+    execution TEXT
+);
+CREATE INDEX verification_by_code ON verification(code);
+CREATE INDEX verification_by_execution ON verification(execution);
 
 CREATE TABLE brain_doc (name TEXT PRIMARY KEY, content TEXT NOT NULL, sha256 TEXT NOT NULL);
 CREATE TABLE node (
@@ -679,6 +698,7 @@ def _populate(conn: sqlite3.Connection, root: Path, sources: str) -> tuple[bool,
     build.notes_dir = _load_notes(build)
     _load_work(build)
     _load_executions(build)
+    _load_verifications(build)
     _load_brain(build)
     _load_evidence(build)
     for extension in usable:
@@ -775,6 +795,8 @@ def _sources_digest(root: Path) -> str:
     add("work", _file_digest(work.path_for(root)))
     from core import executions
     add("executions", _file_digest(executions.path_for(root)))
+    from core import verification
+    add("verifications", _file_digest(verification.path_for(root)))
     data = root / ".eos" / "data"
     for path in (data / "last_scan.json", data / "brain" / "graph.json",
                  data / "brain" / "evidence.jsonl",
@@ -1008,6 +1030,22 @@ def _load_executions(build: BuildContext) -> None:
         body = " ".join(part for part in (record.outcome, record.target, record.procedure,
                                           tools, record.lesson) if part)
         _add_search(build, "execution", record.id, record.title, body)
+
+
+def _load_verifications(build: BuildContext) -> None:
+    """Every recorded run of a behaviour code, in the order it was recorded."""
+    from core import verification
+
+    records = verification.load(build.root)
+    build.meta["verifications"] = str(verification.path_for(build.root))
+    for ord_, r in enumerate(records):
+        build.conn.execute(
+            "INSERT INTO verification(ord, code, outcome, command, exit_code, recorded_at, "
+            "commit_sha, log, verdict, note, session, execution) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (ord_, r.code, r.outcome, r.command, r.exit_code, r.recorded_at, r.commit, r.log,
+             r.verdict, r.note, r.session, r.execution))
+        body = " ".join(part for part in (r.outcome, r.command, r.verdict, r.note, r.execution) if part)
+        _add_search(build, "verification", f"{r.code}#{ord_}", f"{r.code} {r.outcome}", body)
 
 
 # --- brain and graph ---------------------------------------------------------------

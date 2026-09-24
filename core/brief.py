@@ -265,10 +265,17 @@ def _task_sections(root: Path, task: str) -> tuple[list[list[str]], bool]:
         words = notes._words(task)
         pool = [r for r in records if executions._task_overlap(r, words) > 0]
 
-    if runs:
+    catalogued = _catalogue_state(root, task)
+    if runs or catalogued:
         found = True
         total = len(pool)
         block = [f"LAST RUNS ({len(runs)} of {total})"] + [_run_line(r) for r in runs]
+        # What the host's own catalogue recorded for a scenario the task names
+        # -- a second history, indexed through the procedures extension, that
+        # an audit found the brief never read.
+        for name, env, status, updated, failed_step in catalogued:
+            where = f" at {failed_step}" if failed_step else ""
+            block.append(f"  {(updated or '')[:10]}  {status.lower():<9}  {env:<8} catalogue: {name}{where}")
         lesson = executions.last_lesson(pool)
         if lesson is not None and lesson.id not in {r.id for r in runs}:
             block.append(f"  earlier failure worth reading: {(lesson.finished_at or '')[:10]} {lesson.id}: "
@@ -330,3 +337,40 @@ def _with_task(root: Path, task: str, *, session, agent, budget: int, task_only:
     if trimmed:
         lines.append("…trimmed to the brief's budget — eos procedure show / eos run list / eos note search for the rest")
     return "\n".join(lines).rstrip() + "\n"
+
+
+def _catalogue_state(root: Path, task: str) -> list[tuple]:
+    """Rows of the indexed catalogue whose scenario the task names, newest first.
+
+    Read from the index because the catalogue is the host's export and the
+    extension's tables are where it lands; no index or no extension means no
+    rows, and the brief says nothing about it.
+    """
+    import sqlite3
+
+    from core import index
+
+    db = index.db_path(root)
+    if not db.exists():
+        return []
+    words = notes._words(task)
+    try:
+        conn = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
+    except sqlite3.Error:
+        return []
+    try:
+        tables = {row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
+        if "procedure_state" not in tables:
+            return []
+        rows = conn.execute(
+            "SELECT p.name, s.env, COALESCE(s.status, '?'), s.updated_at, s.failed_step "
+            "FROM catalogue_procedure p JOIN procedure_state s ON s.procedure = p.name "
+            "ORDER BY s.updated_at DESC").fetchall()
+    except sqlite3.Error:
+        return []
+    finally:
+        conn.close()
+    def named(name: str) -> bool:
+        parts = set(name.lower().replace("_", "-").split("-"))
+        return name.lower() in task.lower() or bool((parts - {"the", "a", "an"}) & words and parts <= words)
+    return [row for row in rows if named(row[0])][:RUN_LIMIT]

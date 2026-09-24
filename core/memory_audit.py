@@ -52,7 +52,9 @@ PLAN = "docs/plans/operational-memory.md"
 # The brief a session starts with may not cost more than this; the plan's
 # whole argument is that the alternative costs a hundred times as much.
 BRIEF_TOKEN_BUDGET = 1500
-CHARS_PER_TOKEN = 3.5
+# The rate the brief itself enforces (core/brief.py), so the matrix and the
+# budget never disagree about what a token is.
+from core.brief import CHARS_PER_TOKEN  # noqa: E402
 
 # Third-party vector machinery that core/ must not import (ADR-001, ADR-010).
 _VECTOR_IMPORTS = re.compile(
@@ -242,10 +244,12 @@ def check_c09(root: Path) -> Result:
     db = _db(root)
     if db is None:
         return _r("C-09", PARTIAL, "floors exist; no index to search")
-    reachable = _count(db, "SELECT COUNT(*) FROM search WHERE source IN ('execution', 'procedure')")
+    reachable = _count(db, "SELECT COUNT(*) FROM search WHERE source IN ('execution', 'procedure', 'verification')")
     if not reachable:
-        return _r("C-09", PARTIAL, "floors exist; no execution or procedure rows in `search`")
-    return _r("C-09", IMPLEMENTED, f"score floors set; {reachable} execution/procedure rows searchable")
+        return _r("C-09", PARTIAL, "floors exist; no execution, procedure or verification rows in `search`")
+    if "verification" not in _tables(db):
+        return _r("C-09", PARTIAL, "verification records are not indexed; rebuild with `eos index`")
+    return _r("C-09", IMPLEMENTED, f"score floors set; {reachable} execution/procedure/verification rows searchable")
 
 
 def check_c10(root: Path) -> Result:
@@ -373,7 +377,16 @@ def check_c19(root: Path) -> Result:
     with_session = [x for x in real if getattr(x, "session", None)]
     if not with_session:
         return _r("C-19", PARTIAL, f"{len(real)} executions, none carries a session id")
-    return _r("C-19", IMPLEMENTED, f"{len(with_session)} executions joinable to work and notes by session")
+    # A session id on an execution alone proves nothing joins: the same id
+    # must appear on something in another store -- a note or a work item.
+    from core import work
+    sessions = {x.session for x in with_session}
+    on_notes = {n.session for n in notes.load_notes(root) if n.session}
+    on_work = {h.get("session") for item in work.items(root) for h in item.holders}
+    joined = sessions & (on_notes | on_work)
+    if not joined:
+        return _r("C-19", PARTIAL, f"{len(with_session)} executions carry a session id that no note or work item shares")
+    return _r("C-19", IMPLEMENTED, f"{len(joined)} session id(s) shared by executions and notes/work")
 
 
 def check_c20(root: Path) -> Result:
