@@ -7,6 +7,23 @@
 | 2 | eos-ui: SQLite, scan-root management, reconcile trigger, list view | 🚧 In progress |
 | 3 | Graph visualization (Cytoscape.js) | ✅ Done (instance list + drill-down graph) |
 | 4 | File watcher (watchdog), Tauri packaging, monorepo/nested support | 🚧 File watcher done; Tauri/nested planned |
+| 5 | Operational memory: execution ledger, procedures, task-aware brief, lessons, learning — target **1.0.0** | 📋 Planned — [`plans/operational-memory.md`](plans/operational-memory.md) is the resume point |
+
+## Phase 5 — Operational memory (planned, target 1.0.0)
+
+The engine remembers what is true (notes) and what a session intends (work
+ledger). It does not remember **how** a task should be done or **what
+happened** the last time it was done, and a new session pays for that in
+tokens and rediscovery. Phase 5 adds an execution ledger, procedures as a
+note kind, a task-aware brief under a fixed budget, and lessons that a failed
+execution must leave behind — each shipped with its writer, because the
+audit that opened this phase found two stores that had never been written to.
+
+Everything about it — status per deliverable, the 21 acceptance checks, the
+milestone order, the constraints it honours and the protocol that decides
+whether it is done — lives in one file so that a session resumes by reading
+it and running `eos doctor --memory`, never by asking where things stand:
+`docs/plans/operational-memory.md`.
 
 ## Phase 2 — eos-ui (current)
 
