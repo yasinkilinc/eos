@@ -279,8 +279,10 @@ def _task_sections(root: Path, task: str) -> tuple[list[list[str]], bool]:
         if failures:
             sections.append(["KNOWN FAILURES"] + [f"  - {_clip(item, 140)}" for item in failures])
 
-    related = [n for n in notes.search_notes(root, task, limit=RELATED_LIMIT + 2)
-               if n.kind != "procedure"][:RELATED_LIMIT]
+    # Findings only: an endpoint table matching "deploy" is not something a
+    # session about to deploy needs read to it (notes.BULK_INDEX_SOURCES).
+    related = [n for n in notes.search_notes(root, task, limit=RELATED_LIMIT + 6)
+               if n.kind != "procedure" and not notes.is_bulk_index(n)][:RELATED_LIMIT]
     if related:
         found = True
         sections.append(["RELATED NOTES"] + [f"  - {n.title}" for n in related]

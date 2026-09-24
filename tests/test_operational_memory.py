@@ -256,12 +256,12 @@ def test_c09_a_score_floor_keeps_or_retrieval_from_returning_the_whole_corpus(tm
     _procedure(project)
     run = executions.start(project, "Deploy the wallet service", target="staging")
     executions.finish(project, run.id, outcome="ok")
-    index.build(project)
+    db = index.build(project).path
 
     assert hasattr(index, "SCORE_FLOOR") and hasattr(notes, "SCORE_FLOOR")
     ranked = notes.search_notes(project, "which endpoint does the wallet balance registry use")
     assert 0 < len(ranked) < 10, "one answer and its neighbours, not fifty rows"
-    _, rows = index.search(project, "deploy wallet staging")
+    _, rows = index.search(db, "deploy wallet staging")
     assert {row[0] for row in rows} & {"execution", "procedure"}
     assert _status("C-09", project).status == IMPLEMENTED
 

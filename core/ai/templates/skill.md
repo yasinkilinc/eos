@@ -77,6 +77,7 @@ argument. Every command takes `--format json`.
 | Command | What it answers | When it earns its cost |
 |---|---|---|
 | `eos brief` | What is in flight here and which notes match this branch | At the start of a session, before reading anything |
+| `eos brief --task "…"` | For the task you were just given: the procedure recorded for it (steps, success criteria, run counts), its last runs with outcomes and lessons, the nearest notes — under 1,500 tokens. A prompt hook runs it for you and prints nothing when nothing is recorded | Before the first action of a task; follow a recorded procedure rather than improvising one, and read the last failure's lesson before repeating it |
 | `eos work list [--across]` | Every item in flight, who holds it, what is stale or contested; `--across` covers sibling projects sharing one knowledge root | When picking up work, and before starting something someone may already hold |
 | `eos work add --title "…" --claim` | Records that you took this, so a parallel session sees it | The moment you start, not the moment you finish |
 | `eos work show <id>` | One item's whole history, and the commits naming its ticket | When a claim looks stale, or done and unproven |

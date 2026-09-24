@@ -1,6 +1,6 @@
 # Plan: operational memory — target 1.0.0
 
-**Status of this plan: ACTIVE.** Engine at the time of writing: 0.38.0; M0 landed in 0.39.0, M1 in 0.40.0, M2 in 0.41.0.
+**Status of this plan: ACTIVE.** Engine at the time of writing: 0.38.0; M0 landed in 0.39.0, M1 in 0.40.0, M2 in 0.41.0, M3 in 0.42.0.
 **Target: 1.0.0**, defined as "the acceptance harness in M0 is green in full."
 
 This file is the one place a session resumes from. It is a ledger, not an
@@ -108,10 +108,10 @@ milestone.
 | OM-22 | M2 | `eos procedure list\|show\|new\|audit` | 0.41.0 | C-03 | DONE |
 | OM-23 | M2 | Counters + `last_verified` moved only by `eos run finish` | 0.41.0 | C-17 C-18 | DONE |
 | OM-24 | M2 | Index extension for host step catalogues (steps + last state) | 0.41.0 | C-03 | DONE |
-| OM-30 | M3 | `eos brief --task` — procedure + executions + lessons, budgeted | 0.42.0 | C-07 C-08 C-11 C-20 | TODO |
-| OM-31 | M3 | Execution ranking: procedure, target, outcome, recency | 0.42.0 | C-08 | TODO |
-| OM-32 | M3 | UserPromptSubmit hook template; SessionStart template extended | 0.42.0 | C-07 C-21 | TODO |
-| OM-33 | M3 | Score floor for OR retrieval (the audit's side finding) | 0.42.0 | C-09 | TODO |
+| OM-30 | M3 | `eos brief --task` — procedure + executions + lessons, budgeted | 0.42.0 | C-07 C-08 C-11 C-20 | DONE |
+| OM-31 | M3 | Execution ranking: procedure, target, outcome, recency | 0.42.0 | C-08 | DONE |
+| OM-32 | M3 | UserPromptSubmit hook template; SessionStart template extended | 0.42.0 | C-07 C-21 | DONE |
+| OM-33 | M3 | Score floor for OR retrieval (the audit's side finding) | 0.42.0 | C-09 | DONE |
 | OM-40 | M4 | `kind: lesson`, `kind: decision` — sections, validation | 0.43.0 | C-14 C-15 | TODO |
 | OM-41 | M4 | `eos run finish --outcome failed` asks for a lesson; Stop hook enforces | 0.43.0 | C-17 | TODO |
 | OM-42 | M4 | Derived confidence at read time; never stored | 0.43.0 | C-18 | TODO |
@@ -280,30 +280,41 @@ the harness and this list in one commit.
 
 ### M3 — task-aware retrieval (0.42.0)
 
-- **OM-30** `eos brief --task "<text>"`. Sources, in order, under one budget
-  (default 1,500 tokens, `--budget`): the best-matching procedure (steps
-  only, no prose), its last three executions (one line each: date, outcome,
-  target, where it broke), the lessons linked to any failed one (titles), then
-  what the branch-derived brief shows today. The task text is a query and is
-  discarded — never written to telemetry, the ledger or a note (ADR-019).
-  Reuses `search_notes` / `word_weights` (`core/notes.py:1127`, `:1206`) for
-  procedures and lessons; `build_context(task=…)` (`core/inspector.py:447`)
-  is retired into this, so the task-aware path exists once and on the CLI.
-- **OM-31** Execution ranking: same procedure first, then same `target`,
-  then recency; a `failed` execution with a lesson outranks an `ok` one of
-  the same age, because it is the one a session needs to read.
-- **OM-32** Hook templates in `core/ai/templates/`: `session_start.py` calls
-  `eos brief` as today; a new `prompt_submit.py` calls `eos brief --task`
-  with the submitted text and returns the block as context. Both silent on
-  failure, both leaving the `ok: false` telemetry mark. `eos init` and
-  `eos ai update` register both. A host whose sessions start from a parent
-  directory registers them there — the ADR says so, because the audit found
-  the brief installed in thirteen projects and running in none.
-- **OM-33** A score floor for OR retrieval in `core/index.py:542` and
-  `core/notes.py:1206`: results below a fraction of the top score are cut,
-  so a five-word question returns the answer and its neighbours, not 176
-  rows. Measured with `eos note eval` before and after; the golden sets
-  decide the fraction.
+- **OM-30** `eos brief --task "<text>" [--budget N] [--task-only]`. Sections in
+  priority order under one budget (default 1,500 tokens at a conservative
+  3.0 chars/token): the best-matching procedure (steps, prerequisites,
+  success, counters), its last three runs (date, outcome, target, tools,
+  lesson when failed) plus the most recent failed-with-lesson run when it
+  falls outside those three, the procedure's known failures, the nearest
+  non-procedure notes, a one-line "record this run" command, then the
+  branch brief. With no procedure it says "none recorded — do not present
+  improvised steps as this project's" and finds runs by the task's words.
+  `--task-only` returns only the task sections and an empty string when none
+  found anything. The task text is a query and is never written anywhere
+  (ADR-019; a test greps every file after a run). `build_context(task=…)`
+  stays as the MCP surface's path; the CLI path is this one.
+- **OM-31** Execution ranking: candidates by procedure, else by the task's
+  words, else all; target-matching runs lead; then most recent first, with
+  ledger order breaking the ties runs finished within one second share. A
+  failed run with a lesson is **not** promoted above newer runs — the order
+  stays honest — and the brief shows it on its own line when it falls
+  outside the top three, which is what "the one a session needs to read"
+  required.
+- **OM-32** `core/ai/templates/prompt_submit.py`, registered for
+  `UserPromptSubmit` by `eos init` / `eos ai update` beside SessionStart and
+  Stop. It runs `eos brief --task <prompt> --task-only`; prints nothing when
+  nothing matched, and nothing when the same block was already delivered in
+  this session (digests of printed blocks kept per session in
+  `$EOS_STATE_DIR/prompted/`; never the prompt). Always exit 0, never stderr.
+  The SessionStart brief gains `RUNS OPEN`, the executions left unfinished.
+  A host whose sessions start from a parent directory registers them there
+  (H-02).
+- **OM-33** Score floors, relative to the best result: `notes.SCORE_FLOOR =
+  0.4`, `index.SCORE_FLOOR = 0.5` (BM25 is on its own scale; the LIKE
+  fallback uses its hit count). Swept on the golden set: recall@1/@5
+  unchanged at every floor up to 0.5; mean results 4.3 → 2.8 on the note
+  path, 20 → 6.8 on FTS; "deploy" and "deploy env1" went from 14 and 19
+  notes to 3 each.
 
 ### M4 — lessons, decisions, learning (0.43.0)
 
