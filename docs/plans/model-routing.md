@@ -300,6 +300,20 @@ Rules that override the sum, applied in this order after scoring:
 Project keyword extensions from `[model_routing.keywords]` are appended to
 the table for the named type with weight 1.0.
 
+As built (M2), three readings of the rules above were fixed where the plain
+wording misclassified ordinary sentences:
+- Rule 2's question openers count only at the **start** of the text ("design
+  the boundaries where…" is not a question). The failure-word split applies
+  only when `debugging` or `investigation` won the sum, so "add error
+  handling" stays an implementation.
+- Rule 4 also requires **at most twelve words**; a long sentence rarely names
+  one change.
+- `fix` weighs 0.5 in the debugging table so "fix the typo" stays trivial
+  under rule 3, while "fix the crash" still reaches debugging through the
+  failure word. A rule override reports confidence `max(0.80, scored)`.
+- Single tokens and the last word of a phrase accept a plain inflection
+  (`s|es|ed|ing|d`), so `unit test` matches "unit tests".
+
 Tests: one per taxonomy type with a plain English sentence; `decision` does
 not classify as devops-style `ci`; the tie-break is stable; the same text
 gives the same `TaskClass` twice; config keywords reach the classifier; a
@@ -670,7 +684,7 @@ nothing; the grep finds no task text.
 |---|---|---|---|
 | M0 ADR-025 | 1.1.2 (unreleased) | this commit: `docs: ADR-025 model and effort routing` | 2026-09-25 |
 | M1 registry, taxonomy, types | 1.1.2 (unreleased) | `routing: model registry, taxonomy and contracts` | 2026-09-25 |
-| M2 classification | — | | |
+| M2 classification | 1.1.2 (unreleased) | `routing: deterministic task classification` | 2026-09-25 |
 | M3 complexity score | — | | |
 | M4 policy and decision | — | | |
 | M5 trace and decided event | — | | |
