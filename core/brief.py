@@ -368,20 +368,42 @@ def _route_section(root: Path, task: str, *, session, agent) -> tuple[list[str],
     Only for a project that wrote a `[model_routing]` table: without one every
     brief stays byte-for-byte what it was. With `brief = "with-brief"` the
     lines ride along with a brief that has something else to say; `"always"`
-    makes them enough on their own. Decided with `record=False` -- this runs
-    on every prompt -- and any failure costs the line, never the brief.
+    makes them enough on their own. This runs on every prompt, so it records
+    nothing unless `record_prompts` asks it to (`_record_prompt`), and any
+    failure costs the line, never the brief.
     """
     try:
         import core.routing as routing
         from core.routing import adapters, config
 
         cfg = config.load(root)
-        if not cfg.configured or not cfg.enabled or cfg.brief == "never":
+        if not cfg.configured or not cfg.enabled:
             return [], False
         decision = routing.route(root, task, session=session, record=False)
+        if cfg.record_prompts:
+            _record_prompt(root, task, session, decision, cfg)
+        if cfg.brief == "never":
+            return [], False
         return adapters.brief_lines(decision, agent), cfg.brief == "always"
     except Exception:  # noqa: BLE001 - the brief must not fail because of the router
         return [], False
+
+
+def _record_prompt(root: Path, task: str, session, decision, cfg) -> None:
+    """Keep the decision for a task prompt, once, so data exists without a run.
+
+    Skipped for a prompt the classifier found no task words in ("ok", "go
+    on") -- that is conversation, not a task -- for a decision already reused
+    from the open run, and for a task this session already recorded.
+    """
+    import core.routing as routing
+    from core.routing import classify, trace
+
+    if decision.reused or not classify.classify(task, cfg.keywords).matched:
+        return
+    if trace.seen(root, session, decision.task_hash):
+        return
+    routing.route(root, task, session=session, record=True)
 
 
 def _with_task(root: Path, task: str, *, session, agent, budget: int, task_only: bool) -> str:

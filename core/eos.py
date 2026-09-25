@@ -1670,16 +1670,25 @@ def cmd_route(args: argparse.Namespace) -> int:
     `[model_routing]` table -- exits 2 with the reason, never a substitute.
     """
     import core.routing as routing
-    from core.routing import trace
+    from core.routing import trace, usage
+
+    if args.usage_from:
+        # Called from a Stop hook with the harness transcript: always exit 0.
+        if usage.record(args.path, args.session, args.usage_from):
+            print(f"usage recorded for session {args.session}")
+        return 0
 
     if args.stats:
+        recorded, sessions = len(trace.load(args.path)), len(usage.load(args.path))
         rows = trace.stats(args.path)
         if not rows:
-            print("No decisions recorded in runs yet. A decision made between "
+            print(f"No decisions recorded in runs yet ({recorded} recorded outside runs, "
+                  f"model usage for {sessions} session(s)). A decision made between "
                   "`eos run start` and `eos run finish` is joined to that run's outcome.")
             return 0
         total = sum(sum(counts.values()) for _, counts in rows)
-        print(f"Routing decisions joined to runs: {total}")
+        print(f"Routing decisions joined to runs: {total} of {recorded} recorded; "
+              f"model usage for {sessions} session(s)")
         print()
         for (kind, level, model, effort), counts in rows:
             tally = "  ".join(f"{word} {counts[word]}" for word in ("ok", "failed", "abandoned", "open")
@@ -2591,6 +2600,9 @@ def main(argv: list[str] | None = None) -> int:
     route_p.add_argument("--session", default=None, help="Session id; filled from the harness when omitted")
     route_p.add_argument("--stats", action="store_true",
                          help="Recorded decisions joined to their runs' outcomes; ignores the task")
+    route_p.add_argument("--usage-from", default=None, metavar="TRANSCRIPT",
+                         help="Fold a harness transcript into this session's model and token totals "
+                              "(for a Stop hook); ignores the task")
 
     proc_p = sub.add_parser("procedure", help="How a recurring task is done here, and how it has gone (ADR-023)")
     proc_sub = proc_p.add_subparsers(dest="procedure_command", required=True)

@@ -19,7 +19,8 @@ from core.routing.types import AUTO, EFFORTS, TASK_TYPES
 
 TABLE = "model_routing"
 BRIEF_MODES = ("with-brief", "always", "never")
-_KEYS = ("enabled", "default_model", "default_effort", "brief", "hook", "models", "keywords")
+_KEYS = ("enabled", "default_model", "default_effort", "brief", "hook", "record_prompts",
+         "models", "keywords")
 
 
 @dataclasses.dataclass(frozen=True)
@@ -30,6 +31,8 @@ class RoutingConfig:
     default_effort: str = AUTO
     brief: str = "with-brief"
     hook: bool = False
+    # Record the brief's decision for every task prompt, not only for runs.
+    record_prompts: bool = False
     models: dict = dataclasses.field(default_factory=dict)
     keywords: dict = dataclasses.field(default_factory=dict)
 
@@ -63,6 +66,9 @@ def parse(table: object) -> RoutingConfig:
     hook = table.get("hook", False)
     if not isinstance(hook, bool):
         raise ValueError(f"[{TABLE}] hook must be true or false")
+    record_prompts = table.get("record_prompts", False)
+    if not isinstance(record_prompts, bool):
+        raise ValueError(f"[{TABLE}] record_prompts must be true or false")
 
     default_model = table.get("default_model", AUTO)
     if not isinstance(default_model, str) or not default_model.strip():
@@ -93,4 +99,5 @@ def parse(table: object) -> RoutingConfig:
 
     return RoutingConfig(configured=True, enabled=enabled, default_model=default_model.strip(),
                          default_effort=default_effort, brief=brief, hook=hook,
+                         record_prompts=record_prompts,
                          models=dict(models), keywords=cleaned)

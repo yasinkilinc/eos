@@ -655,6 +655,7 @@ default_model = "auto"      # or a registry id / alias
 default_effort = "auto"     # or low | medium | high | xhigh | max
 brief = "with-brief"        # "with-brief" | "always" | "never"
 hook = false                # true: `eos ai update` installs the subagent-model hook below
+record_prompts = false      # true: the task brief also records its decision for every task prompt
 
 [model_routing.models.local-coder]     # add a model, or correct a default by id
 provider = "openai-compatible"
@@ -675,6 +676,16 @@ With the table present, `eos brief --task` ends with two lines — under
 ROUTE  refactoring HIGH → sonnet/high (conf 0.55) — Refactoring, HIGH (…); cheapest model meeting HIGH; effort high.
   Apply: Task({model: "sonnet"}) for subagents; /effort high for this session; eos route . "<task>" for the factors
 ```
+
+**Collecting data without a habit.** Runs record their decision on their
+own (above). With `record_prompts = true` the task brief also records one per
+task prompt — once per task per session, and never for a prompt with no task
+words in it ("ok", "go on"). What a session actually ran is folded from the
+harness transcript by a Stop hook calling
+`eos route <project> --usage-from <transcript> --session <id>`: one line per
+session in `.eos/data/routing-usage.jsonl`, per model the message count and
+token counts, no content — so the numbers outlive the harness's transcript
+retention. `eos route --stats` says how much of each has been collected.
 
 With `hook = true`, `eos ai update` also installs `.claude/hooks/eos-route.py`
 as a `PreToolUse` hook on the subagent tool: when the agent spawns a subagent

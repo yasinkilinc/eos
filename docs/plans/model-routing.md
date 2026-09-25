@@ -765,7 +765,7 @@ sonnet/high with "clamped"; 0 bytes; 0.
 | M9 PreToolUse hook (optional) | 1.1.2 (unreleased) | `routing: optional PreToolUse hook applies the model to subagents` | 2026-09-25 |
 | release 1.2.0 | 1.2.0 | `release: 1.2.0 -- adaptive model and effort routing` | 2026-09-25 |
 
-## 11a. After 1.2.0 — collecting data to recalibrate (1.2.1)
+## 11a. After 1.2.0 — collecting data to recalibrate (1.2.1, 1.2.2)
 
 Switching routing on in a real workspace showed that 1.2.0 would collect
 nothing: the brief decides with `record=False`, and a decision was recorded
@@ -787,9 +787,20 @@ only when somebody ran `eos route` by hand. Three changes make the data exist:
    routing a named agent (`Explore`, a project agent) replaced a deliberate
    choice. Found while deciding whether to turn the hook on; fixed with a test.
 
+**1.2.2 — no habit needed.** Runs still depend on a session opening one, so
+two writers were added that nobody has to remember: `record_prompts = true`
+makes the task brief (run by the prompt hook) record its decision once per
+task per session, skipping prompts with no task words; and
+`eos route --usage-from <transcript> --session <id>`, called from a Stop hook,
+folds the harness transcript into one line per session in
+`.eos/data/routing-usage.jsonl` (per model: messages, input, output, cache-read
+and cache-creation tokens; subagents separately; messages counted by id
+because the harness writes one line per content block). Transcripts are
+deleted after the harness's retention (30 days by default); this line is not.
+
 The analysis itself is not built yet. Its inputs are: `routing.jsonl`
 (decision, factors, effort in use), `executions.jsonl` (outcome, events),
-and the harness transcript by session (model and tokens actually spent).
+and `routing-usage.jsonl` by session (model and tokens actually spent).
 `eos route --stats` is the first cut; `policy.adjust_for_history` is where a
 reviewed conclusion would plug in (ADR-018: a person decides, not the engine).
 

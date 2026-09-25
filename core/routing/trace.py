@@ -108,6 +108,14 @@ def load(project_root: str | Path) -> list[dict]:
     return found
 
 
+def seen(project_root: str | Path, session: str | None, task_hash: str, *, tail: int = 500) -> bool:
+    """Whether this session already recorded a decision for this task (recent lines only)."""
+    if not session:
+        return False
+    return any(line.get("session") == session[:64] and line.get("task_hash") == task_hash
+               for line in load(project_root)[-tail:])
+
+
 def outcomes(project_root: str | Path) -> list[tuple[str, str, str, str, str]]:
     """(type, level, model, effort, outcome) per recorded decision that has a run.
 
