@@ -659,7 +659,7 @@ nothing; the grep finds no task text.
 
 | Milestone | Lands in | Commit | Done |
 |---|---|---|---|
-| M0 ADR-025 | — | | |
+| M0 ADR-025 | 1.1.2 (unreleased) | this commit: `docs: ADR-025 model and effort routing` | 2026-09-25 |
 | M1 registry, taxonomy, types | — | | |
 | M2 classification | — | | |
 | M3 complexity score | — | | |
