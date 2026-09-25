@@ -1661,6 +1661,72 @@ def cmd_brief(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_route(args: argparse.Namespace) -> int:
+    """Which model and how much effort this task deserves, and why (ADR-025).
+
+    Advice for the harness, not an action: EOS calls no model. A refused
+    explicit choice -- an unknown model, an unknown effort, a malformed
+    `[model_routing]` table -- exits 2 with the reason, never a substitute.
+    """
+    import core.routing as routing
+    from core.routing import trace
+
+    if args.stats:
+        rows = trace.stats(args.path)
+        if not rows:
+            print("No decisions recorded in runs yet. A decision made between "
+                  "`eos run start` and `eos run finish` is joined to that run's outcome.")
+            return 0
+        total = sum(sum(counts.values()) for _, counts in rows)
+        print(f"Routing decisions joined to runs: {total}")
+        print()
+        for (kind, level, model, effort), counts in rows:
+            tally = "  ".join(f"{word} {counts[word]}" for word in ("ok", "failed", "abandoned", "open")
+                              if counts[word])
+            print(f"  {kind:<24} {level:<8} {model}/{effort:<8} {tally}")
+        return 0
+
+    task = " ".join(args.task or ()).strip()
+    if not task:
+        hint = "" if Path(args.path).is_dir() else f" ({args.path!r} is not a project directory)"
+        print(f'error: a task is required: eos route <path> "<task>"{hint}', file=sys.stderr)
+        return 2
+    try:
+        decision = routing.route(args.path, task, files=tuple(args.file or ()), session=args.session,
+                                 model=args.model, effort=args.effort, record=not args.no_record,
+                                 fresh=args.fresh)
+    except (routing.OverrideError, ValueError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+
+    if args.json:
+        print(json.dumps(decision.to_dict(), indent=2, ensure_ascii=False))
+        return 0
+
+    from core.routing.score import WEIGHTS
+
+    factors = ", ".join(f"{name} {decision.factors[name]:.2f}"
+                        for name, _ in WEIGHTS if name in decision.factors)
+    lines = [
+        f"Task: {task}",
+        "",
+        f"Type:        {decision.task_type}",
+        f"Complexity:  {decision.level}  (score {decision.score:.2f})",
+        f"Model:       {decision.model}",
+        f"Effort:      {decision.effort}",
+        f"Confidence:  {decision.confidence:.2f}",
+        f"Source:      {decision.override_source}" + ("  (reused)" if decision.reused else ""),
+        "",
+        "Reason:",
+        decision.reason,
+    ]
+    if factors:
+        lines += ["", f"Factors: {factors}"]
+    lines.append(f"Alternatives: {', '.join(decision.alternatives) or 'none'}")
+    print("\n".join(lines))
+    return 0
+
+
 def cmd_work_stats(args: argparse.Namespace) -> int:
     """What happened here, as opposed to how often a command was called.
 
@@ -1954,6 +2020,7 @@ _FILL_SESSION = frozenset(
     {("work", verb) for verb in ("add", "claim", "log", "block", "unblock", "done", "drop")}
     | {("note", verb) for verb in ("add", "amend", "skip")}
     | {("procedure", "new")}
+    | {("route", None)}
 )
 
 
@@ -2467,6 +2534,25 @@ def main(argv: list[str] | None = None) -> int:
                          help="Only the task sections, and nothing at all when none found anything "
                               "(for a hook that fires on every prompt)")
 
+    route_p = sub.add_parser(
+        "route", help="Which model and how much effort a task deserves, and why (ADR-025)")
+    add_path(route_p)
+    route_p.add_argument("task", nargs="*",
+                         help="What the task is; quoting is optional. Used as a query and never stored")
+    route_p.add_argument("--file", action="append", default=None,
+                         help="A project-relative file the task touches; repeatable. Feeds the "
+                              "file-count and dependency factors")
+    route_p.add_argument("--model", default=None, help="Fix the model (a registry id or alias), or 'auto'")
+    route_p.add_argument("--effort", default=None, help="Fix the effort (low|medium|high|xhigh|max), or 'auto'")
+    route_p.add_argument("--json", action="store_true", help="Print the decision as JSON")
+    route_p.add_argument("--fresh", action="store_true",
+                         help="Decide again even if this run already has a decision")
+    route_p.add_argument("--no-record", action="store_true",
+                         help="Decide without writing the trace line or the run event")
+    route_p.add_argument("--session", default=None, help="Session id; filled from the harness when omitted")
+    route_p.add_argument("--stats", action="store_true",
+                         help="Recorded decisions joined to their runs' outcomes; ignores the task")
+
     proc_p = sub.add_parser("procedure", help="How a recurring task is done here, and how it has gone (ADR-023)")
     proc_sub = proc_p.add_subparsers(dest="procedure_command", required=True)
 
@@ -2687,6 +2773,7 @@ def main(argv: list[str] | None = None) -> int:
         "run": cmd_run,
         "procedure": cmd_procedure,
         "brief": cmd_brief,
+        "route": cmd_route,
         "ai": cmd_ai,
     }
     handler = commands[args.command]

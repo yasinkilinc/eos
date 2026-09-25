@@ -76,6 +76,7 @@ project removed on purpose.
 |---|---|
 | `eos init <path> [--link-parent <path>] [--link-label <name>] [--surface cli\|mcp\|both] [--no-ai]` | Bootstrap `.eos/`, write the AI integration surfaces |
 | `eos brief <path> [--session <id>] [--agent <name>]` | What a session needs before it starts: work in flight, and the notes matching this branch |
+| `eos route <path> <task> [--file F]… [--model M] [--effort E] [--json] [--fresh] [--no-record] [--stats]` | Which model and how much effort a task deserves, and why; advice for the harness, EOS calls no model |
 | `eos scan <path> [--full] [--with-parents]` | Incremental or full scan; optionally index linked parents too |
 | `eos update <path> [--dry-run]` | Update the runtime from canonical `core/` |
 | `eos doctor <path>` | Validate `.eos/` integrity |

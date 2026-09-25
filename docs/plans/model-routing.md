@@ -538,6 +538,13 @@ without `max` prints the clamped value and a reason mentioning the clamp;
 a "no decisions recorded" line; telemetry (when enabled) records `route` with
 flag names and no task.
 
+As built (M6): `task` is `nargs="*"`, not `"+"` — with `"+"` the path-only
+form `eos route . --stats` cannot parse. A missing task exits 2 and, when the
+first argument is not a directory, says it was taken as the path. The
+Factors line prints all seven numeric factors in weight order.
+`tests/test_documents_match_reality.py` refuses a command no agent document
+names, so the README command-table row moved from M8 into this milestone.
+
 Commit: `cli: eos route`.
 
 ### M7 — surfaces: brief, MCP, agent templates
@@ -713,7 +720,7 @@ nothing; the grep finds no task text.
 | M3 complexity score | 1.1.2 (unreleased) | `routing: transparent complexity score` | 2026-09-25 |
 | M4 policy and decision | 1.1.2 (unreleased) | `routing: policy, overrides and the decision` | 2026-09-25 |
 | M5 trace and decided event | 1.1.2 (unreleased) | `routing: trace and the decided event` | 2026-09-25 |
-| M6 `eos route` | — | | |
+| M6 `eos route` | 1.1.2 (unreleased) | `cli: eos route` | 2026-09-25 |
 | M7 brief, MCP, templates | — | | |
 | M8 docs | — | | |
 | M9 PreToolUse hook (optional) | — | | |
