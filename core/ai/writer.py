@@ -148,6 +148,59 @@ def _register_hooks(root: Path) -> Path:
     return path
 
 
+ROUTE_HOOK_FILE = ".claude/hooks/eos-route.py"
+# The subagent tool has carried both names; a matcher is a regex.
+ROUTE_HOOK_MATCHER = "Agent|Task"
+
+
+def _mentions(entry, relative: str) -> bool:
+    commands = entry.get("hooks", []) if isinstance(entry, dict) else []
+    return any(relative in str(item.get("command", "")) for item in commands if isinstance(item, dict))
+
+
+def _route_hook(root: Path, version: str, wanted: bool) -> list[Path]:
+    """Install or remove the optional subagent-model hook (ADR-025, M9).
+
+    Opt-in because it is the one hook that changes what the agent does rather
+    than what it knows. Only EOS's own `PreToolUse` entry is added or removed;
+    any other `PreToolUse` hook a project registered stays where it is.
+    """
+    path = root / ROUTE_HOOK_FILE
+    settings = root / ".claude" / "settings.json"
+    data: dict = {}
+    if settings.exists():
+        try:
+            data = json.loads(settings.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            raise SystemExit(f"eos: {settings} is not valid JSON; fix it or move it aside.")
+    before = json.dumps(data, sort_keys=True)
+    hooks = data.setdefault("hooks", {})
+    registered = hooks.get("PreToolUse", [])
+    if not isinstance(registered, list):
+        raise SystemExit(f"eos: hooks.PreToolUse in {settings} is not a list; fix it.")
+    kept = [entry for entry in registered if not _mentions(entry, ROUTE_HOOK_FILE)]
+
+    written: list[Path] = []
+    if wanted:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(_render("pretooluse_task.py", version), encoding="utf-8")
+        path.chmod(0o755)
+        written.append(path)
+        kept.append({"matcher": ROUTE_HOOK_MATCHER, "hooks": [
+            {"type": "command", "command": 'python3 "$CLAUDE_PROJECT_DIR/' + ROUTE_HOOK_FILE + '"'}]})
+    elif path.exists():
+        path.unlink()
+
+    if kept:
+        hooks["PreToolUse"] = kept
+    else:
+        hooks.pop("PreToolUse", None)
+    if json.dumps(data, sort_keys=True) != before:
+        settings.parent.mkdir(parents=True, exist_ok=True)
+        settings.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+    return written
+
+
 def mcp_registered(root: Path) -> bool:
     """Whether this project still pays for an MCP tool roster."""
     path = Path(root) / ".mcp.json"
@@ -161,7 +214,7 @@ def mcp_registered(root: Path) -> bool:
 
 
 def write_all(root: Path, version: str, agents_md: bool = True,
-              surface: str = "cli") -> list[Path]:
+              surface: str = "cli", route_hook: bool = False) -> list[Path]:
     """Write every integration surface for `version`.
 
     `agents_md=False` leaves AGENTS.md alone. It is the one surface EOS does
@@ -193,6 +246,7 @@ def write_all(root: Path, version: str, agents_md: bool = True,
 
     written.extend(_write_hooks(root, version))
     written.append(_register_hooks(root))
+    written.extend(_route_hook(root, version, route_hook))
 
     if surface in ("mcp", "both"):
         written.append(_write_mcp(root))

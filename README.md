@@ -648,6 +648,7 @@ enabled = true              # false: `eos route` still answers; the brief and MC
 default_model = "auto"      # or a registry id / alias
 default_effort = "auto"     # or low | medium | high | xhigh | max
 brief = "with-brief"        # "with-brief" | "always" | "never"
+hook = false                # true: `eos ai update` installs the subagent-model hook below
 
 [model_routing.models.local-coder]     # add a model, or correct a default by id
 provider = "openai-compatible"
@@ -668,6 +669,14 @@ With the table present, `eos brief --task` ends with two lines — under
 ROUTE  refactoring HIGH → sonnet/high (conf 0.55) — Refactoring, HIGH (…); cheapest model meeting HIGH; effort high.
   Apply: Task({model: "sonnet"}) for subagents; /effort high for this session; eos route . "<task>" for the factors
 ```
+
+With `hook = true`, `eos ai update` also installs `.claude/hooks/eos-route.py`
+as a `PreToolUse` hook on the subagent tool: when the agent spawns a subagent
+without naming a model, the subagent's prompt is routed and the call proceeds
+with the chosen model. An explicit model is never changed, effort is left to
+the session (the harness takes it per session, not per call), and any failure
+lets the call through untouched. Turning the flag off removes the hook and
+only its own settings entry.
 
 The default registry holds three generic tiers (`haiku`, `sonnet`, `opus`)
 with relative capability and cost numbers; they are defaults to correct in

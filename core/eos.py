@@ -146,7 +146,8 @@ def cmd_init(args: argparse.Namespace) -> int:
 
         surface = getattr(args, "surface", "cli")
         _store_surface(root, surface)
-        written = writer.write_all(root, VERSION, surface=surface)
+        written = writer.write_all(root, VERSION, surface=surface,
+                                   route_hook=_route_hook_wanted(root))
         print(f"  AI integration ({surface} surface):")
         for path in written:
             print(f"    {path.relative_to(root)}")
@@ -2243,10 +2244,22 @@ def cmd_ai(args: argparse.Namespace) -> int:
     if args.surface:
         _store_surface(root, surface)
     for path in writer.write_all(root, VERSION, agents_md=not args.no_agents_md,
-                                 surface=surface):
+                                 surface=surface, route_hook=_route_hook_wanted(root)):
         print(f"  {path.relative_to(root)}")
     _warn_stale_mcp(root, surface)
     return 0
+
+
+def _route_hook_wanted(root: Path) -> bool:
+    """`[model_routing] hook = true` (ADR-025, M9). A table that cannot be read
+    leaves the hook off and says why, rather than failing the whole update."""
+    from core.routing import config as routing_config
+
+    try:
+        return routing_config.load(root).hook
+    except (OSError, ValueError) as exc:
+        print(f"warning: [model_routing] not read ({exc}); the routing hook stays off", file=sys.stderr)
+        return False
 
 
 def main(argv: list[str] | None = None) -> int:

@@ -703,6 +703,19 @@ a stubbed `eos route --json`; exits 0 with no output when `eos` fails; the
 settings entry appears only with the flag and disappears without it while a
 foreign `PreToolUse` entry survives.
 
+**As built (M9), verified against code.claude.com/docs/en/hooks on
+2026-09-25:** `updatedInput` is applied on its own (no `permissionDecision`
+needed, so the permission flow is untouched) and is **merged** into the tool
+input — the hook sends only `{"model": …}`. The docs do not name the
+subagent tool for matchers; this harness calls it `Agent` and older ones
+`Task`, so the matcher is `Agent|Task` and the script checks both. The script
+writes a model only if it is one the subagent tool accepts (`haiku`, `sonnet`,
+`opus`, `fable`); a project's own registry ids are left to the agent. Files:
+`.claude/hooks/eos-route.py`, `writer.write_all(..., route_hook=bool)`,
+`eos.py:_route_hook_wanted()` reads `[model_routing] hook` for `eos init` and
+`eos ai update` (an unreadable table leaves it off with a warning). Turning the
+flag off removes the script and only EOS's own `PreToolUse` entry.
+
 Commit: `routing: optional PreToolUse hook applies the model to subagents`.
 
 ## 9. Release and carry-over
@@ -742,7 +755,7 @@ nothing; the grep finds no task text.
 | M6 `eos route` | 1.1.2 (unreleased) | `cli: eos route` | 2026-09-25 |
 | M7 brief, MCP, templates | 1.1.2 (unreleased) | `routing: brief line, MCP context, agent surfaces` | 2026-09-25 |
 | M8 docs | 1.1.2 (unreleased) | `docs: model and effort routing` | 2026-09-25 |
-| M9 PreToolUse hook (optional) | — | | |
+| M9 PreToolUse hook (optional) | 1.1.2 (unreleased) | `routing: optional PreToolUse hook applies the model to subagents` | 2026-09-25 |
 | release 1.2.0 | — | | |
 
 ## 12. Open questions — resolve before M1's defaults and M7's templates
