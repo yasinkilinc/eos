@@ -421,7 +421,10 @@ Precedence of sources: CLI flag > `EOS_ROUTE_MODEL` / `EOS_ROUTE_EFFORT` >
 listing available ids); `eos route` turns that into exit 2. Never silently
 substitute for an explicit choice.
 
-Confidence: `round(0.5 * class.confidence + 0.5 * min(1, distance_to_nearest_threshold / 0.15), 2)`.
+Confidence: `round(0.5 * class.confidence + 0.5 * min(1, distance_to_nearest_threshold / 0.10), 2)`
+— 0.10 is half a middle band after the M3 recalibration (`policy.SETTLED_DISTANCE`).
+A refused override raises `routing.OverrideError` (a `ValueError`), which is
+what M6 maps to exit 2.
 
 `reason`: one sentence, built from the type, level, the two strongest
 factors, the file count when known, and any clamp or fallback that
@@ -698,7 +701,7 @@ nothing; the grep finds no task text.
 | M1 registry, taxonomy, types | 1.1.2 (unreleased) | `routing: model registry, taxonomy and contracts` | 2026-09-25 |
 | M2 classification | 1.1.2 (unreleased) | `routing: deterministic task classification` | 2026-09-25 |
 | M3 complexity score | 1.1.2 (unreleased) | `routing: transparent complexity score` | 2026-09-25 |
-| M4 policy and decision | — | | |
+| M4 policy and decision | 1.1.2 (unreleased) | `routing: policy, overrides and the decision` | 2026-09-25 |
 | M5 trace and decided event | — | | |
 | M6 `eos route` | — | | |
 | M7 brief, MCP, templates | — | | |
