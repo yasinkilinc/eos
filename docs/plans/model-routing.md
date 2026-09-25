@@ -478,6 +478,16 @@ and the run is the lifecycle. `--fresh` bypasses and records a new event.
 The brief (M7) calls `route(..., record=False)`: it fires on every prompt,
 and a trace line per prompt would be noise, not memory.
 
+As built (M5): the event body carries **seven** tokens — the five above plus
+`score` (4 places) and `confidence` (2 places) — so a reused decision prints
+the same numbers. Reuse is also skipped when the caller passes an explicit
+`model` or `effort` (an explicit choice must not be answered with an older
+automatic one); a reused model that has since become unknown or unavailable,
+or no longer accepts the effort, is not reused. `trace.record` writes only
+into a root that already has `.eos/`, so `eos route` in an arbitrary folder
+leaves nothing behind. `trace.stats()` groups `outcomes()` per
+(type, level, model, effort) for M6's `--stats`.
+
 Tests: a line is written with no task text (assert the text is absent from
 the file); the file is trimmed; a write failure does not break `route()`
 (monkeypatch `open` to raise); with an open run the event appears and a
@@ -702,7 +712,7 @@ nothing; the grep finds no task text.
 | M2 classification | 1.1.2 (unreleased) | `routing: deterministic task classification` | 2026-09-25 |
 | M3 complexity score | 1.1.2 (unreleased) | `routing: transparent complexity score` | 2026-09-25 |
 | M4 policy and decision | 1.1.2 (unreleased) | `routing: policy, overrides and the decision` | 2026-09-25 |
-| M5 trace and decided event | — | | |
+| M5 trace and decided event | 1.1.2 (unreleased) | `routing: trace and the decided event` | 2026-09-25 |
 | M6 `eos route` | — | | |
 | M7 brief, MCP, templates | — | | |
 | M8 docs | — | | |

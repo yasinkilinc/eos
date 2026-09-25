@@ -12,9 +12,9 @@ import dataclasses
 import os
 from pathlib import Path
 
-from core.routing import classify, config, policy, registry, score
+from core.routing import classify, config, policy, registry, score, trace
 from core.routing.policy import OverrideError
-from core.routing.types import AUTO, Decision, task_hash
+from core.routing.types import AUTO, EFFORTS, LEVELS, TASK_TYPES, Decision, task_hash
 
 MODEL_ENV = "EOS_ROUTE_MODEL"
 EFFORT_ENV = "EOS_ROUTE_EFFORT"
@@ -25,11 +25,24 @@ __all__ = ["route", "Decision", "OverrideError", "MODEL_ENV", "EFFORT_ENV"]
 def route(project_root: str | Path | None, task: str, *, files=(), session: str | None = None,
           model: str | None = None, effort: str | None = None, record: bool = True,
           fresh: bool = False) -> Decision:
-    """The decision for this task: config → classify → score → policy → history seam."""
+    """The decision for this task: config → reuse → classify → score → policy → history → record.
+
+    Inside an open run (ADR-022) the first decision is the run's decision: a
+    later call returns it again (`reused=True`) instead of classifying anew,
+    unless `fresh` is set or the caller names a model or effort explicitly.
+    `record=False` decides without writing anything -- for the brief, which
+    runs on every prompt and would otherwise log noise rather than memory.
+    """
     if not task or not str(task).strip():
         raise ValueError("a task to route is required")
     cfg = config.load(project_root)
     models = registry.load(project_root, cfg)
+
+    run = _open_run(project_root, session)
+    if run is not None and not fresh and model is None and effort is None:
+        previous = _decided(run, models)
+        if previous is not None:
+            return previous
 
     task_class = classify.classify(task, cfg.keywords)
     complexity = score.score(task, task_class, files=tuple(files or ()), project_root=project_root)
@@ -40,8 +53,76 @@ def route(project_root: str | Path | None, task: str, *, files=(), session: str 
     decision = policy.decide(task_class, complexity, models,
                              model=model_value, effort=effort_value,
                              model_source=model_source, effort_source=effort_source)
-    decision = dataclasses.replace(decision, task_hash=task_hash(task))
-    return policy.adjust_for_history(decision, project_root)
+    decision = dataclasses.replace(decision, task_hash=task_hash(task),
+                                   execution=run.id if run is not None else None)
+    decision = policy.adjust_for_history(decision, project_root)
+
+    if record:
+        if run is not None:
+            _append_decided(project_root, decision, session)
+        trace.record(project_root, decision, session=session,
+                     work_item=run.work_item if run is not None else None)
+    return decision
+
+
+def _open_run(project_root, session):
+    """This session's open execution, or None. Never raises: no run is the common case."""
+    if project_root is None:
+        return None
+    try:
+        from core import executions
+
+        found = executions.current(project_root, session)
+        if found is None:
+            return None
+        execution, ledger = found
+        record = next((r for r in executions.load_path(ledger) if r.id == execution), None)
+        return record if record is not None and record.open else None
+    except Exception:
+        return None
+
+
+def _body(decision: Decision) -> str:
+    # Seven tokens and no free text: the ledger is committed and pushed.
+    return (f"{decision.task_type} {decision.level} {decision.model} {decision.effort} "
+            f"{decision.override_source} {decision.score:.4f} {decision.confidence:.2f}")
+
+
+def _append_decided(project_root, decision: Decision, session) -> None:
+    try:
+        from core import executions
+
+        executions.event(project_root, kind="decided", tool="route",
+                         ref=f"route:{decision.task_hash}", body=_body(decision), session=session)
+    except Exception:  # the decision stands whether or not the ledger took it
+        return
+
+
+def _decided(run, models) -> Decision | None:
+    """The latest decision recorded on this run, rebuilt, if it is still valid."""
+    for event in reversed(run.events):
+        if event.kind != "decided" or event.tool != "route" or not event.body:
+            continue
+        parts = event.body.split()
+        if len(parts) != 7:
+            continue
+        kind, level, model_id, effort, source, score_text, confidence_text = parts
+        spec = models.get(model_id)
+        if (kind not in TASK_TYPES or level not in LEVELS or effort not in EFFORTS
+                or spec is None or not spec.available or effort not in spec.efforts):
+            return None
+        try:
+            score_value, confidence = float(score_text), float(confidence_text)
+        except ValueError:
+            return None
+        ref = event.ref or ""
+        return Decision(
+            task_type=kind, level=level, score=score_value, model=spec.id, effort=effort,
+            reason=f"Reused the decision already made in run {run.id} ({source}); "
+                   f"--fresh decides again.",
+            confidence=confidence, override_source="run",
+            task_hash=ref.removeprefix("route:"), execution=run.id, reused=True)
+    return None
 
 
 def _resolved(flag: str | None, env_name: str, configured: str) -> tuple[str, str]:
