@@ -352,6 +352,18 @@ Floors and caps after thresholding:
   no escalation gate on it). This is the lesson Ruflo recorded as issue
   #2250: an uncertainty gate promoted every trivial task.
 
+**As built (M3): recalibrated.** Measured on eighteen representative
+sentences, the cuts above left every ordinary implementation at LOW (score
+≈ 0.18) and CRITICAL unreachable without file data, because most tasks arrive
+without paths and `file_count` / `dependency_count` sit near zero. The shipped
+cuts are **`< .15 LOW, < .35 MEDIUM, < .55 HIGH, else CRITICAL`**, and
+`reasoning_required` separates the implementation types (`simple_implementation`
+.2, `normal_implementation` .4, `code_review` .4; other values as above).
+Resulting spread: typo/bump .07 LOW, "add a getter" .12 LOW, normal
+implementation .18 MEDIUM, a crash fix .29 MEDIUM, "refactor the auth flow and
+update tests" .42 HIGH, service-boundary design .58 CRITICAL. Factors are
+rounded to four places, so they sum to the score within 1e-4, not 1e-9.
+
 Tests: each level reachable by a sentence; the floors and the cap; `--file`
 count moves `file_count`; a fixture project with an index moves
 `dependency_count` and no index yields the `"none"` marker; factors sum to
@@ -685,7 +697,7 @@ nothing; the grep finds no task text.
 | M0 ADR-025 | 1.1.2 (unreleased) | this commit: `docs: ADR-025 model and effort routing` | 2026-09-25 |
 | M1 registry, taxonomy, types | 1.1.2 (unreleased) | `routing: model registry, taxonomy and contracts` | 2026-09-25 |
 | M2 classification | 1.1.2 (unreleased) | `routing: deterministic task classification` | 2026-09-25 |
-| M3 complexity score | — | | |
+| M3 complexity score | 1.1.2 (unreleased) | `routing: transparent complexity score` | 2026-09-25 |
 | M4 policy and decision | — | | |
 | M5 trace and decided event | — | | |
 | M6 `eos route` | — | | |
