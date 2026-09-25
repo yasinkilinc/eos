@@ -581,6 +581,99 @@ eos run show . <id> | eos run tools . | eos run diff . <id>
 `docs/plans/operational-memory.md` is the plan these came from, with its
 acceptance protocol.
 
+## Which model, how much effort
+
+Before a task starts, EOS can say which model it deserves and at what
+reasoning effort — and why. It only advises: nothing in EOS calls a model.
+The harness (or the agent reading the brief) applies the decision.
+
+```bash
+eos route . "refactor the auth flow and update tests"
+eos route . "fix the typo in the readme" --json
+eos route . "rename the handler" --file src/handler.py --file src/routes.py
+eos route . "design the billing boundaries" --model opus --effort max
+eos route . --stats          # decisions made inside runs, against each run's outcome
+```
+
+```text
+Task: refactor the auth flow and update tests
+
+Type:        refactoring
+Complexity:  HIGH  (score 0.42)
+Model:       sonnet
+Effort:      high
+Confidence:  0.55
+Source:      auto
+
+Reason:
+Refactoring, HIGH (architectural impact 0.60, reasoning required 0.50); cheapest model meeting HIGH; effort high.
+```
+
+How it decides, all of it deterministic and printed with the answer
+(ADR-025):
+
+- **Type** — one of twelve (`trivial_edit` … `repository_wide_change`), from
+  weighted keyword tables and four ordered rules. Short tokens are
+  word-anchored, so `ci` never matches inside `decision`.
+- **Complexity** — seven named factors between 0 and 1 (scope, file count,
+  dependency count from the index when `--file` is given, architectural
+  impact, reasoning required, failure risk, uncertainty), weighted into a
+  score and cut into `LOW`, `MEDIUM`, `HIGH`, `CRITICAL`. Uncertainty never
+  raises a level on its own.
+- **Model** — the cheapest registered model that meets the level's minimum
+  reasoning and coding capability. The strongest is used only when the level
+  needs it, or when nothing else qualifies, and the reason then says so.
+- **Effort** — the level's preferred effort, clamped to what that model
+  accepts: the requested value, else the highest accepted value below it,
+  else the lowest the model has. An unsupported value is never returned.
+
+An explicit choice wins for its half of the decision, in this order: the
+`--model` / `--effort` flag, then `EOS_ROUTE_MODEL` / `EOS_ROUTE_EFFORT`, then
+the config defaults, then the policy. A fixed model with `effort` left on
+auto gets the best effort that model accepts; a fixed effort with the model
+on auto may move to a model that accepts it. An unknown or unavailable model
+is refused (exit 2) rather than swapped for another.
+
+Inside an open run (`eos run start`), the first decision is the run's: it is
+appended as a `decided` event and returned again on later calls instead of
+being re-derived; `--fresh` decides again. Each recorded decision is one line
+in `.eos/data/routing.jsonl` — type, level, model, effort, reason, and a hash
+of the task, never the task itself.
+
+Everything is optional and off in the brief until a project asks for it:
+
+```toml
+[model_routing]
+enabled = true              # false: `eos route` still answers; the brief and MCP add nothing
+default_model = "auto"      # or a registry id / alias
+default_effort = "auto"     # or low | medium | high | xhigh | max
+brief = "with-brief"        # "with-brief" | "always" | "never"
+
+[model_routing.models.local-coder]     # add a model, or correct a default by id
+provider = "openai-compatible"
+reasoning = 3                          # 1..5
+coding = 4                             # 1..5
+cost = 0.5                             # relative to the others
+efforts = ["low", "medium", "high"]    # what this model accepts
+
+[model_routing.keywords]               # extend the classifier, e.g. for another language
+debugging = ["hata", "çöküyor"]
+```
+
+With the table present, `eos brief --task` ends with two lines — under
+`"with-brief"` only when the brief has something else to say, under
+`"always"` on every task prompt:
+
+```text
+ROUTE  refactoring HIGH → sonnet/high (conf 0.55) — Refactoring, HIGH (…); cheapest model meeting HIGH; effort high.
+  Apply: Task({model: "sonnet"}) for subagents; /effort high for this session; eos route . "<task>" for the factors
+```
+
+The default registry holds three generic tiers (`haiku`, `sonnet`, `opus`)
+with relative capability and cost numbers; they are defaults to correct in
+config, not facts about vendors. Over MCP, `get_context` with `task` and
+`route: true` returns the same decision.
+
 ## Linked parent projects
 
 A project that is a thin overlay on another codebase can link it, so both are

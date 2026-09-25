@@ -94,6 +94,8 @@ Scanner (filesystem walk + mtime/hash cache)
 
 The Knowledge Model is the single source of truth. Markdown and JSON are derived artifacts; changing output format never changes the model.
 
+Model and effort routing (`core/routing/`, ADR-025) sits beside this pipeline, not in it: it reads a task's text, the index (for dependents of the files named) and `[model_routing]` in `.eos/config.toml`, and advises the harness which model and effort to use. EOS calls no model. Recorded decisions go to `.eos/data/routing.jsonl` (a task hash, never the task) and, inside an open run, to that run as a `decided` event.
+
 ## The Index and its Extensions
 
 `eos index` folds the authored notes, the brain documents, the graph and git
@@ -173,6 +175,7 @@ leave in every project's gitignored `.eos/` were never read.
 | `eos ui [port]` | 2–3 | Start the multi-project dashboard |
 | `eos parents <path>` | — | List configured parent-project links |
 | `eos note <subcommand> <path>` | — | Manage authored knowledge notes |
+| `eos route <path> <task>` | — | Which model and effort a task deserves, and why; advisory (ADR-025) |
 | `eos ai update <path>` | — | Refresh the AI integration surfaces (ADR-009) |
 
 The full flag reference for each command is in the project README.

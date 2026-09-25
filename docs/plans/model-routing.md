@@ -741,7 +741,7 @@ nothing; the grep finds no task text.
 | M5 trace and decided event | 1.1.2 (unreleased) | `routing: trace and the decided event` | 2026-09-25 |
 | M6 `eos route` | 1.1.2 (unreleased) | `cli: eos route` | 2026-09-25 |
 | M7 brief, MCP, templates | 1.1.2 (unreleased) | `routing: brief line, MCP context, agent surfaces` | 2026-09-25 |
-| M8 docs | — | | |
+| M8 docs | 1.1.2 (unreleased) | `docs: model and effort routing` | 2026-09-25 |
 | M9 PreToolUse hook (optional) | — | | |
 | release 1.2.0 | — | | |
 
