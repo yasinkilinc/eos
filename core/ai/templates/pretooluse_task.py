@@ -12,6 +12,9 @@ subagent's prompt is routed (`eos route --json --no-record`) and the call
 proceeds with the model the policy chose. Four rules keep it harmless:
 
   - An explicit model is never touched. A caller that named one chose it.
+  - Only a subagent with no `subagent_type`, or the generic one, is routed.
+    A named agent carries its own definition, often with its own model, and
+    the call's `model` argument would override it.
   - Only a model the harness's subagent tool accepts is written; a project's
     own registry entries (a local model, say) are left to the agent.
   - Effort is not touched: the harness does not take it per call.
@@ -32,6 +35,8 @@ MAX_TASK_CHARS = 2000
 SUBAGENT_TOOLS = ("Agent", "Task")
 # What that tool's `model` argument accepts; anything else is left alone.
 SUBAGENT_MODELS = ("haiku", "sonnet", "opus", "fable")
+# Subagent types with no model of their own to protect.
+GENERIC_TYPES = ("", "general-purpose")
 
 
 def _interpreter():
@@ -83,6 +88,8 @@ def main() -> int:
         return 0
     tool_input = payload.get("tool_input")
     if not isinstance(tool_input, dict) or tool_input.get("model"):
+        return 0
+    if str(tool_input.get("subagent_type") or "").strip() not in GENERIC_TYPES:
         return 0
     task = str(tool_input.get("prompt") or tool_input.get("description") or "").strip()[:MAX_TASK_CHARS]
     if not task:

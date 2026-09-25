@@ -144,3 +144,21 @@ def test_telemetry_records_the_call_and_never_the_task(tmp_path):
     stored = "\n".join(p.read_text(encoding="utf-8", errors="replace")
                        for p in (root / ".eos").rglob("*") if p.is_file())
     assert SENTINEL not in stored
+
+
+def test_run_start_routes_the_title_and_binds_it_to_the_run(tmp_path):
+    root = _project(tmp_path, "[model_routing]\n")
+    started = _run(tmp_path, ["run", "start", str(root), "--title", "fix the typo in the readme"],
+                   EOS_SESSION="s1")
+    assert started.returncode == 0
+    assert started.stdout.strip().startswith("x-"), "stdout stays the run id alone"
+    assert "ROUTE  trivial_edit LOW → haiku/low" in started.stderr
+    assert _run(tmp_path, ["run", "finish", str(root), "--outcome", "ok"], EOS_SESSION="s1").returncode == 0
+    assert "haiku/low" in _run(tmp_path, ["route", str(root), "--stats"]).stdout
+
+
+def test_run_start_without_a_routing_table_routes_nothing(tmp_path):
+    root = _project(tmp_path)
+    started = _run(tmp_path, ["run", "start", str(root), "--title", "fix the typo"], EOS_SESSION="s1")
+    assert started.returncode == 0 and "ROUTE" not in started.stderr
+    assert not (root / ".eos" / "data" / "routing.jsonl").exists()

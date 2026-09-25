@@ -636,9 +636,15 @@ is refused (exit 2) rather than swapped for another.
 
 Inside an open run (`eos run start`), the first decision is the run's: it is
 appended as a `decided` event and returned again on later calls instead of
-being re-derived; `--fresh` decides again. Each recorded decision is one line
-in `.eos/data/routing.jsonl` — type, level, model, effort, reason, and a hash
-of the task, never the task itself.
+being re-derived; `--fresh` decides again. Where `[model_routing]` is on,
+`eos run start` makes that decision itself from the run's title and prints the
+ROUTE line to stderr, so every run carries a decision that `eos route --stats`
+can read against its outcome. Each recorded decision is one line in
+`.eos/data/routing.jsonl` — type, level, score and the seven factors, model,
+effort, reason, the effort the session was running at (`CLAUDE_EFFORT`, or
+`EOS_EFFORT`), and a hash of the task, never the task itself. The model a
+session actually ran is not exported by the harness; join by `session` to
+the harness's own transcript for it.
 
 Everything is optional and off in the brief until a project asks for it:
 
@@ -673,7 +679,9 @@ ROUTE  refactoring HIGH → sonnet/high (conf 0.55) — Refactoring, HIGH (…);
 With `hook = true`, `eos ai update` also installs `.claude/hooks/eos-route.py`
 as a `PreToolUse` hook on the subagent tool: when the agent spawns a subagent
 without naming a model, the subagent's prompt is routed and the call proceeds
-with the chosen model. An explicit model is never changed, effort is left to
+with the chosen model. Only an untyped or `general-purpose` subagent is
+routed — a named agent keeps the model its definition gives it. An explicit
+model is never changed, effort is left to
 the session (the harness takes it per session, not per call), and any failure
 lets the call through untouched. Turning the flag off removes the hook and
 only its own settings entry.

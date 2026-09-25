@@ -140,4 +140,18 @@ def test_trace_lines_are_json_with_the_documented_fields(project):
     routing.route(project, "fix the typo", session="s9")
     line = json.loads(trace.path_for(project).read_text(encoding="utf-8").splitlines()[0])
     assert set(line) == {"at", "session", "execution", "work_item", "task_hash", "type", "level",
-                         "model", "effort", "reason", "confidence", "override_source", "reused"}
+                         "model", "effort", "reason", "confidence", "override_source", "reused",
+                         "score", "factors", "effort_in_use"}
+
+
+def test_the_trace_keeps_the_numbers_and_the_effort_in_use(project, monkeypatch):
+    monkeypatch.setenv("CLAUDE_EFFORT", "xhigh")
+    decision = routing.route(project, "refactor the auth flow and update tests")
+    [line] = trace.load(project)
+    assert line["score"] == decision.score
+    assert set(line["factors"]) == {name for name, _ in routing.score.WEIGHTS}
+    assert line["effort_in_use"] == "xhigh"
+    monkeypatch.delenv("CLAUDE_EFFORT")
+    monkeypatch.setenv("EOS_EFFORT", "Low")
+    routing.route(project, "fix the typo")
+    assert trace.load(project)[-1]["effort_in_use"] == "low"

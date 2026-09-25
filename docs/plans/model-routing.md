@@ -765,6 +765,34 @@ sonnet/high with "clamped"; 0 bytes; 0.
 | M9 PreToolUse hook (optional) | 1.1.2 (unreleased) | `routing: optional PreToolUse hook applies the model to subagents` | 2026-09-25 |
 | release 1.2.0 | 1.2.0 | `release: 1.2.0 -- adaptive model and effort routing` | 2026-09-25 |
 
+## 11a. After 1.2.0 — collecting data to recalibrate (1.2.1)
+
+Switching routing on in a real workspace showed that 1.2.0 would collect
+nothing: the brief decides with `record=False`, and a decision was recorded
+only when somebody ran `eos route` by hand. Three changes make the data exist:
+
+1. **`eos run start` routes the run's title** where `[model_routing]` is
+   configured and enabled and a session id is known, records it on the run
+   (`decided` event) and in the trace, and prints the ROUTE line to stderr —
+   stdout stays the run id, which callers capture. A run is the one unit with
+   both a task and an outcome, so this is where a decision is worth keeping.
+2. **The trace line carries `score`, the seven numeric `factors`, and
+   `effort_in_use`** (`EOS_EFFORT`, else `CLAUDE_EFFORT`, which Claude Code
+   exports). Recalibrating thresholds needs the numbers the level was cut
+   from; comparing advice with practice needs what was used. The model in use
+   is not exported: an analysis joins `session` to the harness transcript,
+   which records the model and token usage per message.
+3. **The M9 hook routes only untyped or `general-purpose` subagents.** The
+   call's `model` argument overrides an agent definition's own model, so
+   routing a named agent (`Explore`, a project agent) replaced a deliberate
+   choice. Found while deciding whether to turn the hook on; fixed with a test.
+
+The analysis itself is not built yet. Its inputs are: `routing.jsonl`
+(decision, factors, effort in use), `executions.jsonl` (outcome, events),
+and the harness transcript by session (model and tokens actually spent).
+`eos route --stats` is the first cut; `policy.adjust_for_history` is where a
+reviewed conclusion would plug in (ADR-018: a person decides, not the engine).
+
 ## 12. Open questions — resolve before M1's defaults and M7's templates
 
 1. **Effort values per model.** The harness documents one set of five for

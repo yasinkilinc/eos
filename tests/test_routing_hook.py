@@ -72,6 +72,14 @@ def test_an_explicit_model_is_left_alone(tmp_path):
     assert done.returncode == 0 and done.stdout == ""
 
 
+def test_a_named_subagent_keeps_its_own_definition(tmp_path):
+    hook = _hook_script(tmp_path)
+    bin_dir = _fake_eos(tmp_path, '{"model": "haiku"}')
+    assert _call(hook, _payload(tmp_path, subagent_type="Explore"), bin_dir).stdout == ""
+    routed = _call(hook, _payload(tmp_path, subagent_type="general-purpose"), bin_dir)
+    assert json.loads(routed.stdout)["hookSpecificOutput"]["updatedInput"] == {"model": "haiku"}
+
+
 def test_a_model_the_harness_cannot_take_is_not_written(tmp_path):
     hook = _hook_script(tmp_path)
     done = _call(hook, _payload(tmp_path), _fake_eos(tmp_path, '{"model": "local-coder"}'))

@@ -1800,7 +1800,33 @@ def cmd_run_start(args: argparse.Namespace) -> int:
               f"Export {executions.EXECUTION_ENV}={record.id} and "
               f"{executions.LEDGER_ENV}={executions.path_for(args.path)}, "
               f"or pass --session.", file=sys.stderr)
+    _route_run(args.path, record)
     return 0
+
+
+def _route_run(path, record) -> None:
+    """Give a new run its routing decision (ADR-025), where routing is on.
+
+    A run is the one unit that has both a task and an outcome, so this is
+    where a decision is worth recording: the title is routed, the decision is
+    appended to the run as a `decided` event and to the trace, and `eos route
+    --stats` can later read it against the run's outcome. The ROUTE line goes
+    to stderr -- stdout is the run id, and callers capture it. Any failure
+    costs the line, never the run.
+    """
+    try:
+        from core.routing import config as routing_config
+
+        cfg = routing_config.load(path)
+        if not (cfg.configured and cfg.enabled) or not record.session:
+            return
+        import core.routing as routing
+        from core.routing import adapters
+
+        decision = routing.route(path, record.title, session=record.session, record=True)
+        print(adapters.headline(decision), file=sys.stderr)
+    except Exception:  # noqa: BLE001 - routing is advice; the run is already open
+        return
 
 
 def cmd_run_event(args: argparse.Namespace) -> int:

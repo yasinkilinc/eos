@@ -1,9 +1,10 @@
 """What the router decided, kept small enough to leave on (ADR-025).
 
 One line per recorded decision in `.eos/data/routing.jsonl`: the task type,
-level, model, effort, reason, confidence and where an override came from --
-and a hash of the task, never the task. The text is a query somebody typed,
-and a log that kept it would be a liability in every project (ADR-019).
+level, score and factors, model, effort, reason, confidence, where an
+override came from, and the effort the session was running at -- and a hash
+of the task, never the task. The text is a query somebody typed, and a log
+that kept it would be a liability in every project (ADR-019).
 
 The same rules as telemetry keep it safe: it never fails the command that
 writes it, it keeps only its tail, and it writes only into a project that
@@ -26,8 +27,26 @@ FILENAME = "routing.jsonl"
 MAX_LINES = 5000
 
 
+# Variables that hold the effort the session is actually running at, tried in
+# order. Claude Code exports CLAUDE_EFFORT into every command it runs; a
+# harness that does not can set EOS_EFFORT. Read so a later analysis can put
+# what was recommended next to what was used -- the model in use is not
+# exported, and is read from the harness's own transcript by session instead.
+EFFORT_IN_USE_VARIABLES = ("EOS_EFFORT", "CLAUDE_EFFORT")
+
+
 def path_for(project_root: str | Path) -> Path:
     return Path(project_root).expanduser().resolve() / ".eos" / "data" / FILENAME
+
+
+def effort_in_use() -> str | None:
+    import os
+
+    for name in EFFORT_IN_USE_VARIABLES:
+        value = (os.environ.get(name) or "").strip().lower()
+        if value:
+            return value[:16]
+    return None
 
 
 def record(project_root: str | Path | None, decision: Decision, *, session: str | None = None,
@@ -55,6 +74,12 @@ def record(project_root: str | Path | None, decision: Decision, *, session: str 
             "confidence": decision.confidence,
             "override_source": decision.override_source,
             "reused": decision.reused,
+            # The numbers the level was cut from, so thresholds and weights
+            # can be recalibrated from what actually happened. Numeric only.
+            "score": decision.score,
+            "factors": {name: value for name, value in decision.factors.items()
+                        if isinstance(value, (int, float)) and not isinstance(value, bool)},
+            "effort_in_use": effort_in_use(),
         }
         target = path_for(root)
         target.parent.mkdir(parents=True, exist_ok=True)
