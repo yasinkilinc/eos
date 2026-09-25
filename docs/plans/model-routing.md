@@ -161,13 +161,19 @@ class Complexity:
 
 @dataclass(frozen=True)
 class Decision:
-    task_type: str; level: str; model: str; effort: str
+    task_type: str; level: str; score: float; model: str; effort: str
     reason: str; confidence: float
     override_source: str         # "auto" | "flag" | "env" | "config" | "run"
     factors: dict[str, float]; alternatives: tuple[str, ...]   # other models that qualified, cheapest first
     task_hash: str; execution: str | None; reused: bool
     def to_dict(self) -> dict: ...
+
+def normalise(text) -> str      # lower-case, whitespace collapsed
+def task_hash(text) -> str      # FNV-1a 32-bit of normalise(text), 8 hex chars
 ```
+
+`score` was added during M1 so `eos route` can print `(score 0.68)` without
+re-scoring.
 
 Trace line (`.eos/data/routing.jsonl`), one per recorded decision:
 
@@ -234,10 +240,13 @@ table, do not guess.** A comment above the tuple says these are defaults to
 be corrected in config, not facts about vendors.
 
 `config.py` — `load(project_root) -> RoutingConfig` (frozen dataclass:
-`enabled`, `default_model`, `default_effort`, `brief`, `models: dict`,
-`keywords: dict`), reading `[model_routing]` the way `telemetry.enabled`
-does; malformed values raise `ValueError` with the key named; a missing
-table yields the defaults with `enabled=True`.
+`configured`, `enabled`, `default_model`, `default_effort`, `brief`, `hook`,
+`models: dict`, `keywords: dict`), reading `[model_routing]` the way
+`telemetry.enabled` does; malformed values and unknown keys raise
+`ValueError` with the key named; a missing table yields the defaults with
+`enabled=True` and **`configured=False`**. `configured` is what M7 gates the
+brief's ROUTE line on: without it, "missing table → enabled" would change
+every existing brief and break the byte-identical rule.
 
 `registry.py` —
 ```python
@@ -660,7 +669,7 @@ nothing; the grep finds no task text.
 | Milestone | Lands in | Commit | Done |
 |---|---|---|---|
 | M0 ADR-025 | 1.1.2 (unreleased) | this commit: `docs: ADR-025 model and effort routing` | 2026-09-25 |
-| M1 registry, taxonomy, types | — | | |
+| M1 registry, taxonomy, types | 1.1.2 (unreleased) | `routing: model registry, taxonomy and contracts` | 2026-09-25 |
 | M2 classification | — | | |
 | M3 complexity score | — | | |
 | M4 policy and decision | — | | |
