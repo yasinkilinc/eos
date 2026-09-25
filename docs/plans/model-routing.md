@@ -588,6 +588,25 @@ monkeypatching `routing.route` to raise — same output either way); with
 survives a tiny `--budget`; the MCP tool returns the decision dict; the
 rendered skill mentions `eos route`.
 
+**As built (M7), three corrections to the text above:**
+- **No new MCP tool.** `tests/test_mcp_index_tools.py` pins the roster at 12
+  ("capability arrives by widening tools, never by adding them" — the roster
+  is paid on every request). `get_context` was widened instead: `route: true`
+  (with `task`) adds a `route` key holding `Decision.to_dict()`, and `files`,
+  `model`, `effort` feed it; `record=False`. A project with `enabled = false`
+  gets `{"disabled": …}`. The skill's tool table says so in the `get_context`
+  row; a test asserts the roster did not grow.
+- **The ROUTE line is gated on `configured`** (M1), not only `enabled`, so a
+  project without `[model_routing]` never runs the router from the brief —
+  the byte-identical test monkeypatches `routing.route` to raise and passes.
+- **The budget loop keeps going for exempt lines.** It used to `break` at the
+  first over-budget line, which would drop a ROUTE section placed after the
+  notes. It now skips non-exempt lines once trimmed and still lets exempt ones
+  (`PROCEDURE  `, `  RULE  `, `ROUTE  `, `  Apply: `) through. Existing briefs
+  are unchanged: no exempt line ever followed a trimmed one before.
+- `core/routing/adapters.py` (§8) landed here: `render()`, `headline()`,
+  `brief_lines()`. The skill also gained an `eos route` row in its command table.
+
 Commit: `routing: brief line, MCP tool, agent surfaces`.
 
 ### M8 — documentation
@@ -721,7 +740,7 @@ nothing; the grep finds no task text.
 | M4 policy and decision | 1.1.2 (unreleased) | `routing: policy, overrides and the decision` | 2026-09-25 |
 | M5 trace and decided event | 1.1.2 (unreleased) | `routing: trace and the decided event` | 2026-09-25 |
 | M6 `eos route` | 1.1.2 (unreleased) | `cli: eos route` | 2026-09-25 |
-| M7 brief, MCP, templates | — | | |
+| M7 brief, MCP, templates | 1.1.2 (unreleased) | `routing: brief line, MCP context, agent surfaces` | 2026-09-25 |
 | M8 docs | — | | |
 | M9 PreToolUse hook (optional) | — | | |
 | release 1.2.0 | — | | |

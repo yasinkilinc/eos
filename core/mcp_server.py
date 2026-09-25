@@ -116,7 +116,11 @@ class McpServer:
                     "Return AI-oriented project context, budgeted in approximate tokens. "
                     "Pass `task` to rank the accumulated notes against it and `target` to "
                     "anchor on one file -- without a task the notes are ordered by recency, "
-                    "which is the next best signal but rarely the right one."
+                    "which is the next best signal but rarely the right one. With `task` and "
+                    "`route: true` the answer also carries `route`: the model and effort this "
+                    "project's policy picks for the task, with its reason (ADR-025); pass a "
+                    "small `budget` when the decision is all you want. `files`, `model` and "
+                    "`effort` feed and override that decision."
                 ),
                 "inputSchema": {
                     "type": "object",
@@ -124,11 +128,13 @@ class McpServer:
                         "budget": {"type": "integer", "minimum": 1, "maximum": 100000},
                         "task": {"type": "string"},
                         "target": {"type": "string"},
+                        "route": {"type": "boolean"},
+                        "files": {"type": "array", "items": {"type": "string"}},
+                        "model": {"type": "string"},
+                        "effort": {"type": "string"},
                     },
                 },
-                "handler": lambda args: {"context": inspector.build_context(
-                    project_root, int(args.get("budget", 12000)),
-                    task=args.get("task"), target=args.get("target"))},
+                "handler": self._context,
             },
             "get_file": {
                 "description": "Read a project-relative source file.",
@@ -309,6 +315,25 @@ class McpServer:
                 },
             },
         }
+
+    def _context(self, args: dict[str, Any]) -> dict[str, Any]:
+        """`get_context`, widened with the routing decision rather than a new tool:
+        the roster's size is paid on every request (test_mcp_index_tools)."""
+        answer: dict[str, Any] = {"context": inspector.build_context(
+            self.project_root, int(args.get("budget", 12000)),
+            task=args.get("task"), target=args.get("target"))}
+        if args.get("route") and args.get("task"):
+            import core.routing as routing
+            from core.routing import config
+
+            if not config.load(self.project_root).enabled:
+                answer["route"] = {"disabled": "[model_routing] enabled = false in this project"}
+            else:
+                # record=False: the server is read-only.
+                answer["route"] = routing.route(
+                    self.project_root, args["task"], files=tuple(args.get("files") or ()),
+                    model=args.get("model"), effort=args.get("effort"), record=False).to_dict()
+        return answer
 
     def run(self) -> int:
         for line in sys.stdin:

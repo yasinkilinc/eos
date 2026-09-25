@@ -18,6 +18,13 @@ second prints the procedure this project follows for the task, its last runs
 and what the failed ones taught. Where `.claude/hooks/eos-brief.py` and
 `.claude/hooks/eos-prompt.py` are installed, both have already run.
 
+Where the project turned routing on, the task brief ends with a `ROUTE` line:
+the model and effort this project's policy picks for the task, and why. Use
+that model when you spawn work for the task (a subagent's `model` argument),
+set the effort it names for the session if you can, and keep any model or
+effort the user asked for explicitly. `eos route . "<task>"` prints the whole
+decision with its factors; EOS only advises and never calls a model itself.
+
 Around a task someone will ask about later: `eos run start . --title "..."`
 before the first action, `eos run finish . --outcome ok|failed|abandoned`
 after (a failed run needs `--lesson`). Claim work before you start it

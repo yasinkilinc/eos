@@ -34,6 +34,11 @@ frequently loses. These do not, because nothing else produces what they hold:
   later, and **`eos note add` / `eos procedure new`** for what you learned — a
   run that is not recorded, and a lesson that lives only in this conversation,
   are paid for again by the next session.
+- **The `ROUTE` line** in a task brief, where the project turned routing on —
+  the model and effort this project's policy picks for the task. Use the model
+  for subagents you spawn for it, set the effort it names where you can, and
+  keep an explicit choice the user made. **`eos route . "<task>"`** prints the
+  full decision with its factors (cost: low; nothing else holds the policy).
 
 <!-- eos:mcp-only:begin -->
 ## The 12 tools
@@ -45,7 +50,7 @@ frequently loses. These do not, because nothing else produces what they hold:
 | `get_file` | Contents of one project-relative file | same as the file | **Read** — identical bytes, nothing gained by going through EOS |
 | `find_symbol` | Where a name is defined, across the whole index | low–medium | **Grep** — usually just as fast, and exact when you know the string |
 | `impact_analysis` | What a file reaches and what reaches it, to `depth` hops; `include` adds provenance, detector coverage and the file's commits | medium | **Grep** for the import string, if the project is small enough that this is quick by hand |
-| `get_context` | Project context; pass `task` to rank notes against it and `target` to anchor on a file. Over MCP it returns; the CLI `eos context` **writes** `.eos/data/brain/llm_context.md` unless you pass `--stdout` | medium | **Read** the files it summarizes, when you only need one or two of them |
+| `get_context` | Project context; pass `task` to rank notes against it and `target` to anchor on a file; add `route: true` for the model and effort this project's policy picks for the task. Over MCP it returns; the CLI `eos context` **writes** `.eos/data/brain/llm_context.md` unless you pass `--stdout` | medium | **Read** the files it summarizes, when you only need one or two of them |
 | `compose` | As an MCP tool, an alias of `get_context` with `task`/`target`, kept for one release. The CLI `eos compose <project> "<task>" [file]` is not redundant: `eos context` takes no task, so this is the only command-line way to rank notes against one | medium–high | `get_context` with `task`, over MCP only |
 | `get_graph` | The entire generated project graph | high, and grows with project size | almost never the right first call — see below |
 | `search_index` | Full-text search over notes, brain documents and index extensions | low | `search_notes`, when you only want authored findings |
@@ -80,6 +85,7 @@ argument. Every command takes `--format json`.
 |---|---|---|
 | `eos brief` | What is in flight here and which notes match this branch | At the start of a session, before reading anything |
 | `eos brief --task "…"` | For the task you were just given: the procedure recorded for it (steps, success criteria, run counts), its last runs with outcomes and lessons, the nearest notes — under 1,500 tokens. A prompt hook runs it for you and prints nothing when nothing is recorded | Before the first action of a task; follow a recorded procedure rather than improvising one, and read the last failure's lesson before repeating it |
+| `eos route "…" [--file F] [--json]` | The model and effort this project's policy picks for a task, with its type, level, seven factors and reason; inside an open run the first decision is reused. Advice only — EOS calls no model | When the brief's ROUTE line is not enough: to see why, to pass the files the task touches, or to fix a model or effort with `--model` / `--effort` |
 | `eos work list [--across]` | Every item in flight, who holds it, what is stale or contested; `--across` covers sibling projects sharing one knowledge root | When picking up work, and before starting something someone may already hold |
 | `eos work add --title "…" --claim` | Records that you took this, so a parallel session sees it | The moment you start, not the moment you finish |
 | `eos work show <id>` | One item's whole history, and the commits naming its ticket | When a claim looks stale, or done and unproven |

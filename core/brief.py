@@ -46,6 +46,9 @@ PROCEDURE_NAMED_RARITY = 7.0
 # How a procedure's `## Rules` item is printed; also how the budget loop
 # recognises it.
 RULE_MARK = "  RULE  "
+# The routing decision's two lines (ADR-025). Exempt from the budget like a
+# procedure's rules: a model recommendation cut off is one that did not arrive.
+ROUTE_MARKS = ("ROUTE  ", "  Apply: ")
 # A step is clipped at this many characters. 160 clipped four of eight lines of
 # a real procedure and sent the fresh-session eval to `procedure show` for the
 # rest; at 240 the same brief is ~950 tokens against the 1,500 budget, whole.
@@ -359,8 +362,34 @@ def _task_sections(root: Path, task: str) -> tuple[list[list[str]], bool]:
     return sections, found
 
 
+def _route_section(root: Path, task: str, *, session, agent) -> tuple[list[str], bool]:
+    """The ROUTE lines, and whether they alone make the brief worth printing.
+
+    Only for a project that wrote a `[model_routing]` table: without one every
+    brief stays byte-for-byte what it was. With `brief = "with-brief"` the
+    lines ride along with a brief that has something else to say; `"always"`
+    makes them enough on their own. Decided with `record=False` -- this runs
+    on every prompt -- and any failure costs the line, never the brief.
+    """
+    try:
+        import core.routing as routing
+        from core.routing import adapters, config
+
+        cfg = config.load(root)
+        if not cfg.configured or not cfg.enabled or cfg.brief == "never":
+            return [], False
+        decision = routing.route(root, task, session=session, record=False)
+        return adapters.brief_lines(decision, agent), cfg.brief == "always"
+    except Exception:  # noqa: BLE001 - the brief must not fail because of the router
+        return [], False
+
+
 def _with_task(root: Path, task: str, *, session, agent, budget: int, task_only: bool) -> str:
     sections, found = _task_sections(root, task)
+    route_lines, route_alone = _route_section(root, task, session=session, agent=agent)
+    if route_lines:
+        sections.append(route_lines)
+        found = found or route_alone
     if task_only and not found:
         return ""
     lines = [f"EOS brief for this task — {root.name}"]
@@ -375,14 +404,18 @@ def _with_task(root: Path, task: str, *, session, agent, budget: int, task_only:
         for line in [""] + section:
             # A procedure's header and its rules are past the budget: a rule
             # cut for length did not arrive. Bounded at write time
-            # (notes.RULES_MAX_CHARS), so the exemption cannot grow.
-            exempt = line.startswith(("PROCEDURE  ", RULE_MARK))
+            # (notes.RULES_MAX_CHARS), so the exemption cannot grow. The ROUTE
+            # lines are two, and exempt for the same reason; once the budget
+            # is spent, only exempt lines are still let through.
+            exempt = line.startswith(("PROCEDURE  ", RULE_MARK) + ROUTE_MARKS)
+            if trimmed and not exempt:
+                continue
             if not exempt and len("\n".join(lines + [line])) > cap:
                 trimmed = True
-                break
+                continue
+            if trimmed and line.startswith(ROUTE_MARKS[0]) and lines[-1]:
+                lines.append("")
             lines.append(line)
-        if trimmed:
-            break
     if trimmed:
         lines.append("…trimmed to the brief's budget — eos procedure show / eos run list / eos note search for the rest")
     return "\n".join(lines).rstrip() + "\n"
