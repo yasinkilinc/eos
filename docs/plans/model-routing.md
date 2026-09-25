@@ -1,8 +1,10 @@
 # Plan: adaptive model and effort routing — target 1.2.0
 
-**Status of this plan: OPEN.** Engine at the time of writing: 1.1.2. Nothing
-has landed. The status table in §11 is updated in the same commit as the work
-it describes; "where were we" is answered by running the checks in §10.
+**Status of this plan: CLOSED at 1.2.0, 2026-09-25.** Engine at the time of
+writing: 1.1.2; M0–M9 landed unreleased on 1.1.2 and shipped together as
+1.2.0. The "As built" paragraphs under M1–M9 record where the implementation
+departed from the text and why; §10 was run and its results are recorded
+there.
 
 This file is written for the session that implements it. It assumes no
 conversation history: every integration point is named by file and symbol as
@@ -733,14 +735,19 @@ python3 -m pytest -q tests/test_routing_*.py tests/test_brief.py tests/test_ai_w
 bash tools/check-clean.sh
 python3 core/eos.py route tests/fixtures/java_structure/svc "fix the typo in the readme"
 python3 core/eos.py route tests/fixtures/java_structure/svc "design the service boundaries for a new billing domain" --json
-python3 core/eos.py route tests/fixtures/java_structure/svc "refactor the auth flow and update tests" --effort max
+S=$(mktemp -d); mkdir "$S/.eos"; printf '[model_routing.models.sonnet]\nefforts = ["low", "medium", "high"]\n' > "$S/.eos/config.toml"
+python3 core/eos.py route "$S" "refactor the auth flow and update tests" --model sonnet --effort max
 python3 core/eos.py brief tests/fixtures/java_structure/svc --task "refactor the auth flow" --task-only   # empty unless config enables it
-grep -rc "auth flow" tests/fixtures/java_structure/svc/.eos/ || true                                    # must be 0 lines
+cat "$S"/.eos/data/*.jsonl | grep -c "auth flow" || true                                                 # must be 0
 ```
 
 Expected: LOW/low on the first; HIGH or CRITICAL on the second; the third
-prints a clamped effort with the clamp in its reason; the fourth prints
-nothing; the grep finds no task text.
+prints `Effort: high` with the clamp in its reason (a default registry entry
+accepts all five efforts, §12.1, so the clamp needs a narrowed model); the
+fourth prints nothing; the count of task text in the trace is 0.
+
+Run on 2026-09-25 at the end of M9: LOW/haiku/low; CRITICAL/opus/xhigh;
+sonnet/high with "clamped"; 0 bytes; 0.
 
 ## 11. Status
 
@@ -756,7 +763,7 @@ nothing; the grep finds no task text.
 | M7 brief, MCP, templates | 1.1.2 (unreleased) | `routing: brief line, MCP context, agent surfaces` | 2026-09-25 |
 | M8 docs | 1.1.2 (unreleased) | `docs: model and effort routing` | 2026-09-25 |
 | M9 PreToolUse hook (optional) | 1.1.2 (unreleased) | `routing: optional PreToolUse hook applies the model to subagents` | 2026-09-25 |
-| release 1.2.0 | — | | |
+| release 1.2.0 | 1.2.0 | `release: 1.2.0 -- adaptive model and effort routing` | 2026-09-25 |
 
 ## 12. Open questions — resolve before M1's defaults and M7's templates
 
