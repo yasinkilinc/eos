@@ -206,6 +206,19 @@ def test_test_split_prints_no_rows_and_is_recorded(tmp_path):
     assert test.returncode == (0 if test_result["gate"]["pass"] else 1)
 
 
+def test_the_test_split_is_refused_while_a_label_is_pending_review(tmp_path):
+    root = _project(tmp_path, "[model_routing]\n")
+    path = tmp_path / "corpus.tsv"
+    path.write_text("prompt\tmodel\tsplit\treview\nfix the typo\thaiku\tdev\tpending\n"
+                    "design the billing architecture\topus\ttest\tpending\n", encoding="utf-8")
+    assert evaluate.run(root, evaluate.load(path), split="dev")["prompts"] == 1
+    with pytest.raises(ValueError, match="review=pending"):
+        evaluate.run(root, evaluate.load(path), split="test")
+    test = subprocess.run(EOS + ["route", str(root), "--eval", str(path), "--split", "test"],
+                          capture_output=True, text=True)
+    assert test.returncode == 2 and not (root / ".eos" / "data" / "routing-eval.jsonl").exists()
+
+
 def test_gate_counts_under_routing_and_critical_on_the_cheapest(tmp_path):
     root = _project(tmp_path, '[model_routing]\ndefault_model = "haiku"\n')
     path = _corpus(tmp_path, [("design the billing architecture", "", "CRITICAL", "opus", ""),

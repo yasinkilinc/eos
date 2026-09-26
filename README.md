@@ -50,6 +50,9 @@ executable launcher under `~/.local/bin/eos`. Override the locations with
   applied.
 - **The gate:** `eos route --eval --split dev|test` with confusion matrix,
   under-routing, CRITICAL-on-cheapest and a PASS/FAIL exit code.
+- **1.4.1:** the test split refuses to run while a row's `review` column still
+  says `pending`, so the one test measurement is taken on final labels; a test
+  pins the subagent hook to deciding on the first 2000 characters.
 
 ## What changed in 1.3
 

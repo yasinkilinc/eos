@@ -93,6 +93,12 @@ def run(project_root: str | Path | None, rows: list[dict], split: str | None = N
     models = registry.load(project_root, cfg)
     cheapest = models.available()[0].id if models.available() else None
     chosen = [row for row in rows if not split or row.get("split") == split]
+    # The test split is measured once, on final labels: a row whose optional
+    # `review` column still says pending has not had its second pass.
+    pending = sum(1 for row in chosen if row.get("review") == "pending") if split == "test" else 0
+    if pending:
+        raise ValueError(f"{pending} test row(s) still have review=pending; finish the label review "
+                         "before the one test measurement")
     known = {word for table in classify.TABLES.values() for token, _ in table for word in token.lower().split()}
     known |= {word for words in cfg.keywords.values() for token in words for word in token.split()}
     scored = {column: [0, 0] for column in COLUMNS}

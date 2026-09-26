@@ -232,6 +232,22 @@ def test_the_routing_hook_records_in_dry_run_and_applies_when_live(project, monk
     assert live["hookSpecificOutput"]["updatedInput"]["model"] in hooks.SUBAGENT_MODELS
 
 
+def test_the_routing_hook_decides_on_the_first_2000_characters_only(project, monkeypatch, capsys):
+    config = project / ".eos" / "config.toml"
+    config.write_text(config.read_text(encoding="utf-8") + "\n[model_routing]\nhook = true\n", encoding="utf-8")
+    _open_run(project)
+    filler = "note " * (hooks.MAX_TASK_CHARS // 5)
+    assert len(filler) == hooks.MAX_TASK_CHARS
+    words = "design the service boundary for billing"
+    for number, prompt in enumerate((filler, filler + words, words + " " + filler)):
+        _hook(monkeypatch, capsys, "pre-agent", _payload(
+            project, tool_name="Agent", tool_use_id=f"b{number}", tool_input={"prompt": prompt}))
+    bodies = [e.body.split("(")[1] for e in _events(project) if e.kind == "decided"]
+    assert len(bodies) == 3
+    # Words past the cut do not reach the decision; the same words inside it do.
+    assert bodies[1] == bodies[0] and bodies[2] != bodies[0]
+
+
 def test_a_named_subagent_or_an_explicit_model_is_never_routed(project, monkeypatch, capsys):
     config = project / ".eos" / "config.toml"
     config.write_text(config.read_text(encoding="utf-8") + "\n[model_routing]\nhook = true\n"
