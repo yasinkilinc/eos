@@ -39,6 +39,18 @@ canonical `core/` runtime to `~/.local/share/eos/<version>/` and installs an
 executable launcher under `~/.local/bin/eos`. Override the locations with
 `EOS_INSTALL_PREFIX`, `EOS_DATA_DIR`, `EOS_BIN_DIR`, or `EOS_PYTHON`.
 
+## What changed in 1.4
+
+- **Routing in a project's own language:** stems (`hata*`) in
+  `[model_routing.keywords]`, `[model_routing.rules]` and
+  `[model_routing.factors]` extend the classifier without the engine knowing
+  the language; the dotted capital I lowers correctly.
+- **The subagent hook fails safe:** `hook_min_confidence`; a withheld decision
+  is recorded, never replaced; a model below the level's requirement is never
+  applied.
+- **The gate:** `eos route --eval --split dev|test` with confusion matrix,
+  under-routing, CRITICAL-on-cheapest and a PASS/FAIL exit code.
+
 ## What changed in 1.3
 
 - **Claude Code plugin** (`plugin/`, the repository root is its marketplace):
@@ -691,6 +703,7 @@ eos route . "rename the handler" --file src/handler.py --file src/routes.py
 eos route . "design the billing boundaries" --model opus --effort max
 eos route . --stats          # decisions against run outcomes, and advice against what sessions ran
 eos route . --eval evals/routing/corpus.tsv   # score the policy on a labelled corpus, no model called
+eos route . --eval corpus.tsv --split test    # the held-out split: metrics and the gate, no rows
 ```
 
 ```text
@@ -756,6 +769,7 @@ default_effort = "auto"     # or low | medium | high | xhigh | max
 brief = "with-brief"        # "with-brief" | "always" | "never"
 hook = false                # true: route untyped subagents (the plugin's hook, or the file below)
 hook_dry_run = true         # plugin: record what the hook would set, set nothing
+hook_min_confidence = 0.0   # a live hook applies nothing below this; the decision is only recorded
 record_prompts = false      # true: the task brief also records its decision for every task prompt
 
 [model_routing.models.local-coder]     # add a model, or correct a default by id
@@ -766,8 +780,19 @@ cost = 0.5                             # relative to the others
 efforts = ["low", "medium", "high"]    # what this model accepts
 
 [model_routing.keywords]               # extend the classifier, e.g. for another language
-debugging = ["hata", "çöküyor"]
+debugging = ["hata*", "düzelt*"]       # `word*` is a stem: hata, hatası, hataları …
+
+[model_routing.rules]                  # extend the ordered rules' word lists
+question_openers = ["neden"]           # also repository_wide, failure_words, change_verbs, implementation_verbs
+
+[model_routing.factors]                # extend the complexity factors' word lists
+risk = ["ödeme*"]                      # also architectural, hedges
 ```
+
+The engine knows no language: stems, rules and factors are how a project
+teaches it its own, and without those tables every decision is the same as
+before. A task the classifier recognises nothing in stays
+`normal_implementation`; rules act on a classified task.
 
 With the table present, `eos brief --task` ends with two lines — under
 `"with-brief"` only when the brief has something else to say, under
@@ -803,9 +828,20 @@ records the decision it would have applied; in `files` mode `eos ai update`
 installs `.claude/hooks/eos-route.py`, which applies it. Only an untyped or
 `general-purpose` subagent is routed — a named agent keeps the model its
 definition gives it. An explicit model is never changed, effort is left to
-the session, and any failure lets the call through untouched. Turning the
-flag off removes the hook and only its own settings entry. Measure the policy
-before turning it live: `--eval` scores it on a labelled corpus.
+the session, and any failure lets the call through untouched. A live hook
+applies a decision only at or above `hook_min_confidence` and only when the
+model meets the level's capability requirement (a CRITICAL task never lands on
+the cheapest tier); anything else is recorded on the run and not applied, with
+nothing chosen in its place. Turning the flag off removes the hook and only
+its own settings entry.
+
+Measure the policy before turning it live. `eos route --eval <corpus>
+--split dev|test` reports model accuracy, a confusion matrix, under-routing (a
+HIGH or CRITICAL task sent to a model cheaper than its label accepts),
+CRITICAL tasks on the cheapest model and efforts a model would refuse, and
+ends with `GATE: PASS` or `FAIL` (exit 0 or 1). Tune on `dev`; `test` prints no
+rows or suggestions, a prompt in both splits is refused, and every test run is
+logged with hashes of the corpus and the configuration (ADR-025 addendum).
 
 The default registry holds four models under the harness's aliases: `haiku`
 (cost 1, no effort setting), `sonnet` (2), `opus` (4, currently Opus 5.5) and

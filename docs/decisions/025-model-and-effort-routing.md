@@ -92,3 +92,43 @@ ships no second language (ADR-013's argument).
 The default capability numbers are defaults, not facts about vendors. A
 project that measures otherwise corrects them in config, and the policy
 follows without a code change.
+
+## Addendum, 2026-09-26 (1.4.0): a project's own language, and a hook that fails safe
+
+**Measured first.** In one workspace 97% of the prompts people typed were
+Turkish, while the classifier matched English inflections only (`s`, `es`,
+`ed`, `ing`, `d`): a configured `hata` never met `hatası`. The rule lists
+(question openers, repository-wide phrases, failure words, change and
+implementation verbs) and the complexity factors (architectural, risk and
+hedge words) were constants no config could reach.
+
+**Decision: generic mechanisms, language in config.** The engine gains no
+language: `[model_routing.keywords]` accepts stems (`hata*` matches every word
+starting `hata`; at least three characters before the `*`),
+`[model_routing.rules]` extends the rule lists and `[model_routing.factors]`
+the factor lists -- both add to the built-in words, never replace them, so a
+project without the tables decides byte-for-byte as before (tested over the
+whole English corpus). Normalisation maps the dotted capital I (U+0130) to a
+plain "i", because `str.lower()` otherwise leaves a combining dot behind. Rules
+still act only on a task some keyword classified, as the built-in rules always
+have.
+
+**The subagent hook fails safe, in one function** (`routing.withheld`): a dry
+run applies nothing; a decision below `hook_min_confidence` is recorded and
+**not** applied, and nothing is chosen in its place; a model that does not
+meet the level's capability requirement is never applied, so a CRITICAL task
+on the cheapest tier is impossible there even when an override named it.
+Every decision -- applied, withheld or dry -- is recorded on the open run with
+the request's hash (never its text), the classification, the model, the
+confidence and the harness's call id, which a review joins to the harness's
+own transcript.
+
+**The gate is part of the engine.** `eos route --eval <corpus> --split
+dev|test` reports model accuracy, a confusion matrix, under-routing (a task
+labelled HIGH or CRITICAL sent to a model cheaper than every model its label
+accepts), CRITICAL tasks on the cheapest model and efforts a model would
+refuse, and exits 0 on PASS, 1 on FAIL. The thresholds are constants
+(accuracy >= 0.85, under-routing <= 0.03, 0, 0). A corpus with the same prompt
+in both splits is refused; the test split prints no rows and no suggestions,
+and every test measurement is logged with hashes of the corpus and of the
+routing configuration, so a test set measured again after tuning is visible.
