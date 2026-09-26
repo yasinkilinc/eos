@@ -202,7 +202,7 @@ def check_c05(root: Path) -> Result:
 
 
 def check_c06(root: Path) -> Result:
-    cli = _module("core.eos")
+    cli = _module("core.cli.runs")  # the run commands, since the CLI split (2.x F4)
     lacking = _has(cli, "cmd_run_event")
     if lacking:
         return _r("C-06", MISSING, "no `eos run event` handler (M1)")

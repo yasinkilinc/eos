@@ -130,7 +130,9 @@ def test_ui_uninstall_missing_venv_is_a_noop(monkeypatch, tmp_path, capsys):
     def fail_if_called(*args, **kwargs):
         raise AssertionError("shutil.rmtree must not run when nothing is installed")
 
-    monkeypatch.setattr(eos_cli.shutil, "rmtree", fail_if_called)
+    import shutil
+
+    monkeypatch.setattr(shutil, "rmtree", fail_if_called)
 
     rc = eos_cli.main(["ui", "uninstall"])
 
