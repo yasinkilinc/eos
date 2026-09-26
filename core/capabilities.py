@@ -53,8 +53,15 @@ class Capability:
 
     @property
     def program(self) -> str:
-        """The name a command line uses to invoke it: `jira.sh` for `automation/jira.sh`."""
-        return Path(self.run.split()[0]).name if self.run.strip() else ""
+        """The name a command line uses to invoke it: `jira.sh` for `automation/jira.sh`.
+
+        Empty when `run` is not a command -- "Edit tool", a capability whose
+        answer is a harness tool -- so no command line is mistaken for it.
+        """
+        first = self.run.split()[0] if self.run.strip() else ""
+        if "/" in first or re.fullmatch(r"[a-z0-9][\w.-]*", first):
+            return Path(first).name
+        return ""
 
     def line(self) -> str:
         return f"{self.name} → {self.run}" + (f"  {self.does}" if self.does else "")

@@ -108,3 +108,11 @@ def test_the_cli_answers_for_a_task_and_for_a_command(project):
     assert covered.stdout.startswith("hint: `db` has a wrapper: scripts/db.sh")
     assert "no capability" in subprocess.run(EOS + ["capabilities", str(project), "--command", "ls"],
                                              capture_output=True, text=True).stdout
+
+
+def test_a_capability_answered_by_a_harness_tool_is_never_mistaken_for_a_command(tmp_path):
+    edit = capabilities.Capability(name="edit", run="Edit tool", hint=(r"(?<![\w-])sed\s+-i",))
+    assert edit.program == ""
+    assert capabilities.wrapper_in('git commit -m "Edit the file"', [edit]) is None
+    assert capabilities.match("sed -i s/a/b/ README.md", [edit]).capability is edit
+    assert capabilities.Capability(name="gh", run="gh pr view").program == "gh"
