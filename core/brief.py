@@ -31,6 +31,10 @@ from core import work
 # tokenizes denser than prose (measured 2.7-4.4 chars/token on a real note
 # store), and a budget that is exceeded by exactly the dense cases is not one.
 TASK_BUDGET = 1500
+# The session-start brief is read once per session and re-read by every call
+# after it; measured on a host at ~1,045 tokens before it had a budget.
+BRANCH_BUDGET = 800
+DETAIL_CHARS = 140
 CHARS_PER_TOKEN = 3.0
 
 RUN_LIMIT = 3
@@ -118,6 +122,17 @@ def build(project_root: str | Path, *, session: str | None = None,
 
 
 def _branch_brief(root: Path, *, session: str | None, agent: str | None) -> str:
+    """Within BRANCH_BUDGET: fewer work items are shown until it fits (the count stays)."""
+    cap = int(BRANCH_BUDGET * CHARS_PER_TOKEN)
+    text = ""
+    for shown in range(WORK_LIMIT, 0, -1):
+        text = _branch_text(root, session=session, work_limit=shown)
+        if len(text) <= cap:
+            break
+    return text
+
+
+def _branch_text(root: Path, *, session: str | None, work_limit: int) -> str:
     import datetime
 
     now = datetime.datetime.now(datetime.timezone.utc)
@@ -133,10 +148,12 @@ def _branch_brief(root: Path, *, session: str | None, agent: str | None) -> str:
         head += f", {len(stale)} stale)" if stale else ")"
         lines.append("")
         lines.append(head)
-        for item in in_flight[:WORK_LIMIT]:
-            lines.extend(_work_lines(item, now, session))
-        if len(in_flight) > WORK_LIMIT:
-            lines.append(f"  …{len(in_flight) - WORK_LIMIT} more: eos work list .")
+        previous = None
+        for item in in_flight[:work_limit]:
+            lines.extend(_work_lines(item, now, session, previous))
+            previous = item.reason if item.status == work.BLOCKED else None
+        if len(in_flight) > work_limit:
+            lines.append(f"  …{len(in_flight) - work_limit} more: eos work list .")
     else:
         lines.append("")
         lines.append("IN FLIGHT (0) — nothing is claimed here. "
@@ -165,7 +182,7 @@ def _branch_brief(root: Path, *, session: str | None, agent: str | None) -> str:
         lines.append("")
         lines.append(f"RUNS OPEN ({len(open_runs)}) — finish them: eos run finish . <id> --outcome ok|failed|abandoned")
         for record in open_runs[:RUN_LIMIT]:
-            lines.append(f"  {record.id}  {record.title}  [{record.session or 'no session'}, "
+            lines.append(f"  {record.id}  {record.title}  [{(record.session or 'no session')[:8]}, "
                          f"{work.ago(record.started_at, now)}, {len(record.events)} event(s)]")
 
     state = work.sync_state(root)
@@ -178,7 +195,7 @@ def _branch_brief(root: Path, *, session: str | None, agent: str | None) -> str:
     return "\n".join(lines)
 
 
-def _work_lines(item, now, session: str | None) -> list[str]:
+def _work_lines(item, now, session: str | None, previous_reason: str | None = None) -> list[str]:
     mine = " (yours)" if session and any(
         holder.get("session") == session for holder in item.holders) else ""
     held = " and ".join(item.holder_labels) if item.holders else "unclaimed"
@@ -193,9 +210,10 @@ def _work_lines(item, now, session: str | None) -> list[str]:
     lines = [f"  {item.status:<7} {item.id}  {item.title}  "
              f"[{held}, {work.ago(item.updated_at, now)}]{tail}{mine}"]
     if item.status == work.BLOCKED and item.reason:
-        lines.append(f"      blocked on: {item.reason}")
+        said = "(same as above)" if item.reason == previous_reason else _clip(item.reason, DETAIL_CHARS)
+        lines.append(f"      blocked on: {said}")
     elif item.last:
-        lines.append(f"      last: {item.last}")
+        lines.append(f"      last: {_clip(item.last, DETAIL_CHARS)}")
     return lines
 
 
