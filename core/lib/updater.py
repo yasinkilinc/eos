@@ -16,6 +16,16 @@ import shutil
 from pathlib import Path
 from typing import Dict, List, Tuple
 
+# What the runtime reads, not only what it imports. Until 1.3.0 this was
+# `*.py` alone, and the Markdown templates `eos ai update` renders
+# (`ai/templates/skill.md`, `agent.md`, `agents_section.md`) never reached a
+# project's runtime: `ai update` run from `.eos/runtime/eos.py` -- which is
+# what the hooks fall back to when the `eos` on PATH is older -- stopped on
+# FileNotFoundError. Reported from a real workspace, 2026-09-26. `VERSION` is
+# copied on its own below; a data file anywhere else is still not carried,
+# which is why routing's default registry is a Python constant.
+RUNTIME_SUFFIXES = (".py", ".md")
+
 
 class Updater:
     """Diff-and-replace updater for the eos-core runtime."""
@@ -28,9 +38,9 @@ class Updater:
 
     @staticmethod
     def compute_manifest(root: Path) -> Dict[str, str]:
-        """Map rel_path -> sha256 for every .py file under root (excluding caches)."""
+        """Map rel_path -> sha256 for every runtime file under root (excluding caches)."""
         manifest: Dict[str, str] = {}
-        for path in sorted(root.rglob("*.py")):
+        for path in sorted(p for p in root.rglob("*") if p.is_file() and p.suffix in RUNTIME_SUFFIXES):
             if any(part in {"__pycache__"} for part in path.parts):
                 continue
             rel = path.relative_to(root).as_posix()

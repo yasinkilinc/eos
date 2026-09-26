@@ -136,3 +136,43 @@ def test_update_keeps_no_backup_of_the_previous_runtime(tmp_path):
     assert "backed_up_to" not in result
     assert [p.name for p in eos.iterdir() if p.name.startswith("runtime.backup.")] == []
     assert (runtime / "thing.py").read_text(encoding="utf-8") == "VALUE = 2\n"
+
+
+def test_the_runtime_carries_the_templates_ai_update_renders(tmp_path):
+    """Reported from a real workspace (2026-09-26): the updater copied `*.py`
+    only, so `ai/templates/*.md` never reached `.eos/runtime/`, and `eos ai
+    update` run from the project's own runtime -- the fallback the hooks use
+    when the `eos` on PATH is older -- died on FileNotFoundError."""
+    project = tmp_path / "project"
+    project.mkdir()
+    assert subprocess.run([sys.executable, str(REPO / "core" / "eos.py"), "init", str(project), "--no-ai"],
+                          capture_output=True, text=True).returncode == 0
+    runtime = project / ".eos" / "runtime"
+    for name in ("skill.md", "agent.md", "agents_section.md"):
+        assert (runtime / "ai" / "templates" / name).is_file(), name
+
+    updated = subprocess.run([sys.executable, str(runtime / "eos.py"), "ai", "update", str(project)],
+                             capture_output=True, text=True)
+
+    assert updated.returncode == 0, updated.stderr
+    assert (project / ".claude" / "skills" / "eos" / "SKILL.md").is_file()
+
+
+def test_an_older_runtime_gets_the_templates_on_its_next_update(tmp_path):
+    """A runtime deployed before 1.3.0 has a manifest of `.py` files only; the
+    templates arrive as additions on the next update, nothing else changes."""
+    from core.lib.updater import Updater
+
+    runtime = tmp_path / ".eos" / "runtime"
+    first = Updater(REPO / "core", runtime)
+    manifest = {k: v for k, v in first.compute_manifest(REPO / "core").items() if k.endswith(".py")}
+    first.update()
+    (runtime / "manifest.json").write_text(json.dumps({"version": "1.2.2", "files": manifest}), encoding="utf-8")
+    for template in (runtime / "ai" / "templates").glob("*.md"):
+        template.unlink()
+
+    result = Updater(REPO / "core", runtime).update()
+
+    assert sorted(result["added"]) == sorted(k for k in first.compute_manifest(REPO / "core") if k.endswith(".md"))
+    assert result["changed"] == [] and result["removed"] == []
+    assert (runtime / "ai" / "templates" / "skill.md").is_file()
