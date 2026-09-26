@@ -92,6 +92,10 @@ class Record:
     commit_start: str | None = None
     commit_end: str | None = None
     lesson: str | None = None
+    # For outcome "ok": "verified" when every scope the run changed passed its
+    # check after the last change, "claimed" when one did not, None when the
+    # run changed nothing a check covers (ADR-028).
+    outcome_source: str | None = None
     events: list = dataclasses.field(default_factory=list)
 
     @property
@@ -272,6 +276,28 @@ def recorded(ledger: Path, tool_use_id: str) -> bool:
     return f'"tool_use_id": {json.dumps(tool_use_id)}'.encode("utf-8") in tail
 
 
+def outcome_source(project_root: str | Path, record: Record | None) -> tuple[str | None, list[str]]:
+    """("verified" | "claimed" | None, the instances still unverified), from the run's events."""
+    from core import verify
+
+    if record is None:
+        return None, []
+    scopes = verify.load(project_root)
+    if not scopes:
+        return None, []
+    events = []
+    for entry in record.events:
+        if entry.kind == "changed" and entry.ref:
+            events.append(("changed", entry.ref))
+        elif entry.kind == "verified" and entry.tool == "verify" and entry.ref:
+            events.append(("passed", entry.ref))
+    touched = {verify.instance(scopes, project_root, value) for kind, value in events if kind == "changed"}
+    if not touched - {None}:
+        return None, []
+    left = [key for key, _ in verify.dirty(scopes, project_root, events)]
+    return ("claimed" if left else "verified"), left
+
+
 def finish(project_root: str | Path, execution: str | None = None, *, outcome: str,
            lesson: str | None = None, session: str | None = None,
            next_time: str | None = None) -> Record:
@@ -314,10 +340,14 @@ def finish(project_root: str | Path, execution: str | None = None, *, outcome: s
         # run stays open rather than finished with its lesson lost.
         _write_lesson(project_root, existing or Record(id=execution, title=execution),
                       lesson, next_time)
+    source, _ = outcome_source(project_root, existing) if outcome == "ok" else (None, [])
     commit, _ = work.git_head(project_root)
     at = utc_now()
-    _append(ledger, {"type": LINE_FINISH, "id": execution, "at": at,
-                     "outcome": outcome, "lesson": lesson, "commit_end": commit})
+    line = {"type": LINE_FINISH, "id": execution, "at": at,
+            "outcome": outcome, "lesson": lesson, "commit_end": commit}
+    if source:
+        line["outcome_source"] = source
+    _append(ledger, line)
     _clear_pointer(existing.session if existing else session_for(project_root, session), execution)
     # The one place a procedure's observations move (ADR-023). After the
     # ledger line, so the ledger -- which `procedure audit` recomputes from --
@@ -395,6 +425,7 @@ def load_path(ledger: Path) -> list[Record]:
                 record.finished_at = data.get("at")
                 record.lesson = data.get("lesson")
                 record.commit_end = data.get("commit_end")
+                record.outcome_source = data.get("outcome_source")
     return list(records.values())
 
 

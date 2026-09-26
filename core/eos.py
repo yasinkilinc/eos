@@ -1975,6 +1975,9 @@ def cmd_run_finish(args: argparse.Namespace) -> int:
         print(f"error: {exc}", file=sys.stderr)
         return 1
     print(_run_line(record))
+    if record.outcome_source == "claimed":
+        _, left = executions.outcome_source(args.path, record)
+        print(f"claimed: {', '.join(left)} changed after its last passing check")
     return 0
 
 
@@ -1994,6 +1997,14 @@ def cmd_run_list(args: argparse.Namespace) -> int:
         found = [r for r in found if r.outcome == wanted]
     if args.since:
         found = [r for r in found if (r.started_at or "") >= args.since]
+    if args.stats:
+        done = [r for r in found if r.outcome == "ok"]
+        verified = sum(1 for r in done if r.outcome_source == "verified")
+        claimed = sum(1 for r in done if r.outcome_source == "claimed")
+        rate = f"{verified / (verified + claimed):.0%}" if verified + claimed else "n/a"
+        print(f"ok runs {len(done)}: verified {verified}, claimed {claimed}, "
+              f"nothing to verify {len(done) - verified - claimed}; verified rate {rate}")
+        return 0
     found = found[-args.limit:] if args.limit else found
     if args.format == "json":
         print(json.dumps([r.to_dict() for r in found], indent=2, ensure_ascii=False))
@@ -2841,6 +2852,8 @@ def main(argv: list[str] | None = None) -> int:
     run_list_p.add_argument("--since", help="ISO date; runs started on or after it")
     run_list_p.add_argument("--limit", type=int, default=20)
     run_list_p.add_argument("--format", choices=("text", "json"), default="text")
+    run_list_p.add_argument("--stats", action="store_true",
+                            help="verified / claimed counts of ok runs (ADR-028)")
 
     run_tools_p = run_sub.add_parser("tools", help="Which tools ran, how often, and how the last run went")
     add_path(run_tools_p)

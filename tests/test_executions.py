@@ -268,3 +268,50 @@ def test_a_new_event_makes_the_index_stale(project):
     index.refresh(project)
 
     assert sqlite3.connect(db).execute("SELECT events FROM execution").fetchone()[0] == before + 1
+
+
+def _verified_project(tmp_path):
+    import subprocess, sys
+    from pathlib import Path
+
+    root = tmp_path / "proj"
+    root.mkdir()
+    eos = [sys.executable, str(Path(__file__).resolve().parents[1] / "core" / "eos.py")]
+    assert subprocess.run(eos + ["init", str(root), "--no-ai"], capture_output=True).returncode == 0
+    (root / ".eos" / "knowledge").mkdir(parents=True, exist_ok=True)
+    (root / ".eos" / "knowledge" / "verify.toml").write_text(
+        "[[scope]]\nname = \"code\"\npaths = [\"src/**\"]\npasses = ['make\\s+test\\b']\nrun = \"make test\"\n",
+        encoding="utf-8")
+    return root, eos
+
+
+def test_a_finished_run_says_whether_its_changes_were_checked(tmp_path, monkeypatch):
+    import subprocess
+    from core import executions
+
+    monkeypatch.setenv("EOS_STATE_DIR", str(tmp_path / "state"))
+    root, eos = _verified_project(tmp_path)
+    a = executions.start(root, "checked", session="s1")
+    executions.event(root, a.id, kind="changed", ref="src/a.py")
+    executions.event(root, a.id, kind="verified", tool="verify", ref="code")
+    assert executions.finish(root, a.id, outcome="ok").outcome_source == "verified"
+    b = executions.start(root, "claimed", session="s2")
+    executions.event(root, b.id, kind="verified", tool="verify", ref="code")
+    executions.event(root, b.id, kind="changed", ref="src/a.py")
+    assert executions.finish(root, b.id, outcome="ok").outcome_source == "claimed"
+    c = executions.start(root, "reading", session="s3")
+    executions.event(root, c.id, kind="changed", ref="docs/x.md")
+    assert executions.finish(root, c.id, outcome="ok").outcome_source is None
+    stats = subprocess.run(eos + ["run", "list", str(root), "--stats"], capture_output=True, text=True).stdout
+    assert "verified 1, claimed 1, nothing to verify 1" in stats and "verified rate 50%" in stats
+
+
+def test_finish_works_when_the_scopes_file_is_broken(tmp_path, monkeypatch):
+    from core import executions
+
+    monkeypatch.setenv("EOS_STATE_DIR", str(tmp_path / "state"))
+    root, _ = _verified_project(tmp_path)
+    (root / ".eos" / "knowledge" / "verify.toml").write_text("[[scope]\n", encoding="utf-8")
+    run = executions.start(root, "r", session="s1")
+    executions.event(root, run.id, kind="changed", ref="src/a.py")
+    assert executions.finish(root, run.id, outcome="ok").outcome_source is None
