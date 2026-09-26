@@ -3,9 +3,11 @@
 EOS is a code-intelligence engine you drop into a project so an AI coding
 agent — or you — can actually find things in it. It scans a codebase into a
 symbol cache, a dependency graph and a Markdown knowledge vault, keeps your
-own hand-written notes alongside them, and serves all of it over MCP so an
-agent gets grep-fast symbol lookup, real import-graph impact analysis, and a
-budgeted context bundle instead of guessing from file names. If your project
+own hand-written notes and a ledger of what sessions did alongside them, and
+hands it to an agent through a CLI and harness hooks (MCP is available as an
+opt-in exception) — grep-fast symbol lookup, real import-graph impact
+analysis, the procedure and last lesson for the task at hand, and the project's
+own wrappers instead of raw commands. If your project
 is a thin layer on top of another codebase — a fork, a vendored dependency, a
 platform repo you don't own — EOS can link that parent and search both
 through one index.
@@ -37,6 +39,31 @@ canonical `core/` runtime to `~/.local/share/eos/<version>/` and installs an
 executable launcher under `~/.local/bin/eos`. Override the locations with
 `EOS_INSTALL_PREFIX`, `EOS_DATA_DIR`, `EOS_BIN_DIR`, or `EOS_PYTHON`.
 
+## What changed in 1.3
+
+- **Claude Code plugin** (`plugin/`, the repository root is its marketplace):
+  one set of hooks for every project through `eos hook <event>`, plus the
+  skill and the researcher agent. `--claude plugin` stops writing per-project
+  `.claude/` copies and removes the old ones. See below and
+  [ADR-026](docs/decisions/026-wrappers-first-mcp-by-exception.md).
+- **Declared wrappers** (`capabilities.toml`, `eos capabilities`): the task
+  brief names the wrapper a task calls for, and a raw command a wrapper covers
+  is recorded as a bypass and answered with one hint per session.
+- **Attributed capture:** run events carry `source` (wrapper, hook, cli),
+  `status` (ok, error, bypass), the acting subagent and the harness's call id,
+  so the same call reported twice is recorded once.
+- **Routing to reality:** Haiku 4.5 takes no effort setting and its decisions
+  carry none; costs follow published prices (sonnet 2, opus 4, fable 10); the
+  ROUTE line names `Agent({model})` and effort at session start;
+  `eos route --stats` puts the advice next to what sessions ran and
+  `--eval` scores the policy on a labelled corpus (`evals/routing/corpus.tsv`).
+- **MCP roster 12 → 10:** `get_graph` and the deprecated `compose` tool are
+  gone; resources and a `brief` prompt cost no roster.
+- **Fixes:** project runtimes now carry the Markdown templates `eos ai update`
+  renders (it failed from `.eos/runtime/` before); a run's routing decision is
+  reused only inside the project whose ledger holds it; an unchanged
+  integration file is no longer rewritten.
+
 ## What `eos init` gets an agent
 
 `eos init` does two things: it bootstraps `.eos/` (the scan cache, the
@@ -47,11 +74,13 @@ so a coding agent actually finds EOS without you wiring anything by hand:
    reach for `eos context`/`compose`/`impact` instead of grepping blind.
 2. **A researcher agent profile** at `.claude/agents/eos-researcher.md` — a
    subagent whose whole job is answering "where/what/why" questions via EOS.
-3. **Two hooks**, registered in `.claude/settings.json`: `eos-brief.py` runs
+3. **Three hooks**, registered in `.claude/settings.json`: `eos-brief.py` runs
    `eos brief` at session start and puts what is in flight in front of the
-   session, and `eos-close.py` asks a session, once, what happened to the work
-   it claimed. They are the surfaces that cost the agent no decision — see
-   [ADR-021](docs/decisions/021-session-ledger.md).
+   session, `eos-prompt.py` hands each task prompt its brief, and
+   `eos-close.py` asks a session, once, what happened to the work it claimed.
+   They are the surfaces that cost the agent no decision — see
+   [ADR-021](docs/decisions/021-session-ledger.md). They only run where
+   sessions start in the project itself; the plugin below has no such limit.
 4. **A section in `AGENTS.md`**, wrapped in `<!-- eos:begin -->` /
    `<!-- eos:end -->` markers so anything you wrote around it survives.
 
@@ -96,7 +125,7 @@ eos ai update . --claude plugin                # drop the per-project copies
 
 | Command | Purpose |
 |---|---|
-| `eos init <path> [--link-parent <path>] [--link-label <name>] [--surface cli\|mcp\|both] [--no-ai]` | Bootstrap `.eos/`, write the AI integration surfaces |
+| `eos init <path> [--link-parent <path>] [--link-label <name>] [--surface cli\|mcp\|both] [--claude files\|plugin] [--no-ai]` | Bootstrap `.eos/`, write the AI integration surfaces |
 | `eos brief <path> [--session <id>] [--agent <name>]` | What a session needs before it starts: work in flight, and the notes matching this branch |
 | `eos route <path> <task> [--file F]… [--model M] [--effort E] [--json] [--fresh] [--no-record] [--stats] [--eval CORPUS]` | Which model and how much effort a task deserves, and why; advice for the harness, EOS calls no model. `--stats` adds advised-vs-used per session; `--eval` scores the policy on a labelled corpus |
 | `eos scan <path> [--full] [--with-parents]` | Incremental or full scan; optionally index linked parents too |
@@ -499,7 +528,9 @@ workspace, EOS was reached for in 4 of 25 sessions — a tool an agent has to
 *decide* to call competes, on every question, with a `Read` it can do without
 asking, and usually loses. What does not compete is what nothing else
 produces. So `eos init` also writes `.claude/hooks/eos-brief.py` and registers
-it as a SessionStart hook: the brief arrives in the session's context with no
+it as a SessionStart hook (with the plugin, the plugin's SessionStart hook does
+the same, and after a compaction or `/clear` it also lets the task briefs
+arrive again): the brief arrives in the session's context with no
 call to remember and no tool to choose. The hook exits 0 on every failure path
 and prints nothing when there is nothing to say — a session-start block that
 is noisy is one that gets deleted.
@@ -604,9 +635,48 @@ eos run show . <id> | eos run tools . | eos run diff . <id>
   recorded, and nothing when the same block was already delivered; the prompt
   is never written anywhere.
 
+- **Hook capture** (1.3) — with the plugin, what a session does outside the
+  wrappers lands on its open run too: an edited file as a `changed` event with
+  its project-relative path, a command as the program names only (never the
+  command line), a failure with its exit code, a subagent's start and stop.
+  Events carry `source`, `status`, `agent` and the harness's `tool_use_id`;
+  read-only programs and EOS's own commands are not recorded, and a
+  registered wrapper records itself. `.eos/data/loaded.jsonl` says which
+  instruction files a session loaded and why; `.eos/data/sessions.jsonl`
+  holds one summary line per session.
+
 `eos doctor --memory` prints the 21-row capability matrix for a project, and
 `docs/plans/operational-memory.md` is the plan these came from, with its
 acceptance protocol.
+
+## Wrappers a project declares
+
+A project that routes its external systems through wrappers — a script for the
+issue tracker, the database, the build — declares them once, in
+`capabilities.toml` beside its notes (the knowledge directory):
+
+```toml
+[[capability]]
+name  = "tracker"
+run   = "scripts/tracker.sh"
+does  = "issue|search <KEY>; writes need --confirm"
+words = ["tracker", "ticket"]                  # task words that call for it
+block = ['tracker-cli\s']                      # raw forms a host guard refuses
+hint  = ['curl\s[^|;&]*tracker\.example']      # allowed, answered once with `run`
+```
+
+```bash
+eos capabilities .                               # every wrapper
+eos capabilities . --for "check ticket DEMO-1"   # the ones a task calls for
+eos capabilities . --command "curl https://tracker.example/1"   # which one covers this
+```
+
+The task brief then carries a `WRAPPERS FOR THIS TASK` block when a task's
+words point at a wrapper, and the plugin's post-tool hook records a `hint`
+form that ran as a `bypass` on the run and tells the session, once, what to
+run instead. A host guard can read the `block` patterns from the same file.
+EOS never runs a wrapper and never decides one was the right call. Keep
+`words` specific to the system: a common word puts a block on every prompt.
 
 ## Which model, how much effort
 
@@ -619,7 +689,8 @@ eos route . "refactor the auth flow and update tests"
 eos route . "fix the typo in the readme" --json
 eos route . "rename the handler" --file src/handler.py --file src/routes.py
 eos route . "design the billing boundaries" --model opus --effort max
-eos route . --stats          # decisions made inside runs, against each run's outcome
+eos route . --stats          # decisions against run outcomes, and advice against what sessions ran
+eos route . --eval evals/routing/corpus.tsv   # score the policy on a labelled corpus, no model called
 ```
 
 ```text
@@ -652,7 +723,8 @@ How it decides, all of it deterministic and printed with the answer
   needs it, or when nothing else qualifies, and the reason then says so.
 - **Effort** — the level's preferred effort, clamped to what that model
   accepts: the requested value, else the highest accepted value below it,
-  else the lowest the model has. An unsupported value is never returned.
+  else the lowest the model has. An unsupported value is never returned; a
+  model that takes no effort setting (Haiku 4.5) gets none.
 
 An explicit choice wins for its half of the decision, in this order: the
 `--model` / `--effort` flag, then `EOS_ROUTE_MODEL` / `EOS_ROUTE_EFFORT`, then
@@ -663,7 +735,8 @@ is refused (exit 2) rather than swapped for another.
 
 Inside an open run (`eos run start`), the first decision is the run's: it is
 appended as a `decided` event and returned again on later calls instead of
-being re-derived; `--fresh` decides again. Where `[model_routing]` is on,
+being re-derived; `--fresh` decides again. Only a run in this project's own
+ledger is reused this way. Where `[model_routing]` is on,
 `eos run start` makes that decision itself from the run's title and prints the
 ROUTE line to stderr, so every run carries a decision that `eos route --stats`
 can read against its outcome. Each recorded decision is one line in
@@ -681,7 +754,8 @@ enabled = true              # false: `eos route` still answers; the brief and MC
 default_model = "auto"      # or a registry id / alias
 default_effort = "auto"     # or low | medium | high | xhigh | max
 brief = "with-brief"        # "with-brief" | "always" | "never"
-hook = false                # true: `eos ai update` installs the subagent-model hook below
+hook = false                # true: route untyped subagents (the plugin's hook, or the file below)
+hook_dry_run = true         # plugin: record what the hook would set, set nothing
 record_prompts = false      # true: the task brief also records its decision for every task prompt
 
 [model_routing.models.local-coder]     # add a model, or correct a default by id
@@ -701,33 +775,44 @@ With the table present, `eos brief --task` ends with two lines — under
 
 ```text
 ROUTE  refactoring HIGH → sonnet/high (conf 0.55) — Refactoring, HIGH (…); cheapest model meeting HIGH; effort high.
-  Apply: Task({model: "sonnet"}) for subagents; /effort high for this session; eos route . "<task>" for the factors
+  Apply: Agent({model: "sonnet"}) for subagents; effort high is set at session start (claude --effort high); eos route . "<task>" for the factors
 ```
+
+Effort is advice for the start of a session: the harness takes it per session
+or per agent definition, and changing it partway can cost the prompt cache.
+While `CLAUDE_CODE_EFFORT_LEVEL` pins it, the line says the advice cannot apply.
 
 **Collecting data without a habit.** Runs record their decision on their
 own (above). With `record_prompts = true` the task brief also records one per
 task prompt — once per task per session, and never for a prompt with no task
 words in it ("ok", "go on"). What a session actually ran is folded from the
 harness transcript by a Stop hook calling
-`eos route <project> --usage-from <transcript> --session <id>`: one line per
-session in `.eos/data/routing-usage.jsonl`, per model the message count and
-token counts, no content — so the numbers outlive the harness's transcript
-retention. `eos route --stats` says how much of each has been collected.
+`eos route <project> --usage-from <transcript> --session <id>` (the plugin's
+Stop hook does this itself): one line per session in
+`.eos/data/routing-usage.jsonl`, per model the message count, the token counts
+and how many messages ran at each effort, no content — so the numbers outlive
+the harness's transcript retention. `eos route --stats` says how much of each
+has been collected and, per session, how much ran on the advised model and
+effort.
 
-With `hook = true`, `eos ai update` also installs `.claude/hooks/eos-route.py`
-as a `PreToolUse` hook on the subagent tool: when the agent spawns a subagent
-without naming a model, the subagent's prompt is routed and the call proceeds
-with the chosen model. Only an untyped or `general-purpose` subagent is
-routed — a named agent keeps the model its definition gives it. An explicit
-model is never changed, effort is left to
-the session (the harness takes it per session, not per call), and any failure
-lets the call through untouched. Turning the flag off removes the hook and
-only its own settings entry.
+With `hook = true`, untyped subagent calls are routed: when the agent spawns a
+subagent without naming a model, the subagent's prompt is classified on its
+own and the call proceeds with the chosen model. With the plugin this is its
+`PreToolUse` hook, and while `hook_dry_run` is true (the default) it only
+records the decision it would have applied; in `files` mode `eos ai update`
+installs `.claude/hooks/eos-route.py`, which applies it. Only an untyped or
+`general-purpose` subagent is routed — a named agent keeps the model its
+definition gives it. An explicit model is never changed, effort is left to
+the session, and any failure lets the call through untouched. Turning the
+flag off removes the hook and only its own settings entry. Measure the policy
+before turning it live: `--eval` scores it on a labelled corpus.
 
-The default registry holds three generic tiers (`haiku`, `sonnet`, `opus`)
-with relative capability and cost numbers; they are defaults to correct in
-config, not facts about vendors. Over MCP, `get_context` with `task` and
-`route: true` returns the same decision.
+The default registry holds four models under the harness's aliases: `haiku`
+(cost 1, no effort setting), `sonnet` (2), `opus` (4, currently Opus 5.5) and
+`fable` (10, never the cheapest sufficient choice, there for an explicit
+`--model fable`), with the full model ids a transcript records as aliases.
+They are defaults to correct in config, not facts about vendors. Over MCP,
+`get_context` with `task` and `route: true` returns the same decision.
 
 ## Linked parent projects
 
