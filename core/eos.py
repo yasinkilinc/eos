@@ -361,6 +361,9 @@ def main(argv: list[str] | None = None) -> int:
     brief_p.add_argument("--task-only", action="store_true",
                          help="Only the task sections, and nothing at all when none found anything "
                               "(for a hook that fires on every prompt)")
+    brief_p.add_argument("--resume", action="store_true",
+                         help="What this session left: its open runs, held work and failed runs "
+                              "(with --session, or the harness's session variable)")
 
     route_p = sub.add_parser(
         "route", help="Which model and how much effort a task deserves, and why (ADR-025)")

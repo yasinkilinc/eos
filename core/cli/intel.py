@@ -476,6 +476,15 @@ def cmd_brief(args: argparse.Namespace) -> int:
     """
     from core import brief
 
+    if getattr(args, "resume", False):
+        from core import telemetry
+
+        session = args.session or telemetry.detect_session(args.path)[0]
+        if not session:
+            print("error: --resume needs a session: --session <id> or the harness's variable", file=sys.stderr)
+            return 1
+        print(brief.resume(args.path, session), end="")
+        return 0
     text = brief.build(args.path, session=args.session, agent=args.agent,
                        task=args.task, budget=args.budget, task_only=args.task_only)
     if text:

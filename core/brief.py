@@ -121,6 +121,40 @@ def build(project_root: str | Path, *, session: str | None = None,
     return _branch_brief(root, session=session, agent=agent)
 
 
+def resume(project_root: str | Path, session: str) -> str:
+    """What one session left (2.x roadmap M7): its open runs with their last
+    event, the work it holds, and its runs that failed with their lesson."""
+    import datetime
+
+    from core import executions
+
+    root = Path(project_root).expanduser().resolve()
+    now = datetime.datetime.now(datetime.timezone.utc)
+    records = [r for r in executions.load(root) if r.session == session]
+    open_runs = [r for r in records if r.open]
+    failed = [r for r in records if r.outcome == "failed"]
+    held = [item for item in work.items(root)
+            if any(holder.get("session") == session for holder in item.holders)]
+    lines = [f"EOS — what session {session[:8]} left in {root.name}"]
+    if open_runs:
+        lines += ["", f"RUNS OPEN ({len(open_runs)}) — finish each: eos run finish . <id> --outcome ok|failed|abandoned"]
+        for record in open_runs[:RUN_LIMIT]:
+            last = record.events[-1] if record.events else None
+            tail = f"; last: {last.kind} {last.tool or ''}".rstrip() if last else "; no events"
+            lines.append(f"  {record.id}  {record.title}  [{work.ago(record.started_at, now)}{tail}]")
+    if held:
+        lines += ["", f"WORK HELD ({len(held)})"]
+        lines += [f"  {item.status:<7} {item.id}  {item.title}" for item in held[:WORK_LIMIT]]
+    if failed:
+        lines += ["", f"FAILED HERE ({len(failed)})"]
+        for record in failed[-FAILURE_LIMIT:]:
+            lesson = (record.lesson or "").splitlines()[0] if record.lesson else "no lesson"
+            lines.append(f"  {record.id}  {record.title}: {_clip(lesson, DETAIL_CHARS)}")
+    if len(lines) == 1:
+        lines.append("Nothing open from this session: no runs, no held work, no failures.")
+    return "\n".join(lines) + "\n"
+
+
 def _branch_brief(root: Path, *, session: str | None, agent: str | None) -> str:
     """Within BRANCH_BUDGET: fewer work items are shown until it fits (the count stays)."""
     cap = int(BRANCH_BUDGET * CHARS_PER_TOKEN)
