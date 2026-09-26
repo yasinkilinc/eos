@@ -20,7 +20,7 @@ section as text only.
   (globs; `**`, `*`, `{name}` capturing one segment), the commands that count as its
   check (regex, placeholders filled and escaped) and the command to suggest. Files
   in no scope are never asked about.
-- **`core/verify.py` is pure.** Path → scope instance (`fm-service:fm-crm-asset`),
+- **`core/verify.py` is pure.** Path → scope instance (`service:billing`),
   command → the waiting instances it checks, ordered events → instances changed
   after their last passing check. A command clears a scope only when the check
   starts a shell segment (`&&`, `||`, `;`, newline; leading `bash`/`sh`/`env` and
