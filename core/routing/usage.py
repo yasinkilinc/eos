@@ -6,7 +6,8 @@ only known to the harness. Claude Code keeps it in the session's transcript
 assistant message), and deletes transcripts after a retention period -- 30
 days unless configured. A later analysis of "was the advice right" needs the
 numbers to outlive that, so this folds a transcript into one small line per
-session: per model, the message count and the four token counts. No content,
+session: per model, the message count, the four token counts and how many
+messages ran at each effort (the transcript writes it beside each message). No content,
 no prompt, no tool input -- only numbers and model ids (ADR-019).
 
 The transcript format is the harness's, read here the way telemetry reads
@@ -64,8 +65,13 @@ def _tally(paths) -> dict:
                     continue
                 seen.add(key)
                 row = totals.setdefault(str(message["model"]),
-                                        {"messages": 0, **{field: 0 for field in TOKEN_FIELDS}})
+                                        {"messages": 0, **{field: 0 for field in TOKEN_FIELDS},
+                                         "efforts": {}})
                 row["messages"] += 1
+                # The effort each message actually ran at, as the harness wrote
+                # it beside the message -- what a recommendation is read against.
+                effort = str(entry.get("effort") or "none")[:16]
+                row["efforts"][effort] = row["efforts"].get(effort, 0) + 1
                 usage = message.get("usage") or {}
                 for field in TOKEN_FIELDS:
                     value = usage.get(field)

@@ -130,8 +130,9 @@ def outcomes(project_root: str | Path) -> list[tuple[str, str, str, str, str]]:
         run = runs.get(line.get("execution") or "")
         if run is None:
             continue
+        effort = line.get("effort")
         rows.append((line.get("type") or "?", line.get("level") or "?", line.get("model") or "?",
-                     line.get("effort") or "?", run.outcome or "open"))
+                     effort if effort is not None else "?", run.outcome or "open"))
     return rows
 
 
@@ -141,6 +142,53 @@ def stats(project_root: str | Path) -> list[tuple[tuple[str, str, str, str], Cou
     for kind, level, model, effort, outcome in outcomes(project_root):
         grouped.setdefault((kind, level, model, effort), Counter())[outcome] += 1
     return sorted(grouped.items(), key=lambda item: (-sum(item[1].values()), item[0]))
+
+
+def advised_vs_used(project_root: str | Path) -> list[dict]:
+    """Per session holding both a decision and a usage line: what was advised
+    against what its messages ran at (claude plan 3.5).
+
+    The session's first decision is its advice -- effort is chosen at session
+    start. "Used" is read from the harness's transcript fold (`usage`): the
+    share of the session's own messages on the advised model and at the
+    advised effort, and the share of its subagents' messages on that model,
+    which is where a model recommendation can actually be applied.
+    """
+    from core.routing import registry, usage
+
+    models = registry.load(project_root)
+
+    def family(model_id: str) -> str | None:
+        spec = models.get(model_id) or models.get(model_id.split("[", 1)[0])
+        return spec.id if spec is not None else None
+
+    first: dict[str, dict] = {}
+    for line in load(project_root):
+        if line.get("session") and line["session"] not in first:
+            first[line["session"]] = line
+    rows = []
+    for fold in usage.load(project_root):
+        advice = first.get(fold.get("session") or "")
+        if advice is None:
+            continue
+        main = fold.get("models") or {}
+        subs = fold.get("subagent_models") or {}
+        main_total = sum(v.get("messages", 0) for v in main.values())
+        sub_total = sum(v.get("messages", 0) for v in subs.values())
+        advised_effort = advice.get("effort") or "none"
+        rows.append({
+            "session": fold["session"], "advised_model": advice.get("model"),
+            "advised_effort": advised_effort, "level": advice.get("level"),
+            "main_messages": main_total,
+            "main_on_model": sum(v.get("messages", 0) for k, v in main.items()
+                                 if family(k) == advice.get("model")),
+            "main_at_effort": sum((v.get("efforts") or {}).get(advised_effort, 0) for v in main.values()),
+            "main_efforts_known": sum(sum((v.get("efforts") or {}).values()) for v in main.values()),
+            "subagent_messages": sub_total,
+            "subagent_on_model": sum(v.get("messages", 0) for k, v in subs.items()
+                                     if family(k) == advice.get("model")),
+        })
+    return rows
 
 
 def _trim(target: Path) -> None:

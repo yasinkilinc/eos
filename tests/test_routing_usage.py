@@ -35,8 +35,9 @@ def _configure(root, table):
     (root / ".eos" / "config.toml").write_text(table, encoding="utf-8")
 
 
-def _assistant(message_id, model, output, text=SENTINEL):
-    return json.dumps({"type": "assistant", "uuid": message_id + "-u",
+def _assistant(message_id, model, output, text=SENTINEL, effort=None):
+    extra = {"effort": effort} if effort else {}
+    return json.dumps({"type": "assistant", "uuid": message_id + "-u", **extra,
                        "message": {"id": message_id, "model": model,
                                    "content": [{"type": "text", "text": text}],
                                    "usage": {"input_tokens": 10, "output_tokens": output,
@@ -48,8 +49,8 @@ def _transcript(tmp_path) -> Path:
     path = tmp_path / "sess-1.jsonl"
     lines = [
         json.dumps({"type": "user", "message": {"role": "user", "content": SENTINEL}}),
-        _assistant("m1", "model-big", 7),
-        _assistant("m1", "model-big", 7),  # same message, second content block
+        _assistant("m1", "model-big", 7, effort="high"),
+        _assistant("m1", "model-big", 7, effort="high"),  # same message, second content block
         _assistant("m2", "model-small", 3),
         "{not json",
     ]
@@ -104,12 +105,16 @@ def test_a_transcript_folds_into_per_model_totals_counted_by_message(tmp_path):
 
     assert summary["models"]["model-big"] == {"messages": 1, "input_tokens": 10, "output_tokens": 7,
                                               "cache_read_input_tokens": 100,
-                                              "cache_creation_input_tokens": 5}
+                                              "cache_creation_input_tokens": 5,
+                                              "efforts": {"high": 1}}
     assert summary["models"]["model-small"]["output_tokens"] == 3
+    # A line with no `effort` (a model that takes none) counts as "none".
+    assert summary["models"]["model-small"]["efforts"] == {"none": 1}
     assert summary["subagent_models"] == {"model-small": {"messages": 1, "input_tokens": 10,
                                                           "output_tokens": 2,
                                                           "cache_read_input_tokens": 100,
-                                                          "cache_creation_input_tokens": 5}}
+                                                          "cache_creation_input_tokens": 5,
+                                                          "efforts": {"none": 1}}}
 
 
 def test_one_line_per_session_replaced_on_each_record(project, tmp_path):

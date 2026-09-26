@@ -25,8 +25,22 @@ def test_the_defaults_load_and_validate_without_any_config(tmp_path):
 
     assert [spec.id for spec in reg] == [spec.id for spec in DEFAULT_MODELS]
     for spec in reg:
-        assert spec.efforts == EFFORTS
+        # Haiku 4.5 takes no effort setting; every other default takes all five.
+        assert spec.efforts == (() if spec.id == "haiku" else EFFORTS)
         assert all(t in TASK_TYPES for t in spec.task_types)
+
+
+def test_the_full_model_ids_a_transcript_records_resolve_to_their_alias(tmp_path):
+    reg = registry.load(_project(tmp_path))
+    assert reg.get("claude-opus-5-5").id == "opus"
+    assert reg.get("claude-sonnet-5").id == "sonnet"
+    assert reg.get("claude-haiku-4-5-20251001").id == "haiku"
+    assert reg.get("claude-fable-5-1").id == "fable"
+
+
+def test_fable_is_never_the_cheapest_sufficient_choice(tmp_path):
+    reg = registry.load(_project(tmp_path))
+    assert [s.id for s in reg.candidates(min_reasoning=5, min_coding=4)] == ["opus", "fable"]
 
 
 def test_a_missing_table_is_the_defaults_and_says_it_was_not_configured(tmp_path):

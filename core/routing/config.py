@@ -19,8 +19,8 @@ from core.routing.types import AUTO, EFFORTS, TASK_TYPES
 
 TABLE = "model_routing"
 BRIEF_MODES = ("with-brief", "always", "never")
-_KEYS = ("enabled", "default_model", "default_effort", "brief", "hook", "record_prompts",
-         "models", "keywords")
+_KEYS = ("enabled", "default_model", "default_effort", "brief", "hook", "hook_dry_run",
+         "record_prompts", "models", "keywords")
 
 
 @dataclasses.dataclass(frozen=True)
@@ -31,6 +31,9 @@ class RoutingConfig:
     default_effort: str = AUTO
     brief: str = "with-brief"
     hook: bool = False
+    # With `hook`, record what the subagent hook would set instead of setting
+    # it -- the week of evidence the live switch waits for (claude plan 3.2).
+    hook_dry_run: bool = True
     # Record the brief's decision for every task prompt, not only for runs.
     record_prompts: bool = False
     models: dict = dataclasses.field(default_factory=dict)
@@ -69,6 +72,9 @@ def parse(table: object) -> RoutingConfig:
     record_prompts = table.get("record_prompts", False)
     if not isinstance(record_prompts, bool):
         raise ValueError(f"[{TABLE}] record_prompts must be true or false")
+    hook_dry_run = table.get("hook_dry_run", True)
+    if not isinstance(hook_dry_run, bool):
+        raise ValueError(f"[{TABLE}] hook_dry_run must be true or false")
 
     default_model = table.get("default_model", AUTO)
     if not isinstance(default_model, str) or not default_model.strip():
@@ -99,5 +105,5 @@ def parse(table: object) -> RoutingConfig:
 
     return RoutingConfig(configured=True, enabled=enabled, default_model=default_model.strip(),
                          default_effort=default_effort, brief=brief, hook=hook,
-                         record_prompts=record_prompts,
+                         hook_dry_run=hook_dry_run, record_prompts=record_prompts,
                          models=dict(models), keywords=cleaned)

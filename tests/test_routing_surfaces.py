@@ -74,7 +74,16 @@ def test_with_routing_on_the_task_brief_carries_the_route_line(project):
     route = [line for line in text.splitlines() if line.startswith("ROUTE  ")]
     assert len(route) == 1
     assert "refactoring HIGH → sonnet/high" in route[0]
-    assert '  Apply: Task({model: "sonnet"}) for subagents; /effort high' in text
+    assert ('  Apply: Agent({model: "sonnet"}) for subagents; effort high is set at session start '
+            '(claude --effort high)') in text
+
+
+def test_the_route_line_says_when_an_environment_variable_pins_the_effort(project, monkeypatch):
+    monkeypatch.setenv("CLAUDE_CODE_EFFORT_LEVEL", "low")
+    _configure(project, "[model_routing]\nenabled = true\n")
+    _with_a_note(project)
+    text = brief.build(project, task=TASK, agent="claude")
+    assert "effort high cannot apply while CLAUDE_CODE_EFFORT_LEVEL=low pins it" in text
 
 
 def test_another_agent_gets_the_decision_as_plain_words(project):
@@ -82,7 +91,7 @@ def test_another_agent_gets_the_decision_as_plain_words(project):
     _with_a_note(project)
     text = brief.build(project, task=TASK, agent="devin")
     assert "  Apply: model sonnet at effort high" in text
-    assert "Task({" not in text
+    assert "Agent({" not in text
 
 
 def test_brief_never_suppresses_the_line(project):

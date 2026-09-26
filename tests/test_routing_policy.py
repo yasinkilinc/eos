@@ -37,9 +37,18 @@ def _spec(model_id, reasoning, coding, cost, efforts=EFFORTS):
                      context_window=0, cost=cost, efforts=tuple(efforts))
 
 
-def test_a_trivial_task_gets_the_cheapest_model_at_low_effort(tmp_path):
+def test_a_trivial_task_gets_the_cheapest_model_and_no_effort_it_would_refuse(tmp_path):
+    """Haiku 4.5 takes no effort setting; the decision carries none rather than
+    one its provider would reject (claude plan 3.1)."""
     decision = _route(tmp_path, "fix the typo in the readme")
-    assert (decision.level, decision.model, decision.effort) == ("LOW", "haiku", "low")
+    assert (decision.level, decision.model, decision.effort) == ("LOW", "haiku", "")
+    assert "takes no effort setting" in decision.reason
+
+
+def test_a_model_given_efforts_in_config_gets_its_effort_back(tmp_path):
+    table = '[model_routing.models.haiku]\nefforts = ["low", "medium"]\n'
+    decision = _route(tmp_path, "fix the typo in the readme", table)
+    assert (decision.model, decision.effort) == ("haiku", "low")
 
 
 def test_a_normal_coding_task_gets_the_medium_tier(tmp_path):
@@ -103,7 +112,8 @@ def test_an_explicit_model_is_respected(tmp_path):
 
 def test_an_explicit_effort_is_respected_when_supported(tmp_path):
     decision = _route(tmp_path, "fix the typo in the readme", effort="high")
-    assert (decision.model, decision.effort) == ("haiku", "high")
+    # haiku takes no effort at all, so the cheapest model that honours "high" wins
+    assert (decision.model, decision.effort) == ("sonnet", "high")
 
 
 def test_an_explicit_effort_moves_the_model_only_when_it_must(tmp_path):
@@ -117,8 +127,8 @@ def test_model_auto_is_the_policy(tmp_path):
 
 
 def test_effort_auto_is_the_policy(tmp_path):
-    decision = _route(tmp_path, "fix the typo", effort="auto")
-    assert decision.effort == "low" and decision.override_source == "auto"
+    decision = _route(tmp_path, "add pagination to the orders endpoint and update the client", effort="auto")
+    assert decision.effort == "medium" and decision.override_source == "auto"
 
 
 def test_an_unknown_model_is_refused_with_the_available_ids(tmp_path):
@@ -194,4 +204,5 @@ def test_every_returned_pair_exists_in_the_registry(reg, level, effort):
         decision = policy.decide(task, complexity, reg, model=model, effort=effort)
         spec = reg.get(decision.model)
         assert spec is not None and spec.available
-        assert decision.effort in spec.efforts, (model, effort, decision)
+        assert decision.effort in spec.efforts or (not spec.efforts and decision.effort == ""), \
+            (model, effort, decision)

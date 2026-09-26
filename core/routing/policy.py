@@ -47,7 +47,14 @@ class OverrideError(ValueError):
     """An explicit model or effort that cannot be honoured."""
 
 
+NO_EFFORT = ""
+
+
 def clamp(spec: ModelSpec, requested: str) -> str:
+    """An effort the model accepts: the requested one, else the highest below
+    it, else its lowest -- or NO_EFFORT for a model that takes none."""
+    if not spec.efforts:
+        return NO_EFFORT
     if requested in spec.efforts:
         return requested
     lower = [e for e in spec.efforts if effort_rank(e) < effort_rank(requested)]
@@ -55,6 +62,8 @@ def clamp(spec: ModelSpec, requested: str) -> str:
 
 
 def auto_effort(spec: ModelSpec, band: tuple[str, ...]) -> str:
+    if not spec.efforts:
+        return NO_EFFORT
     for effort in band:
         if effort in spec.efforts:
             return effort
@@ -93,7 +102,10 @@ def decide(task_class: TaskClass, complexity: Complexity, registry: Registry, *,
         spec, alternatives = _choose_model(registry, level, (min_reasoning, min_coding),
                                            (base_reasoning, base_coding), effort, notes)
 
-    if effort == AUTO:
+    if not spec.efforts:
+        chosen_effort = NO_EFFORT
+        notes.append(f"{spec.id} takes no effort setting")
+    elif effort == AUTO:
         chosen_effort = auto_effort(spec, band)
         if chosen_effort not in band:
             notes.append(f"{spec.id} accepts none of {'/'.join(band)}; effort clamped to {chosen_effort}")

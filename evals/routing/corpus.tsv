@@ -1,0 +1,64 @@
+# Routing corpus: what a careful engineer would pick for each task, NOT what the
+# policy currently answers. `eos route <project> --eval evals/routing/corpus.tsv`.
+# A cell may list alternatives (a|b); * accepts anything; blank is not scored.
+# Model ids are the registry's: haiku (cheap, no effort), sonnet, opus.
+prompt	type	level	model	effort
+fix the typo in the readme	trivial_edit	LOW	haiku
+rename the config key timeout_ms to timeout_millis in settings.py	trivial_edit	LOW	haiku
+bump the version number in pyproject.toml	trivial_edit	LOW	haiku
+update the copyright year in the license header	trivial_edit	LOW	haiku
+correct the spelling of recieve in the log message	trivial_edit	LOW	haiku
+change the default port from 8080 to 9090	trivial_edit	LOW	haiku
+add a missing import for datetime in utils.py	simple_implementation|trivial_edit	LOW	haiku
+add a --verbose flag to the cli that prints the resolved config	simple_implementation	LOW|MEDIUM	haiku|sonnet
+write a helper that converts snake_case to camelCase	simple_implementation	LOW	haiku|sonnet
+add a health check endpoint that returns ok	simple_implementation	LOW|MEDIUM	haiku|sonnet
+add pagination to the orders endpoint and update the client	normal_implementation	MEDIUM	sonnet
+implement retry with exponential backoff for the payment client	normal_implementation	MEDIUM	sonnet
+add a new field to the customer api and persist it in the database	normal_implementation	MEDIUM	sonnet
+implement csv export for the monthly report	normal_implementation	MEDIUM	sonnet
+add input validation to the signup form and return field errors	normal_implementation	MEDIUM	sonnet
+support filtering invoices by status and date range	normal_implementation	MEDIUM	sonnet
+fix the crash when saving a draft	debugging	MEDIUM|HIGH	sonnet
+why does the order total differ between the cart and the invoice	debugging|investigation	MEDIUM|HIGH	sonnet|opus
+the nightly job fails with a null pointer exception after the last deploy	debugging	MEDIUM|HIGH	sonnet
+tests pass locally but fail in ci with a timeout	debugging	MEDIUM|HIGH	sonnet
+fix the race condition between the cache refresh and the reader	debugging	HIGH	sonnet|opus
+login returns 500 for users with a plus sign in their email	debugging	MEDIUM	sonnet
+the memory usage of the worker grows until it is killed	debugging	HIGH	sonnet|opus
+refactor the order service to separate validation from persistence	refactoring	MEDIUM|HIGH	sonnet
+extract the duplicated retry logic into one module	refactoring	MEDIUM	sonnet
+split the 2000 line controller into smaller classes	refactoring	HIGH	sonnet
+replace the deprecated http client with the new one across the service	refactoring|repository_wide_change	MEDIUM|HIGH	sonnet
+simplify the nested conditionals in the pricing calculator	refactoring	LOW|MEDIUM	sonnet
+review this pull request for security issues	code_review	MEDIUM|HIGH	sonnet
+review the diff before I merge it	code_review	MEDIUM	sonnet
+check this change for missing edge cases and error handling	code_review	MEDIUM	sonnet
+write unit tests for the discount calculator	test_generation	LOW|MEDIUM	haiku|sonnet
+add integration tests for the payment webhook	test_generation	MEDIUM	sonnet
+write a failing test that reproduces the bug in the parser	test_generation|debugging	MEDIUM	sonnet
+increase test coverage for the auth module	test_generation	MEDIUM	sonnet
+how does the caching layer decide when to invalidate	investigation	MEDIUM	sonnet
+where is the retry policy for outbound calls configured	investigation	LOW|MEDIUM	haiku|sonnet
+find every place that writes to the audit table	investigation	MEDIUM	sonnet
+explain what happens when a customer cancels a subscription	investigation	MEDIUM	sonnet
+what did we learn the last time the deploy failed	investigation	LOW|MEDIUM	haiku|sonnet
+design the service boundary for billing and invoicing	architecture	HIGH|CRITICAL	opus
+propose an architecture for multi tenant data isolation	architecture	CRITICAL	opus
+decide between kafka and a database outbox for order events	architecture	HIGH|CRITICAL	opus
+design the data model for product bundles with versioned prices	architecture	HIGH|CRITICAL	opus
+evaluate whether to split the monolith into services	architecture	CRITICAL	opus
+plan the migration from the old authentication system to oauth	planning	HIGH|CRITICAL	opus
+break this epic into tasks with estimates	planning	MEDIUM	sonnet|opus
+write an implementation plan for the new reporting module	planning	MEDIUM|HIGH	sonnet|opus
+plan the rollout of the feature flag across three environments	planning	MEDIUM	sonnet|opus
+prove that the reconciliation algorithm never double counts a payment	complex_reasoning	CRITICAL	opus
+find the root cause of the intermittent data corruption under concurrent writes	complex_reasoning|debugging	CRITICAL	opus
+analyse the trade offs of eventual consistency for the inventory counts	complex_reasoning|architecture	HIGH|CRITICAL	opus
+rename the package com.acme.old to com.acme.core across every repository	repository_wide_change	HIGH|CRITICAL	sonnet|opus
+upgrade the framework major version in all services	repository_wide_change	HIGH|CRITICAL	opus
+replace the logging library in every module of the monorepo	repository_wide_change	HIGH	sonnet|opus
+apply the new license header to every source file	repository_wide_change|trivial_edit	LOW|MEDIUM	haiku|sonnet
+ok	*	LOW	haiku
+continue	*	LOW	haiku
+thanks, looks good	*	LOW	haiku

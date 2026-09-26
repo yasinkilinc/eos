@@ -66,7 +66,13 @@ def route(project_root: str | Path | None, task: str, *, files=(), session: str 
 
 
 def _open_run(project_root, session):
-    """This session's open execution, or None. Never raises: no run is the common case."""
+    """This session's open execution in this project, or None. Never raises.
+
+    The session pointer names a run wherever it was opened; in a workspace
+    that can be another project's ledger, and that run's decision was made
+    for that project's task. Found by an evaluation that routed a corpus in a
+    scratch project and got the workspace run's decision back for every line.
+    """
     if project_root is None:
         return None
     try:
@@ -76,6 +82,8 @@ def _open_run(project_root, session):
         if found is None:
             return None
         execution, ledger = found
+        if Path(ledger).resolve() != executions.path_for(project_root).resolve():
+            return None
         record = next((r for r in executions.load_path(ledger) if r.id == execution), None)
         return record if record is not None and record.open else None
     except Exception:
@@ -83,8 +91,9 @@ def _open_run(project_root, session):
 
 
 def _body(decision: Decision) -> str:
-    # Seven tokens and no free text: the ledger is committed and pushed.
-    return (f"{decision.task_type} {decision.level} {decision.model} {decision.effort} "
+    # Seven tokens and no free text: the ledger is committed and pushed. A
+    # model that takes no effort setting is written "-", keeping the count.
+    return (f"{decision.task_type} {decision.level} {decision.model} {decision.effort or '-'} "
             f"{decision.override_source} {decision.score:.4f} {decision.confidence:.2f}")
 
 
@@ -107,9 +116,11 @@ def _decided(run, models) -> Decision | None:
         if len(parts) != 7:
             continue
         kind, level, model_id, effort, source, score_text, confidence_text = parts
+        effort = "" if effort == "-" else effort
         spec = models.get(model_id)
-        if (kind not in TASK_TYPES or level not in LEVELS or effort not in EFFORTS
-                or spec is None or not spec.available or effort not in spec.efforts):
+        if spec is None or not spec.available or kind not in TASK_TYPES or level not in LEVELS:
+            return None
+        if (effort not in EFFORTS or effort not in spec.efforts) and (effort or spec.efforts):
             return None
         try:
             score_value, confidence = float(score_text), float(confidence_text)

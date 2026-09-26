@@ -64,7 +64,7 @@ def test_json_is_the_decision_and_nothing_else(tmp_path):
 
     data = json.loads(done.stdout)
     assert set(data) == {f.name for f in Decision.__dataclass_fields__.values()}
-    assert (data["model"], data["effort"], data["level"]) == ("haiku", "low", "LOW")
+    assert (data["model"], data["effort"], data["level"]) == ("haiku", "", "LOW")
 
 
 def test_an_unknown_model_exits_2_and_names_the_available_ids(tmp_path):
@@ -117,7 +117,7 @@ def test_stats_counts_a_decision_made_inside_a_finished_run(tmp_path):
     assert _run(tmp_path, ["run", "finish", str(root), "--outcome", "ok"], EOS_SESSION="s1").returncode == 0
 
     done = _run(tmp_path, ["route", str(root), "--stats"])
-    assert "trivial_edit" in done.stdout and "haiku/low" in done.stdout and "ok 1" in done.stdout
+    assert "trivial_edit" in done.stdout and "  haiku " in done.stdout and "ok 1" in done.stdout
 
 
 def test_a_missing_task_exits_2(tmp_path):
@@ -152,9 +152,9 @@ def test_run_start_routes_the_title_and_binds_it_to_the_run(tmp_path):
                    EOS_SESSION="s1")
     assert started.returncode == 0
     assert started.stdout.strip().startswith("x-"), "stdout stays the run id alone"
-    assert "ROUTE  trivial_edit LOW → haiku/low" in started.stderr
+    assert "ROUTE  trivial_edit LOW → haiku (conf" in started.stderr
     assert _run(tmp_path, ["run", "finish", str(root), "--outcome", "ok"], EOS_SESSION="s1").returncode == 0
-    assert "haiku/low" in _run(tmp_path, ["route", str(root), "--stats"]).stdout
+    assert "LOW      haiku " in _run(tmp_path, ["route", str(root), "--stats"]).stdout
 
 
 def test_run_start_without_a_routing_table_routes_nothing(tmp_path):

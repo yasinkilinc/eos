@@ -100,7 +100,8 @@ def from_entries(base: tuple[ModelSpec, ...], entries: dict) -> Registry:
 def _coerce(where: str, key: str, value):
     if key in ("efforts", "task_types", "aliases"):
         if not isinstance(value, list) or not all(isinstance(v, str) for v in value):
-            raise ValueError(f"{where} {key} must be a list of strings")
+            raise ValueError(f"{where} {key} must be a list of strings (efforts = [] for a model "
+                             "that takes no effort setting)")
         return tuple(value)
     return value
 
@@ -122,8 +123,8 @@ def _validated(spec: ModelSpec) -> ModelSpec:
         raise ValueError(f"{where}: provider must be a string")
     if spec.status not in STATUSES:
         raise ValueError(f"{where}: status must be one of {', '.join(STATUSES)}; got {spec.status!r}")
-    if not spec.efforts:
-        raise ValueError(f"{where}: efforts must name at least one level")
+    # An empty tuple is a model that takes no effort setting (Haiku 4.5); a
+    # decision for it carries no effort rather than one the API would refuse.
     for effort in spec.efforts:
         if effort not in EFFORTS:
             raise ValueError(f"{where}: unknown effort {effort!r}; known: {', '.join(EFFORTS)}")
