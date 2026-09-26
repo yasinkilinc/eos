@@ -121,6 +121,55 @@ def build(project_root: str | Path, *, session: str | None = None,
     return _branch_brief(root, session=session, agent=agent)
 
 
+HANDOFF_BUDGET = 400
+
+
+def for_subagent(project_root: str | Path, task: str, *, session: str | None = None,
+                 budget: int = HANDOFF_BUDGET) -> str:
+    """What a subagent should know before it starts (2.x roadmap C6).
+
+    A subagent starts with none of the brief its parent session was given: it
+    runs the raw command a wrapper covers, improvises a recorded procedure and
+    rediscovers a finding. This is the part that changes what it does -- the
+    parent run, the procedure's rules, the wrappers the task names, the notes
+    whose titles meet it -- within `budget` tokens; empty when none applies.
+    """
+    from core import capabilities, executions
+
+    root = Path(project_root).expanduser().resolve()
+    lines = []
+    found = executions.current(root, session) if session else None
+    if found is not None:
+        execution, ledger = found
+        title = next((r.title for r in executions.load_path(Path(ledger)) if r.id == execution), "")
+        lines.append(f"- parent run: {execution}" + (f" ({title})" if title else ""))
+    corpus = notes.load_notes(root)
+    procedure = best_procedure(root, task, corpus)
+    if procedure is not None:
+        rules = notes.procedure_rules(procedure)[:3]
+        lines.append(f"- procedure {procedure.procedure}: follow its steps"
+                     + (" -- " + " / ".join(_clip(rule, 120) for rule in rules) if rules else ""))
+    try:
+        wanted = capabilities.for_task(task, capabilities.load(root))[:3]
+    except Exception:  # noqa: BLE001 - a broken registry costs the line
+        wanted = []
+    if wanted:
+        lines.append("- use: " + "; ".join(f"{c.run} ({c.does})" if c.does else c.run for c in wanted)
+                     + " -- not the raw command")
+    words = notes._words(task)
+    related = [n for n in notes.search_notes(root, task, limit=RELATED_LIMIT + 3)
+               if n.kind != "procedure" and not notes.is_bulk_index(n)
+               and (notes._words(n.title) | notes._words(" ".join(n.tags))) & words][:RELATED_LIMIT]
+    if related:
+        lines.append("- known here: " + "; ".join(n.title for n in related)
+                     + ' (eos note show . "<title>")')
+    if not lines:
+        return ""
+    text = "EOS handoff (this project's knowledge for your task):\n" + "\n".join(lines)
+    cap = int(budget * CHARS_PER_TOKEN)
+    return text if len(text) <= cap else text[:cap - 1].rstrip() + "…"
+
+
 def resume(project_root: str | Path, session: str) -> str:
     """What one session left (2.x roadmap M7): its open runs with their last
     event, the work it holds, and its runs that failed with their lesson."""

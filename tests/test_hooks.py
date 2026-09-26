@@ -455,3 +455,37 @@ def test_the_verify_gate_and_the_open_run_gate_share_one_block(project, monkeypa
     _hook(monkeypatch, capsys, "post-tool", _payload(project, tool_name="Edit", tool_input={"file_path": str(source)}))
     reason = json.loads(_hook(monkeypatch, capsys, "stop", _payload(project)).out)["reason"]
     assert "not verified yet" in reason and run.id in reason
+
+
+# --- subagent handoff (2.x roadmap C6) and whole updatedInput ---------------------------
+
+
+def test_a_routed_call_keeps_every_field_it_was_given(project, monkeypatch, capsys):
+    """The harness takes updatedInput as the tool input: sending only the model
+    would have dropped the prompt of every routed subagent call."""
+    config = project / ".eos" / "config.toml"
+    config.write_text(config.read_text(encoding="utf-8") + "\n[model_routing]\nhook = true\nhook_dry_run = false\n",
+                      encoding="utf-8")
+    call = _payload(project, tool_name="Agent", tool_use_id="w1",
+                    tool_input={"prompt": "design the service boundary for billing", "description": "design",
+                                "subagent_type": ""})
+    updated = json.loads(_hook(monkeypatch, capsys, "pre-agent", call).out)["hookSpecificOutput"]["updatedInput"]
+    assert updated["prompt"] == "design the service boundary for billing" and updated["description"] == "design"
+    assert updated["model"] in hooks.SUBAGENT_MODELS
+
+
+def test_the_handoff_is_appended_to_a_subagent_prompt_when_turned_on(project, monkeypatch, capsys):
+    _hooks_config(project, "handoff_tokens = 400\n")
+    run = _open_run(project)
+    call = _payload(project, tool_name="Agent", tool_use_id="h1",
+                    tool_input={"prompt": "check the tracker ticket for the release", "subagent_type": "Explore"})
+    updated = json.loads(_hook(monkeypatch, capsys, "pre-agent", call).out)["hookSpecificOutput"]["updatedInput"]
+    assert updated["prompt"].startswith("check the tracker ticket for the release")
+    assert "EOS handoff" in updated["prompt"] and run.id in updated["prompt"]
+    assert "scripts/tracker.sh" in updated["prompt"] and updated["subagent_type"] == "Explore"
+
+
+def test_no_handoff_unless_configured(project, monkeypatch, capsys):
+    _open_run(project)
+    call = _payload(project, tool_name="Agent", tool_input={"prompt": "check the tracker ticket", "subagent_type": "Explore"})
+    assert _hook(monkeypatch, capsys, "pre-agent", call).out == ""

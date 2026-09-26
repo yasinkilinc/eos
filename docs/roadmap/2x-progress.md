@@ -24,7 +24,9 @@ deletion; the nexus `mac` checkout and the global `eos` CLI are not touched.
 
 | M5 | Paraphrase guard on `note add`: word-trigram Jaccard ≥ 0.8 against existing notes | DONE | refused on add, reported on amend; bodies under 20 trigrams not compared; measured first: no pair in the host's 20 stores reaches 0.6 |
 | M7 | Session line: `eos brief --session` renders the session's open runs, held work, failing procedures | DONE | `eos brief --resume [--session id]`: open runs with their last event, held work, failed runs with their lesson; the per-session line itself is sessions.jsonl (SessionEnd, since 1.3) |
+| C6 | Subagent handoff: `eos brief --for-subagent` <= 400 tokens {task, why, known, do}; optional pre-agent injection (`[hooks] handoff`) | IN PROGRESS | |
 | M1/M3/M4/M6 | Provenance on every note, generated store, journey fan-out, priors | BLOCKED | M1/M3/M4 migrate the host's notes (~590 files) -- a person decides; M6 needs F3 |
+| M2 | Counters moved only by verified outcomes | NEEDS DECISION | 1.6 labels ok runs verified/claimed from evidence; whether procedure counters move only on verified is a policy call |
 
 ## Found along the way
 

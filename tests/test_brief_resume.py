@@ -40,3 +40,15 @@ def test_resume_says_so_when_nothing_is_open(tmp_path, monkeypatch):
     done = subprocess.run(EOS + ["brief", str(root), "--resume", "--session", "nobody"],
                           capture_output=True, text=True)
     assert done.returncode == 0 and "Nothing open" in done.stdout
+
+
+def test_the_subagent_handoff_names_the_run_and_stays_short(tmp_path, monkeypatch):
+    root = _project(tmp_path, monkeypatch)
+    run = executions.start(root, "Deploy billing to staging", session="me")
+    text = brief.for_subagent(root, "deploy billing", session="me")
+    assert text.startswith("EOS handoff") and run.id in text
+    assert len(text) <= brief.HANDOFF_BUDGET * brief.CHARS_PER_TOKEN
+    assert brief.for_subagent(root, "unrelated words entirely", session=None) == ""
+    done = subprocess.run(EOS + ["brief", str(root), "--for-subagent", "--task", "deploy billing",
+                                 "--session", "me"], capture_output=True, text=True)
+    assert done.returncode == 0 and run.id in done.stdout

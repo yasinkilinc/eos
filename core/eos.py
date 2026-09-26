@@ -361,6 +361,9 @@ def main(argv: list[str] | None = None) -> int:
     brief_p.add_argument("--task-only", action="store_true",
                          help="Only the task sections, and nothing at all when none found anything "
                               "(for a hook that fires on every prompt)")
+    brief_p.add_argument("--for-subagent", action="store_true",
+                         help="With --task: the handoff a subagent should start with (parent run, "
+                              "procedure rules, wrappers, notes), at most 400 tokens")
     brief_p.add_argument("--resume", action="store_true",
                          help="What this session left: its open runs, held work and failed runs "
                               "(with --session, or the harness's session variable)")

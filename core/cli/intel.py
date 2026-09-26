@@ -476,6 +476,14 @@ def cmd_brief(args: argparse.Namespace) -> int:
     """
     from core import brief
 
+    if getattr(args, "for_subagent", False):
+        if not args.task:
+            print("error: --for-subagent needs --task", file=sys.stderr)
+            return 1
+        text = brief.for_subagent(args.path, args.task, session=args.session)
+        if text:
+            print(text)
+        return 0
     if getattr(args, "resume", False):
         from core import telemetry
 

@@ -63,7 +63,7 @@ SETTINGS = ("brief", "capture", "hints", "subagents", "loaded", "sessions", "clo
 # Numeric settings, 0 = off. outline_lines: a main-session Read of a longer file
 # with no range is answered once with its outline instead; clear_hint_tokens: a
 # finished run in a session holding more context than this gets one /clear hint.
-NUMERIC = {"outline_lines": 0, "clear_hint_tokens": 150_000}
+NUMERIC = {"outline_lines": 0, "clear_hint_tokens": 150_000, "handoff_tokens": 0}
 MAX_TASK_CHARS = 2000
 MAX_READ_BYTES = 8 * 1024 * 1024
 MAX_WATCHED = 64
@@ -820,31 +820,59 @@ def _session_end(root: Path, hook: Hook, cfg: dict, agent: str | None) -> str:
 
 
 def _pre_agent(root: Path, hook: Hook, cfg: dict, agent: str | None) -> str:
-    """Route an untyped subagent call (ADR-025), or only record what would be routed.
+    """A subagent call: route it (ADR-025) and, when configured, hand it what
+    this project knows about its task (2.x roadmap C6).
+
+    The harness takes `updatedInput` as the tool's whole input, so the answer
+    carries every field the call had, with only the model or the prompt changed.
+    """
+    if hook.tool not in SUBAGENT_TOOLS:
+        return ""
+    updated = {}
+    model = _route_subagent(root, hook)
+    if model:
+        updated["model"] = model
+    if cfg["handoff_tokens"]:
+        prompt = str(hook.tool_input.get("prompt") or "")
+        task = (prompt or str(hook.tool_input.get("description") or "")).strip()[:MAX_TASK_CHARS]
+        if task:
+            from core import brief
+
+            text = brief.for_subagent(root, task, session=hook.session or None, budget=cfg["handoff_tokens"])
+            if text:
+                updated["prompt"] = f"{prompt}\n\n{text}" if prompt else text
+                _note_state(hook.session, handoff=len(text))
+    if not updated:
+        return ""
+    return json.dumps({"hookSpecificOutput": {"hookEventName": "PreToolUse",
+                                              "updatedInput": {**hook.tool_input, **updated}}},
+                      ensure_ascii=False)
+
+
+def _route_subagent(root: Path, hook: Hook) -> str | None:
+    """The model to set on an untyped subagent call, or None; every decision is recorded.
 
     The same four rules as the per-project hook it replaces: an explicit model
     is never touched, a named subagent keeps its own definition, only a model
     the harness's subagent tool takes is written, and effort is left alone.
     """
-    if hook.tool not in SUBAGENT_TOOLS:
-        return ""
     from core.routing import config as routing_config
 
     routing = routing_config.load(root)
     if not (routing.configured and routing.enabled and routing.hook):
-        return ""
+        return None
     if hook.tool_input.get("model") or str(hook.tool_input.get("subagent_type") or "").strip() not in GENERIC_TYPES:
-        return ""
+        return None
     task = str(hook.tool_input.get("prompt") or hook.tool_input.get("description") or "").strip()[:MAX_TASK_CHARS]
     if not task:
-        return ""
+        return None
     import core.routing as route_module
 
     # A subagent's prompt is its own task: classified on its own, while the
     # run's decision stays the run's (ADR-025 reuses it for the run's task).
     decision = route_module.route(root, task, session=hook.session or None, record=False, fresh=True)
     if decision.model not in SUBAGENT_MODELS:
-        return ""
+        return None
     from core.routing import registry
 
     reason = route_module.withheld(decision, routing, registry.load(root, routing))
@@ -860,10 +888,7 @@ def _pre_agent(root: Path, hook: Hook, cfg: dict, agent: str | None) -> str:
                 body=f"{status}: {decision.model} for a subagent ({decision.task_type} {decision.level}, "
                      f"confidence {decision.confidence:.2f})",
                 tool_use_id=f"route:{hook.tool_use_id}" if hook.tool_use_id else None)
-    if reason is not None:
-        return ""
-    return json.dumps({"hookSpecificOutput": {"hookEventName": "PreToolUse",
-                                              "updatedInput": {"model": decision.model}}})
+    return decision.model if reason is None else None
 
 
 def _verify_gate(root: Path, hook: Hook, cfg: dict) -> str:
