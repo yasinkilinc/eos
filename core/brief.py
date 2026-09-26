@@ -421,7 +421,36 @@ def _record_prompt(root: Path, task: str, session, decision, cfg) -> None:
     routing.route(root, task, session=session, record=True)
 
 
+# Conversational filler: a prompt made only of these is not a task, and the
+# hook that fires on every prompt says nothing to it. English only; a project
+# adds its own language under `[brief] filler`. Words under three letters are
+# never task words (`notes._words`), so "ok", "go", "on" need no entry.
+FILLER = frozenset({
+    "okay", "yes", "yeah", "yep", "nope", "sure", "fine", "great", "good", "cool", "nice", "thanks",
+    "thank", "please", "continue", "proceed", "carry", "keep", "going", "next", "done", "then", "now",
+    "and", "right", "alright", "agreed", "sounds", "let", "lets", "that", "this", "the", "ahead", "again",
+    "you", "can", "just", "will",
+})
+
+
+def _filler(root: Path) -> frozenset:
+    try:
+        from core.lib.config_io import ConfigIO
+
+        extra = (ConfigIO.read_toml(root / ".eos" / "config.toml").get("brief") or {}).get("filler") or []
+    except Exception:  # noqa: BLE001 - a malformed table leaves the default
+        extra = []
+    return FILLER | {str(word).casefold() for word in extra if isinstance(word, str)}
+
+
+def is_conversation(root: Path, task: str) -> bool:
+    """Whether every word of the prompt is filler (matching still uses all of them)."""
+    return not (notes._words(task) - _filler(root))
+
+
 def _with_task(root: Path, task: str, *, session, agent, budget: int, task_only: bool) -> str:
+    if task_only and is_conversation(root, task):
+        return ""
     sections, found = _task_sections(root, task)
     route_lines, route_alone = _route_section(root, task, session=session, agent=agent)
     if route_lines:

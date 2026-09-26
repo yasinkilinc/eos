@@ -15,7 +15,7 @@ deletion; the nexus `mac` checkout and the global `eos` CLI are not touched.
 | Step | What | Status | Commits / notes |
 |---|---|---|---|
 | S1 | Verified completion (plan tasks 1-7): `core/verify.py`, hook records, Stop gate, run `verified`/`claimed`, 1.6.0, nexus `verify.toml`, live check | DONE | task 1 de1b8e9, task 2 840b9fd, task 3 d414973, task 4 795ce46, task 5 1f7f36a+fd2d6cb (gate miss fixed), task 6 nexus-2x 4ebb01c (local), task 7 live: gate blocked once, model answered 'not verified' |
-| F1 | Measured defects: telemetry `rebuilt`/`ok`/median; branch-brief budget; prompt-hook chat false positive; `eos-event` session env; agent template MCP fence; README MCP list; `test_documents_match_reality` widened | IN PROGRESS | F1a telemetry (rebuilt, ok, median) |
+| F1 | Measured defects: telemetry `rebuilt`/`ok`/median; branch-brief budget; prompt-hook chat false positive; `eos-event` session env; agent template MCP fence; README MCP list; `test_documents_match_reality` widened | IN PROGRESS | F1a telemetry 0643618; F1b chat filler (prompt hook silent on conversation) |
 | F2 | `core/lib/lock.py` (O_EXCL, pid, stale 10 s, timeout 15 s) and `core/lib/atomic.py` (tmp+fsync+rename+dir fsync) on every read-modify-write; `check-clean` grep gate | TODO | |
 | F5 | Ledger discipline: `v` on every line, rotation 8 MB x 4, fold reads all, collapse identical consecutive events | TODO | |
 | F6 | `eos note eval`: MRR@10, nDCG@10, worst-first, p50/p90 latency; zero-hit in the denominator | TODO | |
