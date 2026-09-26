@@ -454,10 +454,26 @@ def _built_from(database: Path) -> str | None:
     return row[0] if row else None
 
 
+# A build that is killed (a hook's timeout) never reaches its own cleanup. An
+# older temp file than this is nobody's; a newer one may be a concurrent build's.
+STALE_TEMP_SECONDS = 600
+
+
+def _remove_stale_temps(directory: Path) -> None:
+    cutoff = time.time() - STALE_TEMP_SECONDS
+    for leftover in directory.glob("eos.db.*.tmp"):
+        try:
+            if leftover.stat().st_mtime < cutoff:
+                leftover.unlink()
+        except OSError:
+            pass
+
+
 def _build(root: Path, sources: str) -> BuildResult:
     started = time.perf_counter()
     target = db_path(root)
     target.parent.mkdir(parents=True, exist_ok=True)
+    _remove_stale_temps(target.parent)
     handle, name = tempfile.mkstemp(prefix="eos.db.", suffix=".tmp", dir=target.parent)
     os.close(handle)
     temp = Path(name)
