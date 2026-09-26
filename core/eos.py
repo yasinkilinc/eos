@@ -3064,6 +3064,7 @@ def main(argv: list[str] | None = None) -> int:
         sys.stdout = counter
         try:
             code = handler(args)
+            timer.ok = code in (0, None)
         finally:
             sys.stdout = counter.wrapped
             timer.chars = counter.chars

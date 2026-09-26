@@ -114,6 +114,15 @@ def enabled(project_root: str | Path) -> bool:
 _declared_size: int | None = None
 
 
+_rebuilt_here = False
+
+
+def mark_rebuilt() -> None:
+    """Tell the enclosing Timer that the index had to be rebuilt to answer."""
+    global _rebuilt_here
+    _rebuilt_here = True
+
+
 def declare_answer_size(chars: int) -> None:
     """Tell the enclosing Timer how big the answer really was."""
     global _declared_size
@@ -136,13 +145,19 @@ class Timer:
         self._started = 0.0
 
     def __enter__(self) -> "Timer":
-        global _declared_size
+        global _declared_size, _rebuilt_here
         _declared_size = None
+        _rebuilt_here = False
         self._started = time.perf_counter()
         return self
 
     def __exit__(self, exc_type, exc, tb) -> bool:
-        self.ok = exc_type is None
+        # A command fails by raising or by its exit status; SystemExit(0) is success.
+        if exc_type is SystemExit:
+            self.ok = self.ok and getattr(exc, "code", 1) in (0, None)
+        elif exc_type is not None:
+            self.ok = False
+        self.rebuilt = self.rebuilt or _rebuilt_here
         try:
             record(self.project_root, self.command, flags=self.flags,
                    milliseconds=(time.perf_counter() - self._started) * 1000,
@@ -239,9 +254,10 @@ def summary(project_root: str | Path) -> dict[str, Any]:
     for entry in entries:
         name = entry.get("command") or "?"
         bucket = by_command.setdefault(name, {"command": name, "calls": 0, "tokens": 0,
-                                              "_ms": [], "rebuilt": 0, "failed": 0})
+                                              "_ms": [], "_tokens": [], "rebuilt": 0, "failed": 0})
         bucket["calls"] += 1
         bucket["tokens"] += int(entry.get("tokens") or 0)
+        bucket["_tokens"].append(int(entry.get("tokens") or 0))
         bucket["_ms"].append(float(entry.get("ms") or 0.0))
         bucket["rebuilt"] += 1 if entry.get("rebuilt") else 0
         bucket["failed"] += 0 if entry.get("ok", True) else 1
@@ -250,7 +266,8 @@ def summary(project_root: str | Path) -> dict[str, Any]:
     for bucket in by_command.values():
         durations = sorted(bucket.pop("_ms"))
         bucket["median_ms"] = round(durations[len(durations) // 2], 1) if durations else 0.0
-        bucket["median_tokens"] = bucket["tokens"] // max(1, bucket["calls"])
+        tokens = sorted(bucket.pop("_tokens"))
+        bucket["median_tokens"] = tokens[len(tokens) // 2] if tokens else 0
         rows.append(bucket)
     rows.sort(key=lambda row: (-row["tokens"], row["command"]))
     return {

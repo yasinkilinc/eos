@@ -422,7 +422,14 @@ def refresh(project_root: str | Path) -> BuildResult | None:
     sources = _sources_digest(root)
     if _built_from(db_path(root)) == sources:
         return None
-    return _build(root, sources)
+    result = _build(root, sources)
+    try:
+        from core import telemetry
+
+        telemetry.mark_rebuilt()
+    except Exception:  # noqa: BLE001 - a statistic may not break a read
+        pass
+    return result
 
 
 def _project(project_root: str | Path) -> Path:

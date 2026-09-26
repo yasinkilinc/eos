@@ -250,3 +250,34 @@ def test_cost_reports_the_adoption_number(tmp_path):
     assert done.returncode == 0, done.stderr
     assert "2 session(s) identified themselves" in done.stdout, done.stdout
     assert "beyond the opening brief" in done.stdout, done.stdout
+
+
+# --- the three measured defects (2.x roadmap F1) ---------------------------------------
+
+
+def test_the_token_median_is_a_median_not_a_mean(tmp_path):
+    root = _project(tmp_path, on=True)
+    telemetry.path_for(root).unlink(missing_ok=True)
+    for chars in (4, 8, 400):
+        telemetry.record(root, "probe", chars=chars)
+    [row] = [r for r in telemetry.summary(root)["commands"] if r["command"] == "probe"]
+    assert row["median_tokens"] == 2, row
+
+
+def test_a_command_that_fails_by_its_exit_code_is_recorded_as_failed(tmp_path):
+    root = _project(tmp_path, on=True)
+    assert _run(["route", str(root), "--eval", str(tmp_path / "no-such-corpus.tsv")]).returncode != 0
+    entry = [e for e in telemetry.load(root) if e["command"] == "route"][-1]
+    assert entry["ok"] is False, entry
+
+
+def test_a_query_that_had_to_rebuild_the_index_says_so(tmp_path):
+    root = _project(tmp_path, on=True)
+    assert _run(["query", str(root), "SELECT 1"]).returncode == 0
+    fresh = [e for e in telemetry.load(root) if e["command"] == "query"][-1]
+    assert fresh["rebuilt"] is False, fresh
+    assert _run(["note", "add", str(root), "--kind", "finding", "--title", "a new finding",
+                 "--body", "It changes the index sources."]).returncode == 0
+    assert _run(["query", str(root), "SELECT 1"]).returncode == 0
+    stale = [e for e in telemetry.load(root) if e["command"] == "query"][-1]
+    assert stale["rebuilt"] is True, stale
