@@ -110,3 +110,17 @@ def test_the_cli_prints_tool_memory(project):
     _run(project, "ok", [("jenkins", 0)])
     shown = subprocess.run(EOS + ["run", "tools", str(project)], capture_output=True, text=True)
     assert shown.stdout.startswith("jenkins") and "last run ok" in shown.stdout
+
+
+def test_the_shell_helper_reads_the_session_variable_a_project_names(project, tmp_path):
+    """2.x roadmap F1: `[telemetry] session_env` named the harness variable for
+    telemetry and runs, and eos-event ignored it -- a wrapper's event went nowhere."""
+    (project / ".eos" / "config.toml").write_text('[telemetry]\nsession_env = ["MY_HARNESS_RUN"]\n',
+                                                   encoding="utf-8")
+    executions.start(project, "Deploy", session="h-1")
+    subprocess.run(["/bin/sh", str(REPO / "bin" / "eos-event"), "--kind", "ran", "--tool", "jenkins"],
+                   cwd=project / ".eos",
+                   env={"PATH": "/usr/bin:/bin", "HOME": str(tmp_path),
+                        "EOS_STATE_DIR": os.environ["EOS_STATE_DIR"], "MY_HARNESS_RUN": "h-1"})
+    [event] = executions.load(project)[0].events
+    assert (event.tool, event.session) == ("jenkins", "h-1")

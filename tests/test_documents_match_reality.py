@@ -302,3 +302,24 @@ def test_nothing_claims_more_than_the_command_delivers(command, forbidden, empty
 
     assert not offences, (
         f"`eos {command}` is described as doing more than it does:\n  " + "\n  ".join(offences))
+
+
+def test_every_eos_mcp_name_a_document_uses_is_registered(tmp_path):
+    """2.x roadmap F1: an agent template named MCP tools the server does not
+    register. Every `mcp__eos__<name>` in the templates, the plugin and the
+    README is a registered tool or prompt."""
+    sys.path.insert(0, str(REPO))
+    from core import mcp_server
+
+    root = tmp_path / "proj"
+    root.mkdir()
+    assert subprocess.run([sys.executable, str(REPO / "core" / "eos.py"), "init", str(root), "--no-ai"],
+                          capture_output=True).returncode == 0
+    server = mcp_server.McpServer(root, "test")
+    registered = set(server.tools) | {prompt["name"] for prompt in server.PROMPTS}
+    documents = [*REPO.glob("core/ai/templates/**/*.md"), *REPO.glob("plugin/**/*.md"), REPO / "README.md"]
+    unknown = {(path.relative_to(REPO).as_posix(), name)
+               for path in documents
+               for name in re.findall(r"mcp__eos__([a-z_]+)", path.read_text(encoding="utf-8"))
+               if name not in registered}
+    assert not unknown, sorted(unknown)
