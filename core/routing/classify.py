@@ -128,8 +128,16 @@ MAX_CONFIDENCE = 0.95
 _INFLECTION = r"(?:s|es|ed|ing|d)?"
 
 
-@lru_cache(maxsize=512)
+@lru_cache(maxsize=1024)
 def _pattern(token: str) -> re.Pattern:
+    """A word, anchored at both ends, with the English inflections the built-in
+    tables rely on. A token ending in `*` is a stem: it matches any word that
+    starts with it (`hata*` -> hatası, hataları), which is how a project's
+    config reaches the inflections of its own language without the engine
+    knowing that language (ADR-013, ADR-025 addendum)."""
+    if token.endswith("*"):
+        escaped = re.escape(token[:-1])
+        return re.compile(rf"(?<![\w-]){escaped}[\w-]*")
     escaped = re.escape(token)
     if " " in token or "-" in token:
         return re.compile(rf"(?<![\w-]){escaped}{_INFLECTION}(?![\w-])")
@@ -144,7 +152,18 @@ def _found(text: str, tokens) -> tuple[str, ...]:
     return tuple(token for token in tokens if matches(text, token))
 
 
-def classify(task: str, keywords: dict | None = None) -> TaskClass:
+# What `[model_routing.rules]` may extend: each name is one of the ordered
+# rules' word lists below. Config adds to a list; it never replaces one, so the
+# built-in behaviour on English text is the same with or without the table.
+RULE_LISTS = ("question_openers", "repository_wide", "failure_words", "change_verbs",
+              "implementation_verbs")
+
+
+def _rule_words(rules: dict | None, name: str, built_in: tuple[str, ...]) -> tuple[str, ...]:
+    return built_in + tuple((rules or {}).get(name, ()))
+
+
+def classify(task: str, keywords: dict | None = None, rules: dict | None = None) -> TaskClass:
     """The task's type, how sure the tables are, and the words that decided it."""
     text = normalise(task)
     scores: dict[str, float] = {}
@@ -166,18 +185,19 @@ def classify(task: str, keywords: dict | None = None) -> TaskClass:
     chosen = TaskClass(best, round(confidence, 4), hits[best])
 
     # Rule 1 -- repository-wide.
-    wide = _found(text, REPOSITORY_WIDE)
+    wide = _found(text, _rule_words(rules, "repository_wide", REPOSITORY_WIDE))
     if wide:
         return TaskClass("repository_wide_change", _rule_confidence(confidence), wide)
 
     # Rule 2 -- a question is an investigation; failure vocabulary splits on the verb.
-    opener = next((w for w in QUESTION_OPENERS if re.match(rf"{re.escape(w)}\b", text)), None)
+    opener = next((w for w in _rule_words(rules, "question_openers", QUESTION_OPENERS)
+                   if _opens(text, w)), None)
     if opener:
         return TaskClass("investigation", _rule_confidence(confidence), (opener,))
     if chosen.type in ("debugging", "investigation"):
-        failures = _found(text, FAILURE_WORDS)
+        failures = _found(text, _rule_words(rules, "failure_words", FAILURE_WORDS))
         if failures:
-            verbs = _found(text, CHANGE_VERBS)
+            verbs = _found(text, _rule_words(rules, "change_verbs", CHANGE_VERBS))
             kind = "debugging" if verbs else "investigation"
             return TaskClass(kind, _rule_confidence(confidence), verbs + failures)
 
@@ -192,13 +212,20 @@ def classify(task: str, keywords: dict | None = None) -> TaskClass:
 
     # Rule 4 -- one short change is simple.
     if chosen.type in ("simple_implementation", "normal_implementation"):
-        kind = "simple_implementation" if _names_one_change(text) else "normal_implementation"
+        kind = "simple_implementation" if _names_one_change(text, rules) else "normal_implementation"
         return TaskClass(kind, chosen.confidence, chosen.matched)
     return chosen
 
 
-def _names_one_change(text: str) -> bool:
-    verbs = _found(text, IMPLEMENTATION_VERBS)
+def _opens(text: str, word: str) -> bool:
+    """Whether the task starts with `word` (a stem when it ends in `*`)."""
+    if word.endswith("*"):
+        return re.match(rf"{re.escape(word[:-1])}[\w-]*", text) is not None
+    return re.match(rf"{re.escape(word)}\b", text) is not None
+
+
+def _names_one_change(text: str, rules: dict | None = None) -> bool:
+    verbs = _found(text, _rule_words(rules, "implementation_verbs", IMPLEMENTATION_VERBS))
     if len(verbs) != 1:
         return False
     if re.search(rf"\band\s+(?:{'|'.join(map(re.escape, IMPLEMENTATION_VERBS))}){_INFLECTION}\b", text):

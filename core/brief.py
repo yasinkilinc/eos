@@ -414,7 +414,7 @@ def _record_prompt(root: Path, task: str, session, decision, cfg) -> None:
     import core.routing as routing
     from core.routing import classify, trace
 
-    if decision.reused or not classify.classify(task, cfg.keywords).matched:
+    if decision.reused or not classify.classify(task, cfg.keywords, cfg.rules).matched:
         return
     if trace.seen(root, session, decision.task_hash):
         return

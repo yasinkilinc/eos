@@ -20,7 +20,9 @@ from core.routing.types import AUTO, EFFORTS, TASK_TYPES
 TABLE = "model_routing"
 BRIEF_MODES = ("with-brief", "always", "never")
 _KEYS = ("enabled", "default_model", "default_effort", "brief", "hook", "hook_dry_run",
-         "record_prompts", "models", "keywords")
+         "hook_min_confidence", "record_prompts", "models", "keywords", "rules", "factors")
+# A stem (`word*`) shorter than this matches too much to mean anything.
+MIN_STEM = 3
 
 
 @dataclasses.dataclass(frozen=True)
@@ -34,10 +36,15 @@ class RoutingConfig:
     # With `hook`, record what the subagent hook would set instead of setting
     # it -- the week of evidence the live switch waits for (claude plan 3.2).
     hook_dry_run: bool = True
+    # A live hook applies a decision only at or above this confidence; below
+    # it the decision is recorded and the call goes ahead untouched.
+    hook_min_confidence: float = 0.0
     # Record the brief's decision for every task prompt, not only for runs.
     record_prompts: bool = False
     models: dict = dataclasses.field(default_factory=dict)
     keywords: dict = dataclasses.field(default_factory=dict)
+    rules: dict = dataclasses.field(default_factory=dict)
+    factors: dict = dataclasses.field(default_factory=dict)
 
 
 def config_path(project_root: str | Path) -> Path:
@@ -75,6 +82,10 @@ def parse(table: object) -> RoutingConfig:
     hook_dry_run = table.get("hook_dry_run", True)
     if not isinstance(hook_dry_run, bool):
         raise ValueError(f"[{TABLE}] hook_dry_run must be true or false")
+    hook_min_confidence = table.get("hook_min_confidence", 0.0)
+    if isinstance(hook_min_confidence, bool) or not isinstance(hook_min_confidence, (int, float)) \
+            or not 0.0 <= hook_min_confidence <= 1.0:
+        raise ValueError(f"[{TABLE}] hook_min_confidence must be a number from 0 to 1")
 
     default_model = table.get("default_model", AUTO)
     if not isinstance(default_model, str) or not default_model.strip():
@@ -91,19 +102,39 @@ def parse(table: object) -> RoutingConfig:
     if not isinstance(models, dict) or not all(isinstance(v, dict) for v in models.values()):
         raise ValueError(f"[{TABLE}.models] must hold one table per model")
 
-    keywords = table.get("keywords", {})
-    if not isinstance(keywords, dict):
-        raise ValueError(f"[{TABLE}.keywords] must be a table of type = [words]")
-    cleaned: dict[str, tuple[str, ...]] = {}
-    for task_type, words in keywords.items():
-        if task_type not in TASK_TYPES:
-            raise ValueError(f"[{TABLE}.keywords] has an unknown task type {task_type!r}; "
-                             f"known: {', '.join(TASK_TYPES)}")
-        if not isinstance(words, list) or not all(isinstance(w, str) and w.strip() for w in words):
-            raise ValueError(f"[{TABLE}.keywords] {task_type} must be a list of words")
-        cleaned[task_type] = tuple(w.strip().lower() for w in words)
+    cleaned = _word_table(table.get("keywords", {}), "keywords", TASK_TYPES, "task type")
+    from core.routing.classify import RULE_LISTS
+    from core.routing.score import FACTOR_LISTS
+
+    rules = _word_table(table.get("rules", {}), "rules", RULE_LISTS, "rule list")
+    factors = _word_table(table.get("factors", {}), "factors", tuple(FACTOR_LISTS), "factor")
 
     return RoutingConfig(configured=True, enabled=enabled, default_model=default_model.strip(),
                          default_effort=default_effort, brief=brief, hook=hook,
-                         hook_dry_run=hook_dry_run, record_prompts=record_prompts,
-                         models=dict(models), keywords=cleaned)
+                         hook_dry_run=hook_dry_run, hook_min_confidence=float(hook_min_confidence),
+                         record_prompts=record_prompts, models=dict(models), keywords=cleaned,
+                         rules=rules, factors=factors)
+
+
+def _word_table(value: object, name: str, allowed: tuple[str, ...], what: str) -> dict:
+    """`[model_routing.<name>]`: each key one of `allowed`, each value a list of
+    words or stems (`word*`), normalised the way task text is."""
+    from core.routing.types import normalise
+
+    if not isinstance(value, dict):
+        raise ValueError(f"[{TABLE}.{name}] must be a table of {what} = [words]")
+    cleaned: dict[str, tuple[str, ...]] = {}
+    for key, words in value.items():
+        if key not in allowed:
+            raise ValueError(f"[{TABLE}.{name}] has an unknown {what} {key!r}; known: {', '.join(allowed)}")
+        if not isinstance(words, list) or not all(isinstance(w, str) and w.strip() for w in words):
+            raise ValueError(f"[{TABLE}.{name}] {key} must be a list of words")
+        normal = tuple(normalise(w) for w in words)
+        for word in normal:
+            if word.endswith("*") and len(word.rstrip("*")) < MIN_STEM:
+                raise ValueError(f"[{TABLE}.{name}] {key}: the stem {word!r} is shorter than "
+                                 f"{MIN_STEM} characters and would match almost anything")
+            if "*" in word[:-1]:
+                raise ValueError(f"[{TABLE}.{name}] {key}: {word!r} -- `*` may only end a word")
+        cleaned[key] = normal
+    return cleaned

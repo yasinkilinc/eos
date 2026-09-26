@@ -65,6 +65,8 @@ ARCHITECTURAL_WORDS = ("schema", "migration", "public api", "contract", "interfa
 RISK_WORDS = ("production", "prod", "payment", "billing", "auth", "authentication",
               "authorization", "security", "data loss", "migration", "irreversible")
 HEDGES = ("not sure", "somehow", "maybe", "unknown")
+# What `[model_routing.factors]` may extend, each onto the list named.
+FACTOR_LISTS = {"architectural": "ARCHITECTURAL_WORDS", "risk": "RISK_WORDS", "hedges": "HEDGES"}
 AT_LEAST_HIGH = ("architecture", "repository_wide_change", "complex_reasoning")
 
 FILES_FOR_FULL = 8
@@ -76,8 +78,14 @@ _FILES_IN_TEXT = re.compile(
 
 
 def score(task: str, task_class: TaskClass, *, files: tuple[str, ...] | list[str] = (),
-          project_root: str | Path | None = None) -> Complexity:
+          project_root: str | Path | None = None, factor_words: dict | None = None) -> Complexity:
+    """The complexity of a task. `factor_words` adds words to the built-in
+    architectural, risk and hedge lists (never replaces them)."""
     text = normalise(task)
+    extra = factor_words or {}
+    architectural_words = ARCHITECTURAL_WORDS + tuple(extra.get("architectural", ()))
+    risk_words = RISK_WORDS + tuple(extra.get("risk", ()))
+    hedges = HEDGES + tuple(extra.get("hedges", ()))
     kind = task_class.type
     factors: dict = {}
 
@@ -92,19 +100,19 @@ def score(task: str, task_class: TaskClass, *, files: tuple[str, ...] | list[str
     factors["dependency_count_source"] = dependency_source
 
     architectural = ARCHITECTURAL.get(kind, 0.0)
-    if any(classify.matches(text, word) for word in ARCHITECTURAL_WORDS):
+    if any(classify.matches(text, word) for word in architectural_words):
         architectural += 0.3
     factors["architectural_impact"] = min(architectural, 1.0)
 
     factors["reasoning_required"] = REASONING.get(kind, REASONING_OTHERWISE)
 
-    risk = 0.4 if any(classify.matches(text, word) for word in RISK_WORDS) else 0.0
+    risk = 0.4 if any(classify.matches(text, word) for word in risk_words) else 0.0
     if kind == "debugging":
         risk += 0.3
     factors["failure_risk"] = min(risk, 1.0)
 
     uncertainty = 1.0 - task_class.confidence
-    if any(classify.matches(text, word) for word in HEDGES):
+    if any(classify.matches(text, word) for word in hedges):
         uncertainty += 0.2
     factors["uncertainty"] = min(max(uncertainty, 0.0), 1.0)
 

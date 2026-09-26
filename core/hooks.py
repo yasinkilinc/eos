@@ -580,13 +580,22 @@ def _pre_agent(root: Path, hook: Hook, cfg: dict, agent: str | None) -> str:
     decision = route_module.route(root, task, session=hook.session or None, record=False, fresh=True)
     if decision.model not in SUBAGENT_MODELS:
         return ""
-    if routing.hook_dry_run:
-        _note_state(hook.session, would_route=decision.model, level=decision.level)
-        run = _open_run(root, hook.session)
-        if run is not None:
-            _record(root, hook, run, kind="decided", tool="route", ref=f"route:{decision.task_hash}",
-                    body=f"dry run: a subagent would get {decision.model} ({decision.task_type} {decision.level})",
-                    tool_use_id=f"route:{hook.tool_use_id}" if hook.tool_use_id else None)
+    from core.routing import registry
+
+    reason = route_module.withheld(decision, routing, registry.load(root, routing))
+    status = "applied" if reason is None else ("dry run" if reason == "dry run" else f"not applied, {reason}")
+    # Every decision is recorded, applied or not: the request's hash (never its
+    # text), the classification, the model, the confidence and the call id the
+    # harness's own transcript carries, so a review can join them (ADR-019).
+    _note_state(hook.session, route=status.split(",")[0], model=decision.model, level=decision.level,
+                confidence=decision.confidence)
+    run = _open_run(root, hook.session)
+    if run is not None:
+        _record(root, hook, run, kind="decided", tool="route", ref=f"route:{decision.task_hash}",
+                body=f"{status}: {decision.model} for a subagent ({decision.task_type} {decision.level}, "
+                     f"confidence {decision.confidence:.2f})",
+                tool_use_id=f"route:{hook.tool_use_id}" if hook.tool_use_id else None)
+    if reason is not None:
         return ""
     return json.dumps({"hookSpecificOutput": {"hookEventName": "PreToolUse",
                                               "updatedInput": {"model": decision.model}}})

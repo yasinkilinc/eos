@@ -135,6 +135,17 @@ def decide(task_class: TaskClass, complexity: Complexity, registry: Registry, *,
     )
 
 
+def meets(spec: ModelSpec, level: str, task_type: str) -> bool:
+    """Whether a model has the capability a level (and task type) requires.
+
+    `decide` only ever picks such a model on its own; an explicit override
+    (flag, environment, config) may name one that does not. Anything that
+    *applies* a decision to another agent's work checks this first, which is
+    what makes a CRITICAL task on the cheapest tier impossible there."""
+    min_reasoning, min_coding, _ = requirement(level, task_type)
+    return spec.reasoning >= min_reasoning and spec.coding >= min_coding
+
+
 def adjust_for_history(decision: Decision, project_root: str | Path | None) -> Decision:
     """The one seam where past outcomes could someday change a decision. Today: none.
 

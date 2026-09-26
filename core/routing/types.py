@@ -98,8 +98,17 @@ class Decision:
 
 
 def normalise(text: str) -> str:
-    """Lower-case, whitespace collapsed: what is hashed and what is matched."""
-    return re.sub(r"\s+", " ", str(text or "")).strip().lower()
+    """Lower-case, whitespace collapsed: what is hashed and what is matched.
+
+    `str.lower()` turns U+0130 (capital I with dot) into "i" plus a combining
+    dot (U+0307), so "İptal" never matched a configured "iptal". The dotted
+    capital is mapped to a plain "i" first and any stray combining dot above an
+    "i" is dropped -- a Unicode fact, not a language rule: the dotless capital
+    "I" still lowers to "i", as every English word needs.
+    """
+    text = str(text or "").replace("\u0130", "i")
+    text = re.sub(r"\s+", " ", text).strip().lower()
+    return text.replace("i\u0307", "i")
 
 
 def task_hash(text: str) -> str:

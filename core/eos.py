@@ -1713,12 +1713,18 @@ def cmd_route(args: argparse.Namespace) -> int:
         from core.routing import evaluate
 
         try:
-            result = evaluate.run(args.path, evaluate.load(args.eval))
+            result = evaluate.run(args.path, evaluate.load(args.eval), split=args.split)
         except (OSError, ValueError, routing.OverrideError) as exc:
             print(f"error: {exc}", file=sys.stderr)
             return 2
+        if args.split == "test":
+            result["earlier_test_runs_other_config"] = evaluate.record_test(args.path, args.eval, result)
         print(json.dumps(result, indent=2, ensure_ascii=False) if args.json else evaluate.render(result))
-        return 0
+        if args.split == "test" and result["earlier_test_runs_other_config"]:
+            print(f"warning: this test set was measured {result['earlier_test_runs_other_config']} time(s) "
+                  "before under a different configuration -- tune on dev, not on test", file=sys.stderr)
+        # 0 PASS, 1 FAIL: the gate is what a CI step reads.
+        return 0 if result["gate"]["pass"] else 1
 
     task = " ".join(args.task or ()).strip()
     if not task:
@@ -2748,7 +2754,11 @@ def main(argv: list[str] | None = None) -> int:
                               "(for a Stop hook); ignores the task")
     route_p.add_argument("--eval", default=None, metavar="CORPUS",
                          help="Score the policy against a labelled TSV corpus (prompt, type, level, "
-                              "model, effort); no model is called and nothing is recorded")
+                              "model, effort, split); no model is called. Exit 0 when the gate "
+                              "passes, 1 when it fails")
+    route_p.add_argument("--split", choices=("dev", "test"), default=None,
+                         help="--eval: only the rows of this split; test prints metrics and the "
+                              "gate but no rows or suggestions, and is recorded")
 
     proc_p = sub.add_parser("procedure", help="How a recurring task is done here, and how it has gone (ADR-023)")
     proc_sub = proc_p.add_subparsers(dest="procedure_command", required=True)

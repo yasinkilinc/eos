@@ -18,6 +18,8 @@ proceeds with the model the policy chose. Four rules keep it harmless:
   - Only a model the harness's subagent tool accepts is written; a project's
     own registry entries (a local model, say) are left to the agent.
   - Effort is not touched: the harness does not take it per call.
+  - A decision below `[model_routing] hook_min_confidence` is not applied,
+    and nothing is chosen in its place.
   - Any failure -- no `eos`, a timeout, a malformed answer -- means no output
     and exit 0, so the call goes ahead exactly as the agent made it.
 
@@ -58,6 +60,18 @@ def _runners(root):
             yield [python, runtime]
 
 
+def _min_confidence(root):
+    """`[model_routing] hook_min_confidence`: below it a decision is not applied."""
+    try:
+        import tomllib
+
+        with open(os.path.join(root, ".eos", "config.toml"), "rb") as handle:
+            value = tomllib.load(handle).get("model_routing", {}).get("hook_min_confidence", 0.0)
+        return float(value) if isinstance(value, (int, float)) and not isinstance(value, bool) else 0.0
+    except Exception:
+        return 0.0
+
+
 def _decided_model(root, task, session):
     arguments = ["route", root, task, "--json", "--no-record"]
     if session:
@@ -71,9 +85,12 @@ def _decided_model(root, task, session):
         if done.returncode != 0:
             continue
         try:
-            model = json.loads(done.stdout).get("model")
-        except (ValueError, AttributeError):
+            decision = json.loads(done.stdout)
+            model, confidence = decision.get("model"), float(decision.get("confidence") or 0.0)
+        except (ValueError, AttributeError, TypeError):
             return None
+        if confidence < _min_confidence(root):
+            return None  # an uncertain decision is not applied, and nothing replaces it
         return model if model in SUBAGENT_MODELS else None
     return None
 

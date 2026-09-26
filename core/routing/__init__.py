@@ -19,7 +19,25 @@ from core.routing.types import AUTO, EFFORTS, LEVELS, TASK_TYPES, Decision, task
 MODEL_ENV = "EOS_ROUTE_MODEL"
 EFFORT_ENV = "EOS_ROUTE_EFFORT"
 
-__all__ = ["route", "Decision", "OverrideError", "MODEL_ENV", "EFFORT_ENV"]
+__all__ = ["route", "withheld", "Decision", "OverrideError", "MODEL_ENV", "EFFORT_ENV"]
+
+
+def withheld(decision: Decision, cfg, models) -> str | None:
+    """Why a decision must NOT be applied to a subagent call, or None.
+
+    The hook's safety rules, in one place and in this order: a dry run applies
+    nothing; a decision below `hook_min_confidence` is only recorded -- never
+    swapped for another, cheaper or not; a model that does not meet the level's
+    capability requirement is never applied (CRITICAL on the cheapest tier is
+    therefore impossible, whatever an override said)."""
+    if cfg.hook_dry_run:
+        return "dry run"
+    if decision.confidence < cfg.hook_min_confidence:
+        return f"confidence {decision.confidence:.2f} below {cfg.hook_min_confidence:.2f}"
+    spec = models.get(decision.model)
+    if spec is None or not policy.meets(spec, decision.level, decision.task_type):
+        return f"{decision.model} is below what {decision.level} requires"
+    return None
 
 
 def route(project_root: str | Path | None, task: str, *, files=(), session: str | None = None,
@@ -44,8 +62,9 @@ def route(project_root: str | Path | None, task: str, *, files=(), session: str 
         if previous is not None:
             return previous
 
-    task_class = classify.classify(task, cfg.keywords)
-    complexity = score.score(task, task_class, files=tuple(files or ()), project_root=project_root)
+    task_class = classify.classify(task, cfg.keywords, cfg.rules)
+    complexity = score.score(task, task_class, files=tuple(files or ()), project_root=project_root,
+                             factor_words=cfg.factors)
     model_value, model_source = _resolved(model, MODEL_ENV, cfg.default_model)
     effort_value, effort_source = _resolved(effort, EFFORT_ENV, cfg.default_effort)
     effort_value = effort_value.lower()
