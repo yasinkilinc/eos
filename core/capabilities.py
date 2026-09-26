@@ -223,7 +223,10 @@ def programs(command: str) -> list[tuple[str, str | None]]:
     expect = True
     words: list[str] = []
     for token in tokens + [";"]:
-        if token in _SEPARATORS or set(token) <= set("&|;()"):
+        # An empty token is an argument (`sed -i ''`), not a separator: the
+        # empty set is a subset of every set, and treating it as one split
+        # `sed -i '' 's/a/b/' f` and named the program "b" (seen live).
+        if token in _SEPARATORS or (token and set(token) <= set("&|;()")):
             if words:
                 found.append(_simple(words))
             words, expect = [], True
@@ -251,7 +254,12 @@ def _simple(words: list[str]) -> tuple[str, str | None]:
     return head, verb
 
 
+# EOS's own commands record themselves (a run's start, its decisions, notes);
+# an event saying "eos ran" inside the run it opened is noise.
+SELF = frozenset(("eos", "eos-event"))
+
+
 def worth_recording(program: str, verb: str | None) -> bool:
     if program == "git":
         return bool(verb) and verb not in GIT_READ_VERBS
-    return program not in READ_ONLY
+    return program not in READ_ONLY and program not in SELF

@@ -82,6 +82,7 @@ def test_a_task_names_capabilities_by_their_declared_words(project):
     ("python3 - <<'EOF'\nimport os; print(1) | 2\nEOF\necho done", [("python3", None), ("echo", None)]),
     ("sudo -n env A=1 true", [("true", None)]),
     ("bash scripts/x.sh arg", [("x.sh", None)]),
+    ("sed -i '' 's/alpha/beta/' notes.txt", [("sed", None)]),
 ])
 def test_a_command_line_is_reduced_to_program_names(command, expected):
     assert capabilities.programs(command) == expected
@@ -92,6 +93,7 @@ def test_only_actions_are_worth_recording():
     assert capabilities.worth_recording("git", "push")
     assert not capabilities.worth_recording("git", "status")
     assert not capabilities.worth_recording("grep", None)
+    assert not capabilities.worth_recording("eos", None), "EOS records its own commands"
 
 
 def test_the_task_brief_names_the_wrappers_a_task_calls_for(project):
