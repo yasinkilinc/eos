@@ -37,3 +37,6 @@ node_modules/
 
 # claude plugin eval reports (local runs)
 plugin/evals/results/
+
+# Build output of the Java structure fixture (a local compile, never source)
+tests/fixtures/**/target/
