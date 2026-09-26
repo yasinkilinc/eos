@@ -39,6 +39,25 @@ canonical `core/` runtime to `~/.local/share/eos/<version>/` and installs an
 executable launcher under `~/.local/bin/eos`. Override the locations with
 `EOS_INSTALL_PREFIX`, `EOS_DATA_DIR`, `EOS_BIN_DIR`, or `EOS_PYTHON`.
 
+## What changed in 1.7
+
+Phase 1 of the 2.x roadmap, except the retrieval scorer:
+
+- **Honest telemetry:** `rebuilt` is recorded when a read had to rebuild the
+  index, a command failing by its exit code is a failure, and the token
+  median is a median.
+- **Quieter hooks:** a prompt made only of conversation ("ok, continue";
+  `[brief] filler` adds a project's language) gets no task brief; the
+  session-start brief has an 800-token budget.
+- **Locks and atomic writes** (`core/lib/lock.py`, `core/lib/atomic.py`) on
+  every shared read-modify-write: procedure counters, note sections, log trims.
+- **Ledger discipline:** a version on every line, rotation at 8 MB (four old
+  files, all folded), and no finish for a run that was never started.
+- **Evaluation:** `eos note eval` reports nDCG, zero-hit queries and latency,
+  lists misses worst first, and accepts `a.md|b.md` for a question two notes
+  answer.
+- **The CLI is split** into `core/cli/*` with no behaviour change.
+
 ## What changed in 1.6
 
 - **Verified completion (ADR-028).** A project's `verify.toml` names which
