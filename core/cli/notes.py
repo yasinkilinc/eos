@@ -216,6 +216,12 @@ def cmd_note_amend(args: argparse.Namespace) -> int:
         print(f"error: {exc}", file=sys.stderr)
         return 1
     print(f"Note amended: {path}")
+    if body:
+        # Reported, not refused (2.x roadmap M5): amend is the way out of other guards.
+        twin = notes.paraphrase_of(notes.load_notes(args.path), body, exclude=Path(path))
+        if twin is not None:
+            print(f"warning: {twin.path} ({twin.title!r}) says this in other words; "
+                  "consider keeping one of the two", file=sys.stderr)
     return 0
 
 

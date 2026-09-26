@@ -1,0 +1,59 @@
+"""The paraphrase guard (2.x roadmap M5).
+
+The exact-body and normalised-title guards miss a note that says the same thing
+in slightly different words. A new body whose word trigrams overlap an existing
+note's by PARAPHRASE_JACCARD or more is refused on add; amend only reports it.
+Measured before the threshold was set: no pair in the host's 20 stores reaches
+0.6, so the guard refuses nothing that exists.
+"""
+import subprocess
+import sys
+from pathlib import Path
+
+import pytest
+
+from core import notes
+
+EOS = [sys.executable, str(Path(__file__).resolve().parents[1] / "core" / "eos.py")]
+BODY = ("The order capture service retries the payment call three times with a fixed two second "
+        "delay, and a timeout on the third attempt leaves the order in the pending state until the "
+        "nightly reconciliation job moves it to failed and releases the reserved number.")
+
+
+def _project(tmp_path):
+    root = tmp_path / "proj"
+    root.mkdir()
+    assert subprocess.run(EOS + ["init", str(root), "--no-ai"], capture_output=True).returncode == 0
+    notes.add_note(root, "finding", "Payment retries leave orders pending", BODY)
+    return root
+
+
+def test_a_reworded_copy_is_refused(tmp_path):
+    root = _project(tmp_path)
+    reworded = BODY.replace("nightly", "overnight")          # one word: 87% of trigrams shared
+    with pytest.raises(notes.DuplicateNoteError, match="already says"):
+        notes.add_note(root, "finding", "Pending orders after payment retries", reworded)
+
+
+def test_a_different_note_on_the_same_subject_is_accepted(tmp_path):
+    root = _project(tmp_path)
+    other = ("Reconciliation releases the reserved number only when the order is failed; a cancelled "
+             "order keeps the number reserved for fifteen minutes, which the activation scenario "
+             "has to wait out before it can reuse the same test number.")
+    assert notes.add_note(root, "finding", "Reserved numbers after cancellation", other).is_file()
+
+
+def test_the_overlap_measure(tmp_path):
+    assert notes.trigram_jaccard(BODY, BODY) == 1.0
+    assert notes.trigram_jaccard(BODY, "entirely unrelated words about something else here") == 0.0
+
+
+def test_amend_reports_a_paraphrase_without_refusing(tmp_path):
+    root = _project(tmp_path)
+    other = notes.add_note(root, "finding", "Reserved numbers after cancellation",
+                           "A cancelled order keeps its number reserved for fifteen minutes before release, "
+                           "which any scenario reusing the number must wait for; seen on the test environment.")
+    done = subprocess.run(EOS + ["note", "amend", str(other), "--path", str(root), "--body",
+                                 BODY.replace("nightly", "overnight")], capture_output=True, text=True)
+    assert done.returncode == 0, done.stderr
+    assert "says this in other words" in done.stderr

@@ -22,6 +22,10 @@ deletion; the nexus `mac` checkout and the global `eos` CLI are not touched.
 | F3 | One retrieval scorer (`core/retrieval.py`) behind the golden-set gate (recall@3 not lower, nexus recall@1 ≥ 0.80) | BLOCKED (labels) | baseline nexus r@1 0.667 r@3 0.970; misses are near-duplicate notes (sections vs procedures written from them). Rejected: title bigram bonus (nexus r@3 0.97->0.94), light stemming (0.97->0.91). Added: golden `a.md|b.md` alternates. Proposal for the user: nexus-2x docs/eos-evals/golden/nexus-alternates-proposal.md (7 of 11 judged equivalent -> r@1 0.879). Structural unification of the search paths waits for the labels |
 | F4 | Split `core/eos.py` into `core/cli/*` with zero behaviour change | DONE | eos.py 3,090 -> 716 lines (bootstrap, hook fast path, main); core/cli/{common,project,notes,work,runs,procedures,route,intel}.py moved verbatim by an AST splitter (helpers go with the one group that reaches them, shared ones to common); all 99 help screens byte-identical; runtime copy works; memory_audit C-06 looks in core.cli.runs |
 
+| M5 | Paraphrase guard on `note add`: word-trigram Jaccard ≥ 0.8 against existing notes | DONE | refused on add, reported on amend; bodies under 20 trigrams not compared; measured first: no pair in the host's 20 stores reaches 0.6 |
+| M7 | Session line: `eos brief --session` renders the session's open runs, held work, failing procedures | TODO | |
+| M1/M3/M4/M6 | Provenance on every note, generated store, journey fan-out, priors | BLOCKED | M1/M3/M4 migrate the host's notes (~590 files) -- a person decides; M6 needs F3 |
+
 ## Found along the way
 
 - `eos run finish <unknown id>` succeeded and wrote a finish line for a run never started

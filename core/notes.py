@@ -638,6 +638,38 @@ def normalized_title_key(title: str) -> frozenset[str]:
     return frozenset(w for w in re.findall(r"[a-z#]+", lowered) if len(w) > 2)
 
 
+# A body sharing this share of word trigrams with an existing note says the
+# same thing in other words (2.x roadmap M5). Measured before it was set: no
+# pair in the host's 20 stores reaches 0.6. Shorter bodies share structure, not
+# content, and are not compared.
+PARAPHRASE_JACCARD = 0.8
+PARAPHRASE_MIN_TRIGRAMS = 20
+
+
+def _trigrams(text: str) -> set[tuple[str, str, str]]:
+    words = [token.casefold() for token in _WORD.findall(text)]
+    return {tuple(words[index:index + 3]) for index in range(len(words) - 2)}
+
+
+def trigram_jaccard(first: str, second: str) -> float:
+    a, b = _trigrams(first), _trigrams(second)
+    return len(a & b) / len(a | b) if a and b else 0.0
+
+
+def paraphrase_of(existing: list, body: str, exclude: Path | None = None):
+    """The first existing note whose body this one repeats in other words, or None."""
+    mine = _trigrams(body)
+    if len(mine) < PARAPHRASE_MIN_TRIGRAMS:
+        return None
+    for note in existing:
+        if exclude is not None and note.path == exclude:
+            continue
+        theirs = _trigrams(note.body)
+        if len(theirs) >= PARAPHRASE_MIN_TRIGRAMS and len(mine & theirs) / len(mine | theirs) >= PARAPHRASE_JACCARD:
+            return note
+    return None
+
+
 def add_note(
     project_root: str | Path,
     kind: str,
@@ -702,6 +734,13 @@ def add_note(
                 f"This body is already recorded in {note.path} "
                 f"({note.title!r}). " + _duplicate_escape(session)
             )
+    twin = paraphrase_of(existing, content)
+    if twin is not None:
+        raise DuplicateNoteError(
+            f"{twin.path} ({twin.title!r}) already says this in other words "
+            f"({trigram_jaccard(content, twin.body):.0%} of its word trigrams). Amend that note, "
+            f"or say what is different. " + _duplicate_escape(session)
+        )
     new_key = normalized_title_key(title)
     # An empty key means the title carried no comparable signal (e.g. "AB",
     # "Q3") -- not that it matches every other title reduced the same way.
