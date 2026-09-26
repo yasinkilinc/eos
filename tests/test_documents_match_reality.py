@@ -323,3 +323,17 @@ def test_every_eos_mcp_name_a_document_uses_is_registered(tmp_path):
                for name in re.findall(r"mcp__eos__([a-z_]+)", path.read_text(encoding="utf-8"))
                if name not in registered}
     assert not unknown, sorted(unknown)
+
+
+def test_the_readme_tool_roster_is_the_registered_one(tmp_path):
+    """The README's "Registered tools:" paragraph names exactly the server's tools."""
+    sys.path.insert(0, str(REPO))
+    from core import mcp_server
+
+    root = tmp_path / "proj"
+    root.mkdir()
+    assert subprocess.run([sys.executable, str(REPO / "core" / "eos.py"), "init", str(root), "--no-ai"],
+                          capture_output=True).returncode == 0
+    text = (REPO / "README.md").read_text(encoding="utf-8")
+    roster = text.split("Registered tools:", 1)[1].split("—", 1)[0]
+    assert set(re.findall(r"`([a-z_]+)`", roster)) == set(mcp_server.McpServer(root, "test").tools)
