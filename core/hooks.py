@@ -58,8 +58,16 @@ from pathlib import Path
 # Where per-session hook state lives when the harness gives a plugin its own
 # directory (the plugin exports it); otherwise beside the run pointers.
 STATE_ENV = "EOS_HOOK_STATE_DIR"
-SETTINGS = ("brief", "capture", "hints", "subagents", "loaded", "sessions", "close", "usage")
+SETTINGS = ("brief", "capture", "hints", "subagents", "loaded", "sessions", "close", "usage", "compact")
+# Numeric settings, 0 = off. outline_lines: a main-session Read of a longer file
+# with no range is answered once with its outline instead; clear_hint_tokens: a
+# finished run in a session holding more context than this gets one /clear hint.
+NUMERIC = {"outline_lines": 0, "clear_hint_tokens": 150_000}
 MAX_TASK_CHARS = 2000
+MAX_READ_BYTES = 8 * 1024 * 1024
+MAX_WATCHED = 64
+MAX_KEPT_FILES = 12
+_RUN_FINISH = re.compile(r"(?<![\w-])eos\s+run\s+finish\b")
 # The harness delivers its own notices through the prompt event.
 _NOTICE_MARKS = ("[SYSTEM NOTIFICATION", "<task-notification>", "<system-reminder>",
                  "<local-command-caveat>", "<command-name>")
@@ -102,6 +110,7 @@ class Hook:
     effort: str = ""
     transcript: str = ""
     stop_active: bool = False
+    compact_summary: str = ""
 
     @property
     def command(self) -> str:
@@ -153,6 +162,7 @@ def normalize(payload: dict) -> Hook:
         error_type=text("error_type", "error"), prompt=text("prompt", "user_input"),
         effort=str(effort.get("level") or "") if isinstance(effort, dict) else "",
         transcript=text("transcript_path"), stop_active=bool(payload.get("stop_hook_active")),
+        compact_summary=text("compact_summary"),
     )
 
 
@@ -207,7 +217,7 @@ def project_root(start: str | os.PathLike | None) -> Path | None:
 
 
 def settings(root: Path) -> dict:
-    values = {name: True for name in SETTINGS}
+    values = {name: True for name in SETTINGS} | dict(NUMERIC)
     try:
         from core.lib.config_io import ConfigIO
 
@@ -217,6 +227,10 @@ def settings(root: Path) -> dict:
     for name in SETTINGS:
         if isinstance(table.get(name), bool):
             values[name] = table[name]
+    for name in NUMERIC:
+        value = table.get(name)
+        if isinstance(value, int) and not isinstance(value, bool) and value >= 0:
+            values[name] = value
     return values
 
 
@@ -348,10 +362,113 @@ def _relative(root: Path, path: str) -> str | None:
     return str(resolved)
 
 
+# --- context: what the session read, what it holds ---------------------------------------
+
+
+def _mtime(path: str) -> float | None:
+    try:
+        return os.stat(path).st_mtime
+    except OSError:
+        return None
+
+
+def _watch(session: str, path: str, changed: bool = False) -> None:
+    """Remember a file the session holds, with the mtime it holds it at."""
+    mtime = _mtime(path) if path else None
+    if mtime is not None:
+        _note_state(session, read=path, mtime=mtime, **({"changed": path} if changed else {}))
+
+
+def _rewritten(session: str) -> list[str]:
+    """Files the session read whose mtime moved without the Edit tool -- the
+    shell rewrote them, and the harness will send them back. The new mtime
+    becomes the baseline, so one rewrite is reported once."""
+    held: dict[str, float] = {}
+    for line in _state(session):
+        if isinstance(line.get("read"), str) and isinstance(line.get("mtime"), (int, float)):
+            held.pop(line["read"], None)
+            held[line["read"]] = line["mtime"]
+    moved = []
+    for path, mtime in list(held.items())[-MAX_WATCHED:]:
+        now = _mtime(path)
+        if now is not None and now > mtime + 1e-6:
+            moved.append(path)
+            _note_state(session, read=path, mtime=now)
+    return moved
+
+
+def _context_tokens(transcript: str) -> int | None:
+    """The context the session's last model call carried, from the transcript's tail."""
+    if not transcript:
+        return None
+    try:
+        with open(transcript, "rb") as handle:
+            handle.seek(0, os.SEEK_END)
+            handle.seek(max(0, handle.tell() - 512 * 1024))
+            tail = handle.read().decode("utf-8", errors="replace")
+    except OSError:
+        return None
+    for line in reversed(tail.splitlines()):
+        if '"usage"' not in line:
+            continue
+        try:
+            entry = json.loads(line)
+        except ValueError:
+            continue
+        usage = (entry.get("message") or {}).get("usage") if isinstance(entry, dict) else None
+        if entry.get("type") == "assistant" and isinstance(usage, dict):
+            return sum(int(usage.get(key) or 0) for key in
+                       ("input_tokens", "cache_read_input_tokens", "cache_creation_input_tokens"))
+    return None
+
+
+def _kept(root: Path, session: str) -> dict:
+    """What must outlive a compaction: the session's open run, the work it
+    holds, the files it changed."""
+    kept = {"runs": [], "work": [], "files": []}
+    found = _open_run(root, session)
+    if found is not None:
+        from core import executions
+
+        execution, ledger = found
+        title, procedure = "", ""
+        try:
+            for record in executions.load_path(Path(ledger)):
+                if record.id == execution:
+                    title, procedure = record.title or "", record.procedure or ""
+        except Exception:  # noqa: BLE001
+            pass
+        kept["runs"].append((execution, title, procedure))
+    try:
+        from core import work
+
+        kept["work"] = [item.id for item in work.items(root) if item.status == work.ACTIVE
+                        and any(holder.get("session") == session for holder in item.holders)]
+    except Exception:  # noqa: BLE001
+        pass
+    files = []
+    for line in _state(session):
+        path = line.get("changed")
+        if isinstance(path, str) and path not in files:
+            files.append(path)
+    kept["files"] = [_relative(root, path) or path for path in files[-MAX_KEPT_FILES:]]
+    return kept
+
+
+def _kept_lines(kept: dict) -> list[str]:
+    lines = [f"- open run {run_id}" + (f' "{title}"' if title else "") + (f" (procedure {slug})" if slug else "")
+             for run_id, title, slug in kept["runs"]]
+    lines += [f"- work item {item}, held by this session" for item in kept["work"]]
+    if kept["files"]:
+        lines.append("- files changed: " + ", ".join(kept["files"]))
+    return lines
+
+
 # --- handlers -------------------------------------------------------------------------
 
 
 def _session_start(root: Path, hook: Hook, cfg: dict, agent: str | None) -> str:
+    parts = []
     if hook.source in ("compact", "clear") and hook.session:
         # The context that held the delivered briefs is gone; the dedup that
         # kept them from repeating would now keep them from arriving at all.
@@ -360,11 +477,84 @@ def _session_start(root: Path, hook: Hook, cfg: dict, agent: str | None) -> str:
         except OSError:
             pass
         _note_state(hook.session, reset=hook.source)
-    if not cfg["brief"]:
-        return ""
-    from core import brief
+        if hook.source == "compact" and cfg["compact"]:
+            lines = _kept_lines(_kept(root, hook.session))
+            if lines:
+                parts.append("EOS, kept across the compaction:\n" + "\n".join(lines))
+    if cfg["brief"]:
+        from core import brief
 
-    return brief.build(root, session=hook.session or None, agent=agent) or ""
+        parts.append(brief.build(root, session=hook.session or None, agent=agent) or "")
+    return "\n\n".join(part for part in parts if part)
+
+
+def _pre_compact(root: Path, hook: Hook, cfg: dict, agent: str | None) -> str:
+    """Custom compact instructions (the harness appends this handler's output):
+    what EOS knows must survive, and what need not."""
+    if not cfg["compact"] or hook.agent_id:
+        return ""
+    kept = _kept(root, hook.session)
+    expected = [run_id for run_id, _, _ in kept["runs"]] + kept["work"] + kept["files"]
+    _note_state(hook.session, compact_expect=expected)
+    lines = ["Keep, word for word: the user's decisions and open questions, and"] + _kept_lines(kept)
+    lines.append("Drop raw tool output and file contents: they are on disk and can be read again. Keep what "
+                 "was concluded from them, with the path:line it rests on.")
+    return "\n".join(lines)
+
+
+def _post_compact(root: Path, hook: Hook, cfg: dict, agent: str | None) -> str:
+    """Count what the summary kept of what EOS asked it to keep (quality of R2)."""
+    if not cfg["compact"] or not hook.session:
+        return ""
+    expected = []
+    for line in _state(hook.session):
+        if isinstance(line.get("compact_expect"), list):
+            expected = line["compact_expect"]
+    summary = hook.compact_summary
+    missing = [item for item in expected if item and item not in summary]
+    _note_state(hook.session, compacted=len(summary), expected=len(expected), missing=missing)
+    return ""
+
+
+def _pre_read(root: Path, hook: Hook, cfg: dict, agent: str | None) -> str:
+    """A main-session Read of a long file with no range is answered once with
+    the file's outline; asking again reads it. Everything read stays in the
+    context for every later call, so the part needed is cheaper than the whole."""
+    threshold = cfg["outline_lines"]
+    if not threshold or hook.tool != "Read" or hook.agent_id or not hook.session:
+        return ""
+    args = hook.tool_input
+    if any(args.get(key) not in (None, "", 0) for key in ("offset", "limit", "pages")):
+        return ""
+    path = str(args.get("file_path") or "")
+    from core import outline
+
+    kind = outline.kind_of(path)
+    try:
+        if not path or os.path.getsize(path) > MAX_READ_BYTES:
+            return ""
+        with open(path, "rb") as handle:
+            data = handle.read()
+    except OSError:
+        return ""
+    if b"\0" in data[:8192]:
+        return ""
+    lines = data.count(b"\n") + (0 if data.endswith(b"\n") or not data else 1)
+    if lines <= threshold:
+        return ""
+    if any(line.get("outlined") == path for line in _state(hook.session)):
+        return ""
+    _note_state(hook.session, outlined=path, lines=lines)
+    entries = outline.outline(data.decode("utf-8", errors="replace"), kind)
+    shown = _relative(root, path) or path
+    reason = [f"EOS: {shown} has {lines} lines, and what is read stays in this session's context for every "
+              "later call. Read the part you need with offset/limit."]
+    if entries:
+        reason.append("Outline (line: declaration):\n" + "\n".join(entries))
+    reason.append(f"To read it whole, repeat the same Read (it will pass) or give limit: {lines}.")
+    return json.dumps({"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny",
+                                              "permissionDecisionReason": "\n".join(reason)}},
+                      ensure_ascii=False)
 
 
 def _user_prompt(root: Path, hook: Hook, cfg: dict, agent: str | None) -> str:
@@ -402,8 +592,17 @@ def _post_tool(root: Path, hook: Hook, cfg: dict, agent: str | None, failed: boo
     status = "error" if failed else "ok"
     event_name = "PostToolUseFailure" if failed else "PostToolUse"
     run = _open_run(root, hook.session) if cfg["capture"] else None
+    main_session = not hook.agent_id and bool(hook.session)
 
+    if hook.tool == "Read":
+        if main_session and not failed:
+            _watch(hook.session, str(hook.tool_input.get("file_path") or ""))
+        return ""
     if hook.tool in EDIT_TOOLS:
+        path = str(hook.tool_input.get("file_path") or hook.tool_input.get("notebook_path") or "")
+        if main_session and not failed and path:
+            # What the session holds now is the edited text: the new mtime is the baseline.
+            _watch(hook.session, path, changed=True)
         if run is not None:
             ref = _relative(root, str(hook.tool_input.get("file_path") or hook.tool_input.get("notebook_path") or ""))
             if ref:
@@ -424,7 +623,7 @@ def _post_tool(root: Path, hook: Hook, cfg: dict, agent: str | None, failed: boo
     except Exception:  # noqa: BLE001 - a broken registry costs the hint, never the call
         declared = []
     found = capabilities.match(command, declared) if declared else None
-    output = ""
+    hints = []
     if found is not None:
         status = "bypass"
         name = found.capability.name
@@ -433,8 +632,24 @@ def _post_tool(root: Path, hook: Hook, cfg: dict, agent: str | None, failed: boo
             hinted = {(line.get("hint"), line.get("actor")) for line in _state(hook.session)}
             if (name, hook.actor) not in hinted:
                 _note_state(hook.session, hint=name, actor=hook.actor)
-                output = _context(event_name, "EOS: " + capabilities.remedy(found)
-                                  + " (`eos capabilities .` lists every wrapper here.)")
+                hints.append("EOS: " + capabilities.remedy(found)
+                             + " (`eos capabilities .` lists every wrapper here.)")
+    if main_session and cfg["hints"]:
+        rewritten = _rewritten(hook.session)
+        if rewritten and not any(line.get("hint") == "shell-rewrite" for line in _state(hook.session)):
+            _note_state(hook.session, hint="shell-rewrite", actor=hook.actor)
+            hints.append(f"EOS: this command rewrote {', '.join(rewritten[:3])}, which this session read; the "
+                         "harness sends a changed file back into the context. Change files you have read "
+                         "with the Edit tool.")
+    if main_session and not failed and cfg["clear_hint_tokens"] and _RUN_FINISH.search(command):
+        tokens = _context_tokens(hook.transcript)
+        if tokens and tokens >= cfg["clear_hint_tokens"]:
+            _note_state(hook.session, hint="clear", tokens=tokens)
+            hints.append(f"EOS: the run is closed and this session holds ~{tokens // 1000}k tokens of context "
+                         "that every further call re-reads. What the run found is in EOS (ledger, notes, "
+                         "changed files), so /clear before the next task is safe: the next prompt's brief "
+                         "brings back what applies. Tell the user.")
+    output = _context(event_name, "\n".join(hints)) if hints else ""
     if run is None or capabilities.wrapper_in(command, declared) is not None:
         # A registered wrapper records its own call (eos-event); counting it
         # here as well would make every wrapper call look like two.
@@ -660,5 +875,8 @@ HANDLERS = {
     "instructions-loaded": _instructions_loaded,
     "session-end": _session_end,
     "pre-agent": _pre_agent,
+    "pre-read": _pre_read,
+    "pre-compact": _pre_compact,
+    "post-compact": _post_compact,
 }
 EVENTS = tuple(HANDLERS)

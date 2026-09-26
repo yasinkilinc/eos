@@ -3,7 +3,7 @@ name: eos
 description: Load when a question needs project-wide facts EOS already indexed — where a symbol lives, what a file affects, what earlier sessions learned — and you want to weigh an EOS tool against a plain Read or Grep before reaching for either.
 ---
 
-# EOS (engine 1.4.0)
+# EOS (engine 1.5.0)
 
 EOS indexes this project into `.eos/data/eos.db`: parsed symbols, imports, a
 project graph, git history, and notes an agent chose to record. It is

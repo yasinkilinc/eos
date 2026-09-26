@@ -1,5 +1,5 @@
 {
-  "description": "EOS: the brief at session start and per task, run capture with subagent attribution, one hint when a raw command bypasses a wrapper, instruction-load and session logs, and the subagent routing hook (ADR-026)",
+  "description": "EOS: the brief at session start and per task, run capture with subagent attribution, one hint when a raw command bypasses a wrapper, instruction-load and session logs, the subagent routing hook, and the context diet: an outline before a long unranged Read, compact instructions and what survives them, a hint when the shell rewrites a file the session read, a /clear hint when a run closes in a large context (ADR-026, ADR-027)",
   "hooks": {
     "SessionStart": [
       {
@@ -34,11 +34,21 @@
             "timeout": 10
           }
         ]
+      },
+      {
+        "matcher": "Read",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/eos-hook\" pre-read",
+            "timeout": 5
+          }
+        ]
       }
     ],
     "PostToolUse": [
       {
-        "matcher": "Bash|Edit|Write|MultiEdit|NotebookEdit",
+        "matcher": "Bash|Edit|Write|MultiEdit|NotebookEdit|Read",
         "hooks": [
           {
             "type": "command",
@@ -126,6 +136,29 @@
             "type": "command",
             "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/eos-hook\" session-end",
             "timeout": 2
+          }
+        ]
+      }
+    ],
+    "PreCompact": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/eos-hook\" pre-compact",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "PostCompact": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/eos-hook\" post-compact",
+            "timeout": 5,
+            "async": true
           }
         ]
       }

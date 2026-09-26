@@ -39,6 +39,16 @@ canonical `core/` runtime to `~/.local/share/eos/<version>/` and installs an
 executable launcher under `~/.local/bin/eos`. Override the locations with
 `EOS_INSTALL_PREFIX`, `EOS_DATA_DIR`, `EOS_BIN_DIR`, or `EOS_PYTHON`.
 
+## What changed in 1.5
+
+- **The context diet (ADR-027).** Measured cost is the context re-read by
+  every call, so the plugin now: denies a long unranged `Read` once with the
+  file's outline (`[hooks] outline_lines`, off by default); tells compaction
+  what to keep (open run, work held, files changed) and puts that list back
+  after it; names a file the shell rewrote after the session read it; suggests
+  `/clear` when a run closes in a large context (`clear_hint_tokens`); and a
+  reading task's ROUTE block says to explore in a subagent.
+
 ## What changed in 1.4
 
 - **Routing in a project's own language:** stems (`hata*`) in

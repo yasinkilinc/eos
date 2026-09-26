@@ -188,3 +188,19 @@ def test_the_rendered_agent_surfaces_mention_eos_route(tmp_path):
     agents = (root / "AGENTS.md").read_text(encoding="utf-8")
     assert "eos route" in skill and "ROUTE" in skill
     assert "eos route" in agents and "ROUTE" in agents
+
+
+def test_a_reading_task_is_told_where_its_reads_cost_nothing_later():
+    import dataclasses
+
+    from core.routing import adapters
+    from core.routing.types import Decision
+
+    base = Decision(task_type="investigation", level="MEDIUM", score=0.4, model="sonnet", effort="medium",
+                    reason="r", confidence=0.7, override_source="auto")
+    claude = adapters.brief_lines(base, "claude")
+    assert len(claude) == 3 and claude[2].startswith(adapters.CONTEXT_MARK)
+    assert 'Agent({subagent_type: "Explore", model: "sonnet"})' in claude[2]
+    assert "a subagent" in adapters.brief_lines(base, "devin")[2]
+    assert len(adapters.brief_lines(dataclasses.replace(base, level="LOW"), "claude")) == 2
+    assert len(adapters.brief_lines(dataclasses.replace(base, task_type="debugging"), "claude")) == 2

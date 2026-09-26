@@ -270,3 +270,108 @@ def test_the_cli_dispatches_hook_before_the_heavy_imports(project, tmp_path):
                           env={"EOS_STATE_DIR": str(tmp_path / "state2"), "PATH": "/usr/bin:/bin"})
     assert done.returncode == 0 and done.stderr == ""
     assert "tracker.sh" in done.stdout
+
+
+# --- the context diet (ADR-027) ------------------------------------------------------
+
+
+def _hooks_config(project, text):
+    config = project / ".eos" / "config.toml"
+    config.write_text(config.read_text(encoding="utf-8") + "\n[hooks]\n" + text, encoding="utf-8")
+
+
+def test_a_long_unranged_read_gets_the_outline_once_then_passes(project, monkeypatch, capsys):
+    _hooks_config(project, "outline_lines = 10\n")
+    target = project / "notes.md"
+    target.write_text("# Title\n" + "text\n" * 20 + "## Part two\n```\n# not a heading\n```\n" + "more\n" * 5,
+                      encoding="utf-8")
+    read = _payload(project, tool_name="Read", tool_input={"file_path": str(target)})
+    first = json.loads(_hook(monkeypatch, capsys, "pre-read", read).out)["hookSpecificOutput"]
+    assert first["permissionDecision"] == "deny"
+    reason = first["permissionDecisionReason"]
+    assert "1: # Title" in reason and "22: ## Part two" in reason and "not a heading" not in reason
+    assert "limit: 30" in reason
+    assert _hook(monkeypatch, capsys, "pre-read", read).out == ""      # asking again reads it
+    ranged = _payload(project, tool_name="Read", tool_input={"file_path": str(target), "limit": 5})
+    assert _hook(monkeypatch, capsys, "pre-read", ranged).out == ""
+    inside = _payload(project, tool_name="Read", agent_id="a1", tool_input={"file_path": str(project / "x")})
+    assert _hook(monkeypatch, capsys, "pre-read", inside).out == ""
+
+
+def test_the_outline_gate_is_off_unless_configured(project, monkeypatch, capsys):
+    target = project / "big.py"
+    target.write_text("def f():\n    pass\n" * 500, encoding="utf-8")
+    read = _payload(project, tool_name="Read", tool_input={"file_path": str(target)})
+    assert _hook(monkeypatch, capsys, "pre-read", read).out == ""
+
+
+def test_a_shell_rewrite_of_a_file_the_session_read_is_named_once(project, monkeypatch, capsys):
+    import os
+
+    target = project / "app.py"
+    target.write_text("a = 1\n", encoding="utf-8")
+    _hook(monkeypatch, capsys, "post-tool", _payload(project, tool_name="Read",
+                                                     tool_input={"file_path": str(target)}))
+    bash = _payload(project, tool_name="Bash", tool_input={"command": "python3 fix.py"}, tool_use_id="b1")
+    assert _hook(monkeypatch, capsys, "post-tool", bash).out == ""
+    os.utime(target, (target.stat().st_atime, target.stat().st_mtime + 5))
+    hint = json.loads(_hook(monkeypatch, capsys, "post-tool", bash).out)["hookSpecificOutput"]["additionalContext"]
+    assert "app.py" in hint and "Edit tool" in hint
+    os.utime(target, (target.stat().st_atime, target.stat().st_mtime + 5))
+    assert _hook(monkeypatch, capsys, "post-tool", bash).out == ""      # once per session
+
+
+def test_an_edit_through_the_edit_tool_is_not_a_shell_rewrite(project, monkeypatch, capsys):
+    import os
+
+    target = project / "app.py"
+    target.write_text("a = 1\n", encoding="utf-8")
+    _hook(monkeypatch, capsys, "post-tool", _payload(project, tool_name="Read",
+                                                     tool_input={"file_path": str(target)}))
+    os.utime(target, (target.stat().st_atime, target.stat().st_mtime + 5))
+    _hook(monkeypatch, capsys, "post-tool", _payload(project, tool_name="Edit",
+                                                     tool_input={"file_path": str(target)}))
+    bash = _payload(project, tool_name="Bash", tool_input={"command": "ls"}, tool_use_id="b2")
+    assert _hook(monkeypatch, capsys, "post-tool", bash).out == ""
+
+
+def _transcript(tmp_path, tokens):
+    path = tmp_path / "t.jsonl"
+    path.write_text(json.dumps({"type": "user", "message": {"content": "x"}}) + "\n"
+                    + json.dumps({"type": "assistant", "message": {"usage": {
+                        "input_tokens": 1, "cache_read_input_tokens": tokens,
+                        "cache_creation_input_tokens": 0}}}) + "\n", encoding="utf-8")
+    return str(path)
+
+
+def test_closing_a_run_in_a_large_context_suggests_clear(project, tmp_path, monkeypatch, capsys):
+    finish = {"command": "eos run finish . x-a-run-0000 --outcome ok"}
+    big = _payload(project, tool_name="Bash", tool_input=finish, transcript_path=_transcript(tmp_path, 400_000))
+    hint = json.loads(_hook(monkeypatch, capsys, "post-tool", big).out)["hookSpecificOutput"]["additionalContext"]
+    assert "~400k tokens" in hint and "/clear" in hint
+    small = _payload(project, tool_name="Bash", tool_input=finish, transcript_path=_transcript(tmp_path, 50_000))
+    assert _hook(monkeypatch, capsys, "post-tool", small).out == ""
+    _hooks_config(project, "clear_hint_tokens = 0\n")
+    assert _hook(monkeypatch, capsys, "post-tool", big).out == ""
+
+
+def test_compaction_is_told_what_to_keep_and_the_summary_is_checked(project, monkeypatch, capsys):
+    run = _open_run(project)
+    target = project / "service.py"
+    target.write_text("x = 1\n", encoding="utf-8")
+    _hook(monkeypatch, capsys, "post-tool", _payload(project, tool_name="Edit",
+                                                     tool_input={"file_path": str(target)}))
+    instructions = _hook(monkeypatch, capsys, "pre-compact", _payload(project, trigger="auto")).out
+    assert run.id in instructions and "service.py" in instructions
+    assert "Drop raw tool output" in instructions
+    _hook(monkeypatch, capsys, "post-compact", _payload(project, compact_summary=f"worked on {run.id}"))
+    [checked] = [line for line in hooks._state("s1") if "missing" in line]
+    assert checked["missing"] == ["service.py"] and checked["expected"] == 2
+
+
+def test_after_compaction_the_session_gets_back_what_it_holds(project, monkeypatch, capsys):
+    _hooks_config(project, "brief = false\n")
+    run = _open_run(project)
+    out = _hook(monkeypatch, capsys, "session-start", _payload(project, source="compact")).out
+    assert "kept across the compaction" in out and run.id in out
+    assert _hook(monkeypatch, capsys, "session-start", _payload(project, source="startup")).out == ""

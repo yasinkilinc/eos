@@ -48,7 +48,7 @@ PROCEDURE_NAMED_RARITY = 7.0
 RULE_MARK = "  RULE  "
 # The routing decision's two lines (ADR-025). Exempt from the budget like a
 # procedure's rules: a model recommendation cut off is one that did not arrive.
-ROUTE_MARKS = ("ROUTE  ", "  Apply: ")
+ROUTE_MARKS = ("ROUTE  ", "  Apply: ", "  Context: ")
 # A step is clipped at this many characters. 160 clipped four of eight lines of
 # a real procedure and sent the fresh-session eval to `procedure show` for the
 # rest; at 240 the same brief is ~950 tokens against the 1,500 budget, whole.
@@ -442,7 +442,7 @@ def _with_task(root: Path, task: str, *, session, agent, budget: int, task_only:
             # A procedure's header and its rules are past the budget: a rule
             # cut for length did not arrive. Bounded at write time
             # (notes.RULES_MAX_CHARS), so the exemption cannot grow. The ROUTE
-            # lines are two, and exempt for the same reason; once the budget
+            # lines are two or three, and exempt for the same reason; once the budget
             # is spent, only exempt lines are still let through.
             exempt = line.startswith(("PROCEDURE  ", RULE_MARK) + ROUTE_MARKS)
             if trimmed and not exempt:

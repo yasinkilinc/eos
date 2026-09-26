@@ -78,4 +78,23 @@ def brief_lines(decision: Decision, agent: str | None) -> list[str]:
     else:
         effort = f" at effort {decision.effort}" if decision.effort else ""
         apply = f'{APPLY_MARK}model {decision.model}{effort}; eos route . "<task>" for the factors'
-    return [headline(decision), apply]
+    lines = [headline(decision), apply]
+    if decision.task_type in EXPLORE_TYPES and decision.level != "LOW":
+        lines.append(explore_line(decision, agent))
+    return lines
+
+
+# Tasks that mostly read: their reads can happen where the context is thrown away.
+EXPLORE_TYPES = ("investigation", "code_review", "repository_wide_change")
+CONTEXT_MARK = "  Context: "
+
+
+def explore_line(decision: Decision, agent: str | None) -> str:
+    """What a wide read costs where it happens: in this session every file read
+    is re-read by every later call; in a subagent it ends with the subagent."""
+    if (agent or "").lower() == CLAUDE:
+        how = f'Agent({{subagent_type: "Explore", model: "{decision.model}"}})'
+    else:
+        how = "a subagent"
+    return (f"{CONTEXT_MARK}explore with {how}: its reads end with it, only its answer "
+            "enters this session")
