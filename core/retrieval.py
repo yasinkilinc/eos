@@ -64,6 +64,10 @@ class GoldenError(ValueError):
 def parse_golden(path: str | Path) -> list[GoldenEntry]:
     """`query<TAB>expected-note-filename` per line; `#` comments and blanks out.
 
+    `a.md|b.md` accepts either note: a question two notes answer equally (a
+    procedure later written from a section) is not a miss when search ranks
+    the other one first. Which notes are equal is a person's labelling call.
+
     A tab, not whitespace: questions have spaces in them and note filenames are
     long, so any other separator makes the file unreadable to the person
     maintaining it.
@@ -95,8 +99,12 @@ def evaluate(project_root: str | Path, entries: list[GoldenEntry],
     nothing for is a zero, not an absence (2.x roadmap F6).
     """
     present = {note.path.name for note in notes.load_notes(project_root)}
-    broken = [entry for entry in entries if entry.expected not in present]
-    scored = [entry for entry in entries if entry.expected in present]
+
+    def accepted(entry: GoldenEntry) -> list[str]:
+        return [name for name in entry.expected.split("|") if name.strip()]
+
+    broken = [entry for entry in entries if not any(name in present for name in accepted(entry))]
+    scored = [entry for entry in entries if any(name in present for name in accepted(entry))]
 
     results: list[QueryResult] = []
     for entry in scored:
@@ -104,7 +112,8 @@ def evaluate(project_root: str | Path, entries: list[GoldenEntry],
         ranked = notes.search_notes(project_root, entry.query, limit=depth)
         took = (time.perf_counter() - started) * 1000
         names = [note.path.name for note in ranked]
-        rank = names.index(entry.expected) + 1 if entry.expected in names else None
+        wanted = set(accepted(entry))
+        rank = next((index + 1 for index, name in enumerate(names) if name in wanted), None)
         results.append(QueryResult(entry.query, entry.expected, rank, names[:3], len(names), took))
 
     total = len(results)

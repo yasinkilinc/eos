@@ -32,3 +32,17 @@ def test_misses_are_listed_worst_first(monkeypatch):
     text = retrieval.render(retrieval.evaluate(".", entries, depth=10))
     assert text.index("gone") < text.index("fifth") < text.index("second")
     assert "MRR@10" in text and "nDCG@10" in text and "zero-hit 1" in text
+
+
+def test_a_golden_line_may_accept_several_notes(monkeypatch, tmp_path):
+    """Two notes can answer one question equally (a procedure written from a
+    section later): `a.md|b.md` accepts either, ranked at the first found."""
+    golden = tmp_path / "g.tsv"
+    golden.write_text("the question\ta.md|b.md\n", encoding="utf-8")
+    [entry] = retrieval.parse_golden(golden)
+    _with_search(monkeypatch, {"the question": ["x.md", "b.md", "a.md"]})
+    report = retrieval.evaluate(".", [entry])
+    assert report["results"][0]["rank"] == 2 and report["broken"] == []
+    _with_search(monkeypatch, {"the question": ["x.md"]})
+    monkeypatch.setattr(notes, "load_notes", lambda root: [SimpleNamespace(path=Path("x.md"))])
+    assert retrieval.evaluate(".", [entry])["broken"]      # neither note exists: broken, not a miss
