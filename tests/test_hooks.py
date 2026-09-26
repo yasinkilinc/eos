@@ -387,3 +387,38 @@ def test_the_session_summary_keeps_the_context_diet_evidence(project, monkeypatc
     _hook(monkeypatch, capsys, "session-end", _payload(project, reason="other"))
     entry = json.loads((project / ".eos" / "data" / "sessions.jsonl").read_text().splitlines()[-1])
     assert entry["outlined"] == 1 and entry["compactions"] == [{"expected": 0, "missing": []}]
+
+
+# --- verified completion (ADR-028) ---------------------------------------------------
+
+VERIFY = r'''
+[[scope]]
+name = "code"
+paths = ["src/**"]
+passes = ['make\s+test\b']
+run = "make test"
+'''
+
+
+def _verify_project(project):
+    (project / ".eos" / "knowledge" / "verify.toml").write_text(VERIFY, encoding="utf-8")
+    source = project / "src" / "a.py"
+    source.parent.mkdir(exist_ok=True)
+    source.write_text("x = 1\n", encoding="utf-8")
+    return source
+
+
+def test_a_change_and_the_check_that_passes_after_it_are_recorded(project, monkeypatch, capsys):
+    source = _verify_project(project)
+    run = _open_run(project)
+    _hook(monkeypatch, capsys, "post-tool", _payload(project, tool_name="Edit", agent_id="sub1",
+                                                     tool_input={"file_path": str(source)}))
+    assert hooks._verify_events("s1")[-1] == ("changed", str(source))
+    _hook(monkeypatch, capsys, "post-tool-failure", _payload(project, tool_name="Bash", error="Exit code 1",
+                                                             tool_input={"command": "make test"}, tool_use_id="f1"))
+    assert ("passed", "code") not in hooks._verify_events("s1")
+    _hook(monkeypatch, capsys, "post-tool", _payload(project, tool_name="Bash", tool_use_id="p1",
+                                                     tool_input={"command": "make test"}))
+    assert hooks._verify_events("s1")[-1] == ("passed", "code")
+    assert [e.ref for e in executions.load(project)[-1].events if e.kind == "verified"] == ["code"]
+    assert run.id == executions.load(project)[-1].id

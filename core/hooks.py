@@ -58,7 +58,8 @@ from pathlib import Path
 # Where per-session hook state lives when the harness gives a plugin its own
 # directory (the plugin exports it); otherwise beside the run pointers.
 STATE_ENV = "EOS_HOOK_STATE_DIR"
-SETTINGS = ("brief", "capture", "hints", "subagents", "loaded", "sessions", "close", "usage", "compact")
+SETTINGS = ("brief", "capture", "hints", "subagents", "loaded", "sessions", "close", "usage", "compact",
+            "verify")
 # Numeric settings, 0 = off. outline_lines: a main-session Read of a longer file
 # with no range is answered once with its outline instead; clear_hint_tokens: a
 # finished run in a session holding more context than this gets one /clear hint.
@@ -379,6 +380,37 @@ def _watch(session: str, path: str, changed: bool = False) -> None:
         _note_state(session, read=path, mtime=mtime, **({"changed": path} if changed else {}))
 
 
+def _verify_events(session: str) -> list[tuple[str, str]]:
+    """The session's changes and passing checks, in order, from its state (ADR-028)."""
+    events = []
+    for line in _state(session):
+        if isinstance(line.get("changed"), str):
+            events.append(("changed", line["changed"]))
+        if isinstance(line.get("passed"), str):
+            events.append(("passed", line["passed"]))
+    return events
+
+
+def _record_passes(root: Path, hook: Hook, run, command: str) -> None:
+    from core import verify
+
+    try:
+        scopes = verify.load(root)
+        if not scopes:
+            return
+        waiting = [key for key, _ in verify.dirty(scopes, root, _verify_events(hook.session))]
+        passed = verify.cleared(scopes, command, waiting)
+    except Exception:  # noqa: BLE001 - a check never fails the session
+        return
+    for key in passed:
+        _note_state(hook.session, passed=key)
+        if run is not None:
+            # Its own id: the call's id already names the `ran` event, and the
+            # ledger's dedup would drop a second event carrying it.
+            _record(root, hook, run, kind="verified", tool="verify", ref=key, status="ok",
+                    tool_use_id=f"verify:{hook.tool_use_id}:{key}" if hook.tool_use_id else None)
+
+
 def _rewritten(session: str) -> list[str]:
     """Files the session read whose mtime moved without the Edit tool -- the
     shell rewrote them, and the harness will send them back. The new mtime
@@ -600,9 +632,12 @@ def _post_tool(root: Path, hook: Hook, cfg: dict, agent: str | None, failed: boo
         return ""
     if hook.tool in EDIT_TOOLS:
         path = str(hook.tool_input.get("file_path") or hook.tool_input.get("notebook_path") or "")
-        if main_session and not failed and path:
-            # What the session holds now is the edited text: the new mtime is the baseline.
-            _watch(hook.session, path, changed=True)
+        if hook.session and not failed and path:
+            if main_session:
+                # What the session holds now is the edited text: the new mtime is the baseline.
+                _watch(hook.session, path, changed=True)
+            else:
+                _note_state(hook.session, changed=path)
         if run is not None:
             ref = _relative(root, str(hook.tool_input.get("file_path") or hook.tool_input.get("notebook_path") or ""))
             if ref:
@@ -636,6 +671,8 @@ def _post_tool(root: Path, hook: Hook, cfg: dict, agent: str | None, failed: boo
                              + " (`eos capabilities .` lists every wrapper here.)")
     if main_session and cfg["hints"]:
         rewritten = _rewritten(hook.session)
+        for path in rewritten:
+            _note_state(hook.session, changed=path)
         if rewritten and not any(line.get("hint") == "shell-rewrite" for line in _state(hook.session)):
             _note_state(hook.session, hint="shell-rewrite", actor=hook.actor)
             hints.append(f"EOS: this command rewrote {', '.join(rewritten[:3])}, which this session read; the "
@@ -649,6 +686,8 @@ def _post_tool(root: Path, hook: Hook, cfg: dict, agent: str | None, failed: boo
                          "that every further call re-reads. What the run found is in EOS (ledger, notes, "
                          "changed files), so /clear before the next task is safe: the next prompt's brief "
                          "brings back what applies. Tell the user.")
+    if hook.session and not failed and cfg["verify"]:
+        _record_passes(root, hook, run, command)
     output = _context(event_name, "\n".join(hints)) if hints else ""
     if run is None or capabilities.wrapper_in(command, declared) is not None:
         # A registered wrapper records its own call (eos-event); counting it
