@@ -28,6 +28,12 @@ from pathlib import Path
 from core import notes
 
 FILENAME = "executions.jsonl"
+# On every line since 2.x (roadmap F5): a reader can tell which writer's shape it holds.
+LEDGER_VERSION = 1
+# Past this size the ledger rotates: executions.jsonl -> executions.1.jsonl ...,
+# at most KEEP_ROTATED old files. The fold reads all of them, oldest first.
+MAX_LEDGER_BYTES = 8 * 1024 * 1024
+KEEP_ROTATED = 4
 
 KINDS = ("ran", "read", "changed", "called", "verified", "noted", "decided")
 OUTCOMES = ("ok", "failed", "abandoned")
@@ -188,10 +194,29 @@ def _clear_pointer(session: str | None, execution: str) -> None:
 # --- writing -----------------------------------------------------------------------
 
 
+def rotated(ledger: Path, index: int) -> Path:
+    return ledger.with_name(f"{ledger.stem}.{index}{ledger.suffix}")
+
+
+def _rotate(ledger: Path) -> None:
+    oldest = rotated(ledger, KEEP_ROTATED)
+    if oldest.exists():
+        oldest.unlink()
+    for index in range(KEEP_ROTATED - 1, 0, -1):
+        if rotated(ledger, index).exists():
+            os.replace(rotated(ledger, index), rotated(ledger, index + 1))
+    os.replace(ledger, rotated(ledger, 1))
+
+
 def _append(ledger: Path, line: dict) -> None:
+    from core.lib import lock
+
     ledger.parent.mkdir(parents=True, exist_ok=True)
-    with open(ledger, "a", encoding="utf-8") as handle:
-        handle.write(json.dumps(line, ensure_ascii=False) + "\n")
+    with lock.locked(ledger):
+        if ledger.is_file() and ledger.stat().st_size > MAX_LEDGER_BYTES:
+            _rotate(ledger)
+        with open(ledger, "a", encoding="utf-8") as handle:
+            handle.write(json.dumps({"v": LEDGER_VERSION, **line}, ensure_ascii=False) + "\n")
 
 
 def _checked(value: str | None, what: str) -> str | None:
@@ -322,7 +347,10 @@ def finish(project_root: str | Path, execution: str | None = None, *, outcome: s
     _checked(lesson, "lesson")
     _checked(next_time, "next time")
     existing = {r.id: r for r in load_path(ledger)}.get(execution)
-    if existing is not None and existing.outcome is not None:
+    if existing is None:
+        # A finish line for an id nobody started made a run out of nothing (F5).
+        raise ValueError(f"{execution} was never started in {ledger}")
+    if existing.outcome is not None:
         if existing.outcome == outcome:
             return existing
         raise ValueError(f"{execution} already finished as {existing.outcome!r}; "
@@ -371,12 +399,17 @@ _BASE_EVENT_FIELDS = ("execution", "ord", "at", "kind", "tool", "target", "ref",
 
 def load_path(ledger: Path) -> list[Record]:
     """Every execution in one ledger, in the order it was started."""
-    if not ledger.is_file():
+    parts = [rotated(ledger, index) for index in range(KEEP_ROTATED, 0, -1)] + [ledger]
+    texts = []
+    for part in parts:
+        if part.is_file():
+            try:
+                texts.append(part.read_text(encoding="utf-8", errors="replace"))
+            except OSError:
+                continue
+    if not texts:
         return []
-    try:
-        text = ledger.read_text(encoding="utf-8", errors="replace")
-    except OSError:
-        return []
+    text = "".join(t if t.endswith("\n") else t + "\n" for t in texts)
     records: dict[str, Record] = {}
 
     def get(execution: str) -> Record:
