@@ -47,6 +47,14 @@ else:
         sys.path.insert(0, str(_HERE.parent))
     _CORE_ROOT = _HERE.parent
 
+# A harness hook runs on every tool call of every session, so `eos hook` is
+# dispatched before the scanner, the generators and the index are imported --
+# none of which it uses. Measured: the full import is most of `eos`'s startup.
+if __name__ == "__main__" and sys.argv[1:2] == ["hook"]:
+    from core import hooks as _hooks
+
+    raise SystemExit(_hooks.main(sys.argv[2:]))
+
 from core.lib.cache_store import CacheStore
 from core.lib.config_io import ConfigIO
 from core.knowledge.builder import KnowledgeBuilder
@@ -146,8 +154,10 @@ def cmd_init(args: argparse.Namespace) -> int:
 
         surface = getattr(args, "surface", "cli")
         _store_surface(root, surface)
+        claude = getattr(args, "claude", "files")
+        _store_ai_key(root, "claude", claude)
         written = writer.write_all(root, VERSION, surface=surface,
-                                   route_hook=_route_hook_wanted(root))
+                                   route_hook=_route_hook_wanted(root), claude=claude)
         print(f"  AI integration ({surface} surface):")
         for path in written:
             print(f"    {path.relative_to(root)}")
@@ -1685,6 +1695,7 @@ def cmd_route(args: argparse.Namespace) -> int:
             print(f"No decisions recorded in runs yet ({recorded} recorded outside runs, "
                   f"model usage for {sessions} session(s)). A decision made between "
                   "`eos run start` and `eos run finish` is joined to that run's outcome.")
+            _print_advised_vs_used(args.path)
             return 0
         total = sum(sum(counts.values()) for _, counts in rows)
         print(f"Routing decisions joined to runs: {total} of {recorded} recorded; "
@@ -1693,7 +1704,20 @@ def cmd_route(args: argparse.Namespace) -> int:
         for (kind, level, model, effort), counts in rows:
             tally = "  ".join(f"{word} {counts[word]}" for word in ("ok", "failed", "abandoned", "open")
                               if counts[word])
-            print(f"  {kind:<24} {level:<8} {model}/{effort:<8} {tally}")
+            target = f"{model}/{effort}" if effort else model
+            print(f"  {kind:<24} {level:<8} {target:<14} {tally}")
+        _print_advised_vs_used(args.path)
+        return 0
+
+    if args.eval:
+        from core.routing import evaluate
+
+        try:
+            result = evaluate.run(args.path, evaluate.load(args.eval))
+        except (OSError, ValueError, routing.OverrideError) as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            return 2
+        print(json.dumps(result, indent=2, ensure_ascii=False) if args.json else evaluate.render(result))
         return 0
 
     task = " ".join(args.task or ()).strip()
@@ -1723,7 +1747,7 @@ def cmd_route(args: argparse.Namespace) -> int:
         f"Type:        {decision.task_type}",
         f"Complexity:  {decision.level}  (score {decision.score:.2f})",
         f"Model:       {decision.model}",
-        f"Effort:      {decision.effort}",
+        f"Effort:      {decision.effort or '(none: the model takes no effort setting)'}",
         f"Confidence:  {decision.confidence:.2f}",
         f"Source:      {decision.override_source}" + ("  (reused)" if decision.reused else ""),
         "",
@@ -1735,6 +1759,87 @@ def cmd_route(args: argparse.Namespace) -> int:
     lines.append(f"Alternatives: {', '.join(decision.alternatives) or 'none'}")
     print("\n".join(lines))
     return 0
+
+
+def cmd_capabilities(args: argparse.Namespace) -> int:
+    """What to run instead of a raw command (ADR-026).
+
+    The list a session needs before it reaches for `curl` or a database client:
+    each wrapper, what it answers, and -- with --command -- whether a command
+    line is the raw form one of them covers.
+    """
+    from core import capabilities
+
+    try:
+        declared = capabilities.load(args.path)
+    except ValueError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    if args.raw is not None:
+        found = capabilities.match(args.raw, declared)
+        wrapper = capabilities.wrapper_in(args.raw, declared)
+        if args.format == "json":
+            print(json.dumps({"wrapper": wrapper.name if wrapper else None,
+                              "covered_by": found.capability.name if found else None,
+                              "tier": found.tier if found else None,
+                              "use": found.capability.run if found else None}, indent=2))
+        elif wrapper is not None:
+            print(f"already a wrapper: {wrapper.line()}")
+        elif found is not None:
+            print(f"{found.tier}: {capabilities.remedy(found)}")
+        else:
+            print("no capability covers this command")
+        return 0
+    shown = capabilities.for_task(args.task, declared) if args.task else declared
+    if args.format == "json":
+        print(json.dumps([dataclasses.asdict(c) for c in shown], indent=2, ensure_ascii=False))
+        return 0
+    if not declared:
+        print(f"No capabilities declared ({capabilities.path_for(args.path)}). A project that routes "
+              "its external calls through wrappers lists them there, one [[capability]] each.")
+        return 0
+    if not shown:
+        print(f"No capability matches that task; {len(declared)} declared: "
+              + ", ".join(c.name for c in declared))
+        return 0
+    for capability in shown:
+        print(capability.line())
+    return 0
+
+
+def cmd_hook(args: argparse.Namespace) -> int:
+    """The argparse face of `eos hook`; the harness path is dispatched before imports."""
+    from core import hooks
+
+    forwarded = [args.event]
+    if args.agent:
+        forwarded += ["--agent", args.agent]
+    if args.project:
+        forwarded += ["--project", args.project]
+    return hooks.main(forwarded)
+
+
+def _print_advised_vs_used(path) -> None:
+    """The recommendation against what sessions ran at (claude plan 3.5)."""
+    from core.routing import trace
+
+    rows = trace.advised_vs_used(path)
+    if not rows:
+        print("\nAdvised vs used: no session has both a recorded decision and a usage line yet.")
+        return
+    main = sum(r["main_messages"] for r in rows)
+    known = sum(r["main_efforts_known"] for r in rows)
+    subs = sum(r["subagent_messages"] for r in rows)
+    print(f"\nAdvised vs used, {len(rows)} session(s) (advice = the session's first decision):")
+    print(f"  session messages on the advised model   {sum(r['main_on_model'] for r in rows)}/{main}")
+    if known:
+        print(f"  session messages at the advised effort  {sum(r['main_at_effort'] for r in rows)}/{known}")
+    if subs:
+        print(f"  subagent messages on the advised model  {sum(r['subagent_on_model'] for r in rows)}/{subs}")
+    for r in rows[-8:]:
+        print(f"    {r['session'][:8]}  advised {r['advised_model']}/{r['advised_effort']} ({r['level']})  "
+              f"model {r['main_on_model']}/{r['main_messages']}  effort {r['main_at_effort']}/{r['main_efforts_known']}  "
+              f"subagents {r['subagent_on_model']}/{r['subagent_messages']}")
 
 
 def cmd_work_stats(args: argparse.Namespace) -> int:
@@ -1844,7 +1949,8 @@ def cmd_run_event(args: argparse.Namespace) -> int:
     try:
         entry = executions.event(args.path, args.execution, kind=args.kind, tool=args.tool,
                                  target=args.target, ref=args.ref, exit_code=args.exit,
-                                 ms=args.ms, body=args.body, session=args.session)
+                                 ms=args.ms, body=args.body, session=args.session,
+                                 source="cli")
     except (ValueError, OSError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1
@@ -1921,11 +2027,17 @@ def cmd_run_show(args: argparse.Namespace) -> int:
     checks = [v for v in verification.load(args.path) if v.execution == record.id]
     for check in checks:
         print(f"  verified  {check.code} {check.outcome} (exit {check.exit_code}) — {check.command}")
-    print(f"  events    {len(record.events)}")
+    sources = {}
+    for e in record.events:
+        sources[e.source or "wrapper/cli"] = sources.get(e.source or "wrapper/cli", 0) + 1
+    by_source = ", ".join(f"{name} {count}" for name, count in sorted(sources.items()))
+    print(f"  events    {len(record.events)}" + (f"  ({by_source})" if record.events else ""))
     for e in record.events:
         tail = " ".join(part for part in (
             f"exit={e.exit_code}" if e.exit_code is not None else "",
-            f"{e.ms}ms" if e.ms is not None else "", e.ref or "") if part)
+            f"{e.ms}ms" if e.ms is not None else "",
+            f"[{e.status}]" if e.status and e.status != "ok" else "",
+            f"by {e.agent}" if e.agent else "", e.ref or "") if part)
         print(f"    {e.ord:>3}  {e.at}  {e.kind:<8} {e.tool or '-':<12} {e.target or '-':<10} {tail}")
     return 0
 
@@ -2278,11 +2390,35 @@ def cmd_ai(args: argparse.Namespace) -> int:
     surface = args.surface or _read_surface(root)
     if args.surface:
         _store_surface(root, surface)
+    claude = args.claude or _read_ai_key(root, "claude", writer.CLAUDE_MODES, "files")
+    if args.claude:
+        _store_ai_key(root, "claude", claude)
     for path in writer.write_all(root, VERSION, agents_md=not args.no_agents_md,
-                                 surface=surface, route_hook=_route_hook_wanted(root)):
+                                 surface=surface, route_hook=_route_hook_wanted(root), claude=claude):
         print(f"  {path.relative_to(root)}")
+    if claude == "plugin":
+        for path in writer.remove_claude_files(root):
+            print(f"  removed {path.relative_to(root)} (the EOS plugin provides it)")
     _warn_stale_mcp(root, surface)
     return 0
+
+
+def _store_ai_key(root: Path, key: str, value: str) -> None:
+    config_path = root / ".eos" / "config.toml"
+    config = ConfigIO.read_toml(config_path) if config_path.is_file() else {}
+    if config.get("ai", {}).get(key) == value:
+        return
+    config.setdefault("ai", {})[key] = value
+    ConfigIO.write_toml(config_path, config)
+
+
+def _read_ai_key(root: Path, key: str, allowed: tuple, default: str) -> str:
+    config_path = root / ".eos" / "config.toml"
+    try:
+        value = ConfigIO.read_toml(config_path).get("ai", {}).get(key) if config_path.is_file() else None
+    except (OSError, ValueError):
+        return default
+    return value if value in allowed else default
 
 
 def _route_hook_wanted(root: Path) -> bool:
@@ -2336,6 +2472,13 @@ def main(argv: list[str] | None = None) -> int:
         help="Which surface this project exposes. 'cli' (default) writes no MCP "
         "registration: an MCP tool roster is charged to every request whether "
         "or not a tool is called. 'mcp' or 'both' registers the server too.",
+    )
+    init_p.add_argument(
+        "--claude",
+        choices=("files", "plugin"),
+        default="files",
+        help="How Claude Code gets EOS's hooks, skill and agent: copied into .claude/ "
+        "(files, default) or from the EOS plugin (plugin), which writes nothing there.",
     )
 
     scan_p = sub.add_parser("scan", help="Scan project and regenerate knowledge artifacts")
@@ -2603,6 +2746,9 @@ def main(argv: list[str] | None = None) -> int:
     route_p.add_argument("--usage-from", default=None, metavar="TRANSCRIPT",
                          help="Fold a harness transcript into this session's model and token totals "
                               "(for a Stop hook); ignores the task")
+    route_p.add_argument("--eval", default=None, metavar="CORPUS",
+                         help="Score the policy against a labelled TSV corpus (prompt, type, level, "
+                              "model, effort); no model is called and nothing is recorded")
 
     proc_p = sub.add_parser("procedure", help="How a recurring task is done here, and how it has gone (ADR-023)")
     proc_sub = proc_p.add_subparsers(dest="procedure_command", required=True)
@@ -2789,6 +2935,28 @@ def main(argv: list[str] | None = None) -> int:
     ai_update_p.add_argument("--surface", choices=("cli", "mcp", "both"), default=None,
                              help="Change which surface this project exposes; without it, "
                                   "the choice recorded at init is kept")
+    ai_update_p.add_argument("--claude", choices=("files", "plugin"), default=None,
+                             help="How Claude Code gets the hooks, skill and agent: copied into "
+                                  ".claude/ (files) or from the EOS plugin (plugin), which also "
+                                  "removes the copies; the choice is recorded")
+
+    caps_p = sub.add_parser(
+        "capabilities",
+        help="The wrappers this project offers instead of raw commands (capabilities.toml, ADR-026)")
+    add_path(caps_p)
+    caps_p.add_argument("--for", dest="task", default=None,
+                        help="Only the capabilities a task's words point at")
+    caps_p.add_argument("--command", dest="raw", default=None,
+                        help="Which capability, if any, covers this command line")
+    caps_p.add_argument("--format", choices=("text", "json"), default="text")
+
+    hook_p = sub.add_parser(
+        "hook", help="Handle one harness hook event; the event JSON arrives on stdin (ADR-026)")
+    hook_p.add_argument("event", help="session-start, user-prompt, post-tool, post-tool-failure, "
+                                      "subagent-start, subagent-stop, instructions-loaded, "
+                                      "stop-failure, session-end, pre-agent")
+    hook_p.add_argument("--agent", default=None, help="Which agent the harness is, e.g. claude")
+    hook_p.add_argument("--project", default=None, help="Project root (default: from the event's cwd)")
 
     args = parser.parse_args(argv)
 
@@ -2826,6 +2994,8 @@ def main(argv: list[str] | None = None) -> int:
         "brief": cmd_brief,
         "route": cmd_route,
         "ai": cmd_ai,
+        "capabilities": cmd_capabilities,
+        "hook": cmd_hook,
     }
     handler = commands[args.command]
     path = getattr(args, "path", None)

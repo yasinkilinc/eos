@@ -31,7 +31,7 @@ from core import links
 from core import notes
 from core.lib.config_io import ConfigIO
 
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 5
 
 # Search results scoring below this fraction of the best BM25 score are cut.
 # The OR query (0.35.0) made a question in a sentence find its answer; it also
@@ -170,6 +170,10 @@ CREATE TABLE execution_event (
     ms INTEGER,
     body TEXT,
     session TEXT,
+    agent TEXT,
+    source TEXT,
+    status TEXT,
+    tool_use_id TEXT,
     PRIMARY KEY (execution, ord)
 ) WITHOUT ROWID;
 CREATE INDEX execution_event_by_tool ON execution_event(tool);
@@ -1020,10 +1024,12 @@ def _load_executions(build: BuildContext) -> None:
         )
         build.conn.executemany(
             "INSERT OR IGNORE INTO execution_event(execution, ord, at, kind, tool, target, ref, "
-            "exit_code, ms, body, session) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "exit_code, ms, body, session, agent, source, status, tool_use_id) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             [(record.id, e.ord, e.at or "", e.kind, e.tool, e.target, e.ref,
               e.exit_code if isinstance(e.exit_code, int) else None,
-              e.ms if isinstance(e.ms, int) else None, e.body, e.session)
+              e.ms if isinstance(e.ms, int) else None, e.body, e.session,
+              e.agent, e.source, e.status, e.tool_use_id)
              for e in record.events],
         )
         tools = " ".join(sorted({e.tool for e in record.events if e.tool}))

@@ -21,7 +21,9 @@ REPO = Path(__file__).resolve().parents[1]
 EOS = [sys.executable, str(REPO / "core" / "eos.py")]
 FIXTURE = Path(__file__).parent / "fixtures" / "polyglot_project"
 
-ROSTER = 12
+# 12 until 1.3.0: get_graph (the whole graph, which `eos graph --output`
+# exports) and compose (a deprecated alias of get_context) left (ADR-026).
+ROSTER = 10
 
 
 def _run(args, **kw):

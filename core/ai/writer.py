@@ -27,6 +27,13 @@ BEGIN = "<!-- eos:begin -->"
 END = "<!-- eos:end -->"
 
 SURFACES = ("cli", "mcp", "both")
+# How Claude Code gets the hooks, the skill and the researcher agent: copied
+# into the project's `.claude/` (`files`, the behaviour before 1.3.0) or from
+# the EOS plugin, which registers each hook once for every project and needs
+# nothing in the repository (`plugin`, ADR-026). In a workspace whose sessions
+# start one directory above its projects, the copies were never run: measured
+# on thirteen services, 0 hook invocations in 135 session transcripts.
+CLAUDE_MODES = ("files", "plugin")
 
 # The skill is one file for both surfaces, with the MCP half fenced off. Two
 # templates would be two documents to keep true, which is the failure the
@@ -100,13 +107,27 @@ _HOOKS = (
 )
 
 
+def _write_if_changed(path: Path, text: str) -> bool:
+    """Write only when the bytes differ. A session that loaded this file is
+    handed the difference by its harness whenever it changes on disk, so a
+    rewrite with identical content is not free -- it is paid by every open
+    session that has the file (claude plan 2.5)."""
+    try:
+        if path.is_file() and path.read_text(encoding="utf-8") == text:
+            return False
+    except OSError:
+        pass
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(text, encoding="utf-8")
+    return True
+
+
 def _write_hooks(root: Path, version: str) -> list[Path]:
     """The hooks: the surfaces where reaching for EOS is not a choice."""
     written = []
     for _event, relative, template in _HOOKS:
         path = root / relative
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(_render(template, version), encoding="utf-8")
+        _write_if_changed(path, _render(template, version))
         path.chmod(0o755)
         written.append(path)
     return written
@@ -143,8 +164,7 @@ def _register_hooks(root: Path) -> Path:
         else:
             registered.append({"hooks": [{"type": "command", "command": command}]})
 
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+    _write_if_changed(path, json.dumps(data, indent=2) + "\n")
     return path
 
 
@@ -182,8 +202,7 @@ def _route_hook(root: Path, version: str, wanted: bool) -> list[Path]:
 
     written: list[Path] = []
     if wanted:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(_render("pretooluse_task.py", version), encoding="utf-8")
+        _write_if_changed(path, _render("pretooluse_task.py", version))
         path.chmod(0o755)
         written.append(path)
         kept.append({"matcher": ROUTE_HOOK_MATCHER, "hooks": [
@@ -213,8 +232,75 @@ def mcp_registered(root: Path) -> bool:
     return isinstance(data, dict) and "eos" in (data.get("mcpServers") or {})
 
 
+# What `files` mode wrote, as `plugin` mode removes it: EOS's own hook
+# scripts, and the skill and agent only while they are still EOS's (their
+# front matter names them), so a file a person replaced is left alone.
+_OWNED_HOOKS = (HOOK_FILE, PROMPT_HOOK_FILE, STOP_HOOK_FILE, ".claude/hooks/eos-route.py")
+_OWNED_DOCUMENTS = ((".claude/skills/eos/SKILL.md", "name: eos\n"),
+                    (".claude/agents/eos-researcher.md", "name: eos-researcher\n"))
+
+
+def remove_claude_files(root: Path) -> list[Path]:
+    """Take back what `files` mode put in `.claude/`, touching nothing else.
+
+    Hook entries are removed from `.claude/settings.json` only where their
+    command names one of EOS's own scripts; other hooks, other events and
+    other keys stay. A settings file left with nothing in it is deleted, as
+    are the directories EOS created once they are empty.
+    """
+    root = Path(root)
+    removed: list[Path] = []
+    for relative in _OWNED_HOOKS:
+        path = root / relative
+        if path.is_file():
+            path.unlink()
+            removed.append(path)
+    for relative, marker in _OWNED_DOCUMENTS:
+        path = root / relative
+        try:
+            if path.is_file() and marker in path.read_text(encoding="utf-8")[:400]:
+                path.unlink()
+                removed.append(path)
+        except OSError:
+            continue
+    settings = root / ".claude" / "settings.json"
+    if settings.is_file():
+        try:
+            data = json.loads(settings.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError):
+            data = None
+        if isinstance(data, dict) and isinstance(data.get("hooks"), dict):
+            before = json.dumps(data, sort_keys=True)
+            hooks = data["hooks"]
+            for event in list(hooks):
+                entries = hooks[event] if isinstance(hooks[event], list) else []
+                kept = [entry for entry in entries
+                        if not any(_mentions(entry, relative) for relative in _OWNED_HOOKS)]
+                if kept:
+                    hooks[event] = kept
+                else:
+                    hooks.pop(event)
+            if not hooks:
+                data.pop("hooks")
+            if json.dumps(data, sort_keys=True) != before:
+                if data:
+                    settings.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+                else:
+                    settings.unlink()
+                removed.append(settings)
+    for relative in (".claude/skills/eos", ".claude/hooks", ".claude/skills", ".claude/agents", ".claude"):
+        directory = root / relative
+        try:
+            if directory.is_dir() and not any(directory.iterdir()):
+                directory.rmdir()
+        except OSError:
+            continue
+    return removed
+
+
 def write_all(root: Path, version: str, agents_md: bool = True,
-              surface: str = "cli", route_hook: bool = False) -> list[Path]:
+              surface: str = "cli", route_hook: bool = False,
+              claude: str = "files") -> list[Path]:
     """Write every integration surface for `version`.
 
     `agents_md=False` leaves AGENTS.md alone. It is the one surface EOS does
@@ -231,22 +317,23 @@ def write_all(root: Path, version: str, agents_md: bool = True,
     """
     if surface not in SURFACES:
         raise ValueError(f"surface must be one of {', '.join(SURFACES)}; got {surface!r}")
+    if claude not in CLAUDE_MODES:
+        raise ValueError(f"claude must be one of {', '.join(CLAUDE_MODES)}; got {claude!r}")
     root = Path(root)
     written: list[Path] = []
 
-    skill = root / ".claude" / "skills" / "eos" / "SKILL.md"
-    skill.parent.mkdir(parents=True, exist_ok=True)
-    skill.write_text(_render("skill.md", version, surface), encoding="utf-8")
-    written.append(skill)
+    if claude == "files":
+        skill = root / ".claude" / "skills" / "eos" / "SKILL.md"
+        _write_if_changed(skill, _render("skill.md", version, surface))
+        written.append(skill)
 
-    agent = root / ".claude" / "agents" / "eos-researcher.md"
-    agent.parent.mkdir(parents=True, exist_ok=True)
-    agent.write_text(_render("agent.md", version, surface), encoding="utf-8")
-    written.append(agent)
+        agent = root / ".claude" / "agents" / "eos-researcher.md"
+        _write_if_changed(agent, _render("agent.md", version, surface))
+        written.append(agent)
 
-    written.extend(_write_hooks(root, version))
-    written.append(_register_hooks(root))
-    written.extend(_route_hook(root, version, route_hook))
+        written.extend(_write_hooks(root, version))
+        written.append(_register_hooks(root))
+        written.extend(_route_hook(root, version, route_hook))
 
     if surface in ("mcp", "both"):
         written.append(_write_mcp(root))

@@ -313,6 +313,21 @@ def _task_sections(root: Path, task: str) -> tuple[list[list[str]], bool]:
         words = notes._words(task)
         pool = [r for r in records if executions._task_overlap(r, words) > 0]
 
+    # The wrappers a task's words point at, before its first raw command
+    # (ADR-026). Declared words only, so a prompt that names no system gets
+    # nothing -- this is unrequested context and owes the same bar as notes.
+    try:
+        from core import capabilities
+
+        wanted = capabilities.for_task(task, capabilities.load(root))
+    except Exception:  # noqa: BLE001 - a malformed registry costs the block, never the brief
+        wanted = []
+    if wanted:
+        found = True
+        sections.append(["WRAPPERS FOR THIS TASK — use these rather than the raw command"]
+                        + [f"  {capability.line()}" for capability in wanted]
+                        + ["  Every wrapper here: eos capabilities ."])
+
     catalogued = _catalogue_state(root, task)
     if runs or catalogued:
         found = True

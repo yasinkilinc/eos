@@ -1,0 +1,14 @@
+{
+  "name": "eos",
+  "owner": {
+    "name": "yasinkilinc"
+  },
+  "description": "The EOS plugin for Claude Code.",
+  "plugins": [
+    {
+      "name": "eos",
+      "source": "./plugin",
+      "description": "Project memory for coding agents, delivered by hooks (ADR-026)."
+    }
+  ]
+}

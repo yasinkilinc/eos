@@ -31,6 +31,17 @@ FILENAME = "executions.jsonl"
 
 KINDS = ("ran", "read", "changed", "called", "verified", "noted", "decided")
 OUTCOMES = ("ok", "failed", "abandoned")
+# Who wrote an event: a host wrapper through `eos-event`, a harness hook through
+# `eos hook`, or a person/agent through `eos run event`. Absent on lines written
+# before 1.3.0, which were all one of the first and the last.
+SOURCES = ("wrapper", "hook", "cli")
+# What became of the action, as far as the writer could see: it ran, it failed,
+# or it ran around a wrapper that exists for it (`capabilities.toml`).
+STATUSES = ("ok", "error", "bypass")
+# A harness that registers the same hook twice (a plugin and a project entry)
+# fires it twice for one call. The id it gives the call is looked for in this
+# much of the ledger's tail before an event carrying it is appended.
+DEDUP_TAIL_BYTES = 256 * 1024
 
 LINE_START = "start"
 LINE_EVENT = "event"
@@ -57,6 +68,12 @@ class Event:
     ms: int | None = None
     body: str | None = None
     session: str | None = None
+    # Which agent acted: a subagent's type, None for the session's own agent.
+    agent: str | None = None
+    source: str | None = None
+    status: str | None = None
+    # The harness's id for the tool call this event records, when it has one.
+    tool_use_id: str | None = None
 
 
 @dataclasses.dataclass
@@ -206,12 +223,21 @@ def start(project_root: str | Path, title: str, *, procedure: str | None = None,
 def event(project_root: str | Path, execution: str | None = None, *, kind: str,
           tool: str | None = None, target: str | None = None, ref: str | None = None,
           exit_code: int | None = None, ms: int | None = None, body: str | None = None,
-          session: str | None = None) -> Event:
-    """Append one thing the session did. Without an id, to this session's current execution."""
+          session: str | None = None, agent: str | None = None, source: str | None = None,
+          status: str | None = None, tool_use_id: str | None = None) -> Event | None:
+    """Append one thing the session did. Without an id, to this session's current execution.
+
+    Returns None, writing nothing, when `tool_use_id` is already in the
+    ledger's tail: the same call reported twice is one thing the session did.
+    """
     from core.knowledge.evidence import utc_now
 
     if kind not in KINDS:
         raise ValueError(f"kind must be one of {', '.join(KINDS)}; got {kind!r}")
+    if source is not None and source not in SOURCES:
+        raise ValueError(f"source must be one of {', '.join(SOURCES)}; got {source!r}")
+    if status is not None and status not in STATUSES:
+        raise ValueError(f"status must be one of {', '.join(STATUSES)}; got {status!r}")
     ledger = path_for(project_root)
     if not execution:
         found = current(project_root, session)
@@ -221,11 +247,29 @@ def event(project_root: str | Path, execution: str | None = None, *, kind: str,
         execution, ledger = found
     _checked(ref, "ref")
     _checked(body, "body")
+    if tool_use_id and recorded(ledger, tool_use_id):
+        return None
     entry = Event(execution=execution, ord=None, at=utc_now(), kind=kind, tool=normalize_tool(tool),
                   target=normalize_target(target), ref=ref, exit_code=exit_code, ms=ms, body=body,
-                  session=session_for(project_root, session))
-    _append(ledger, {"type": LINE_EVENT, **dataclasses.asdict(entry)})
+                  session=session_for(project_root, session), agent=agent or None,
+                  source=source, status=status, tool_use_id=tool_use_id or None)
+    line = {"type": LINE_EVENT, **{k: v for k, v in dataclasses.asdict(entry).items()
+                                   if v is not None or k in _BASE_EVENT_FIELDS}}
+    _append(ledger, line)
     return entry
+
+
+def recorded(ledger: Path, tool_use_id: str) -> bool:
+    """Whether an event for this harness call id is already in the ledger's tail."""
+    try:
+        with open(ledger, "rb") as handle:
+            handle.seek(0, os.SEEK_END)
+            size = handle.tell()
+            handle.seek(max(0, size - DEDUP_TAIL_BYTES))
+            tail = handle.read()
+    except OSError:
+        return False
+    return f'"tool_use_id": {json.dumps(tool_use_id)}'.encode("utf-8") in tail
 
 
 def finish(project_root: str | Path, execution: str | None = None, *, outcome: str,
@@ -288,6 +332,10 @@ def finish(project_root: str | Path, execution: str | None = None, *, outcome: s
 
 _RECORD_FIELDS = {f.name for f in dataclasses.fields(Record)} - {"events"}
 _EVENT_FIELDS = [f.name for f in dataclasses.fields(Event)]
+# Written on every event line, null or not, as before 1.3.0; the attribution
+# fields after them are written only when they carry something.
+_BASE_EVENT_FIELDS = ("execution", "ord", "at", "kind", "tool", "target", "ref", "exit_code",
+                      "ms", "body", "session")
 
 
 def load_path(ledger: Path) -> list[Record]:

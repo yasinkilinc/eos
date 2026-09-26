@@ -1,4 +1,14 @@
-"""Minimal stdio MCP server for EOS project intelligence."""
+"""Minimal stdio MCP server for EOS project intelligence.
+
+The exception surface, not the default (ADR-026): a project reaches EOS
+through its CLI and hooks unless it chose `--surface mcp`. So the roster is
+kept to what a CLI call would be clumsier for, and it only shrinks: `get_graph`
+returned the whole generated graph (33.8 MB on one service; `eos graph
+--output` exports it) and `compose` was an alias of `get_context` "kept for
+one release" for eight. Two channels cost no roster at all, because a client
+lists them only when a person asks: resources (`eos://brief`,
+`eos://capabilities`, attached as `@eos:eos://brief`) and the `brief` prompt.
+"""
 from __future__ import annotations
 
 import json
@@ -162,29 +172,6 @@ class McpServer:
                     "matches": inspector.find_symbols(project_root, args["query"], int(args.get("max_results", 100)))
                 },
             },
-            "compose": {
-                "description": (
-                    "Deprecated alias of get_context with `task`/`target`. Kept for one "
-                    "release so existing prompts keep working; prefer get_context."
-                ),
-                "inputSchema": {
-                    "type": "object",
-                    "required": ["task"],
-                    "properties": {
-                        "task": {"type": "string"},
-                        "target": {"type": "string"},
-                        "budget": {"type": "integer", "minimum": 1, "maximum": 100000},
-                    },
-                },
-                "handler": lambda args: {
-                    "context": inspector.compose(
-                        project_root,
-                        args["task"],
-                        args.get("target"),
-                        int(args.get("budget", 12000)),
-                    )
-                },
-            },
             "impact_analysis": {
                 "description": (
                     "What a file reaches and what reaches it, out to `depth` hops. "
@@ -207,11 +194,6 @@ class McpServer:
                     },
                 },
                 "handler": lambda args: _impact_with(project_root, args),
-            },
-            "get_graph": {
-                "description": "Return the generated project graph.",
-                "inputSchema": {"type": "object", "properties": {}},
-                "handler": lambda _: inspector.load_graph(project_root),
             },
             "search_index": {
                 "description": (
@@ -316,6 +298,44 @@ class McpServer:
             },
         }
 
+    RESOURCES = (
+        {"uri": "eos://brief", "name": "brief", "mimeType": "text/plain",
+         "description": "What is in flight here, runs left open, and the notes matching this branch."},
+        {"uri": "eos://capabilities", "name": "capabilities", "mimeType": "text/plain",
+         "description": "The wrappers this project offers instead of raw commands (capabilities.toml)."},
+    )
+    PROMPTS = (
+        {"name": "brief",
+         "description": "The EOS brief for a task: its recorded procedure, last runs and lesson, "
+                        "the wrappers it calls for.",
+         "arguments": [{"name": "task", "description": "The task, as you would type it",
+                        "required": True}]},
+    )
+
+    def _resource(self, uri: str) -> str:
+        if uri == "eos://brief":
+            from core import brief
+
+            return brief.build(self.project_root) or "Nothing in flight here and no notes match this branch."
+        if uri == "eos://capabilities":
+            from core import capabilities
+
+            declared = capabilities.load(self.project_root)
+            return "\n".join(c.line() for c in declared) or "No capabilities declared."
+        raise ValueError(f"unknown resource: {uri}")
+
+    def _prompt(self, name: str, arguments: dict[str, Any]) -> dict[str, Any]:
+        if name != "brief":
+            raise ValueError(f"unknown prompt: {name}")
+        task = str(arguments.get("task") or "").strip()
+        if not task:
+            raise ValueError("the brief prompt needs a task")
+        from core import brief
+
+        text = brief.build(self.project_root, task=task) or "EOS has nothing recorded for this task."
+        return {"description": "EOS brief for the task",
+                "messages": [{"role": "user", "content": {"type": "text", "text": text}}]}
+
     def _context(self, args: dict[str, Any]) -> dict[str, Any]:
         """`get_context`, widened with the routing decision rather than a new tool:
         the roster's size is paid on every request (test_mcp_index_tools)."""
@@ -359,7 +379,9 @@ class McpServer:
                 request_id,
                 {
                     "protocolVersion": "2024-11-05",
-                    "capabilities": {"tools": {"listChanged": False}},
+                    "capabilities": {"tools": {"listChanged": False},
+                                     "resources": {"listChanged": False},
+                                     "prompts": {"listChanged": False}},
                     "serverInfo": {"name": "eos", "version": self.version},
                 },
             )
@@ -374,6 +396,24 @@ class McpServer:
                 for name, definition in self.tools.items()
             ]
             return self._result(request_id, {"tools": tools})
+        if method == "resources/list":
+            return self._result(request_id, {"resources": list(self.RESOURCES)})
+        if method == "resources/read":
+            uri = str(params.get("uri") or "")
+            try:
+                text = self._resource(uri)
+            except ValueError as exc:
+                return self._error(request_id, -32602, str(exc))
+            return self._result(request_id, {"contents": [{"uri": uri, "mimeType": "text/plain",
+                                                           "text": text}]})
+        if method == "prompts/list":
+            return self._result(request_id, {"prompts": list(self.PROMPTS)})
+        if method == "prompts/get":
+            try:
+                value = self._prompt(str(params.get("name") or ""), params.get("arguments") or {})
+            except ValueError as exc:
+                return self._error(request_id, -32602, str(exc))
+            return self._result(request_id, value)
         if method == "tools/call":
             name = params.get("name")
             definition = self.tools.get(name)

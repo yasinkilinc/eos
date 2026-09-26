@@ -2,7 +2,10 @@
 # Append one event to the execution this session has open (ADR-022).
 #
 #   eos-event --kind ran --tool <wrapper> [--target <env|system>] [--ref <path|id>]
-#             [--exit <code>] [--ms <duration>] [--body <text>]
+#             [--exit <code>] [--ms <duration>] [--body <text>] [--source wrapper|hook|cli]
+#
+# `source` is written on every line (default `wrapper`, which is what calls this),
+# so "what did the wrappers see" and "what did a hook see" stay separable.
 #
 # For wrappers: no interpreter, a few milliseconds, and it never fails the
 # command that called it. No execution open, no session id, an unwritable
@@ -18,7 +21,7 @@
 # credential refusal `eos run event` applies is not repeated here; a wrapper
 # passing free text should use that command instead.
 
-kind= tool= target= ref= exit_code= ms= body=
+kind= tool= target= ref= exit_code= ms= body= source=wrapper
 while [ $# -gt 0 ]; do
   case "$1" in
     --kind) kind=${2-}; shift 2 ;;
@@ -28,6 +31,7 @@ while [ $# -gt 0 ]; do
     --exit) exit_code=${2-}; shift 2 ;;
     --ms) ms=${2-}; shift 2 ;;
     --body) body=${2-}; shift 2 ;;
+    --source) source=${2-}; shift 2 ;;
     *) shift ;;
   esac
 done 2>/dev/null
@@ -35,6 +39,10 @@ done 2>/dev/null
 case "$kind" in
   ran|read|changed|called|verified|noted|decided) ;;
   *) exit 0 ;;
+esac
+case "$source" in
+  wrapper|hook|cli) ;;
+  *) source=wrapper ;;
 esac
 
 execution=${EOS_EXECUTION-}
@@ -64,9 +72,9 @@ num() {
 }
 
 at=$(date -u +%Y-%m-%dT%H:%M:%S+00:00 2>/dev/null) || exit 0
-line=$(printf '{"type": "event", "execution": %s, "ord": null, "at": %s, "kind": %s, "tool": %s, "target": %s, "ref": %s, "exit_code": %s, "ms": %s, "body": %s, "session": %s}' \
+line=$(printf '{"type": "event", "execution": %s, "ord": null, "at": %s, "kind": %s, "tool": %s, "target": %s, "ref": %s, "exit_code": %s, "ms": %s, "body": %s, "session": %s, "source": %s}' \
   "$(str "$execution")" "$(str "$at")" "$(str "$kind")" "$(str "$tool")" "$(str "$target")" \
-  "$(str "$ref")" "$(num "$exit_code")" "$(num "$ms")" "$(str "$body")" "$(str "$session")")
+  "$(str "$ref")" "$(num "$exit_code")" "$(num "$ms")" "$(str "$body")" "$(str "$session")" "$(str "$source")")
 
 { printf '%s\n' "$line" >> "$ledger"; } 2>/dev/null
 exit 0

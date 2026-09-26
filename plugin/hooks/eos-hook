@@ -1,0 +1,32 @@
+#!/bin/sh
+# Claude Code hook entry of the EOS plugin: `eos hook <event>`, silently.
+#
+# Every failure exits 0 with nothing on stderr (ADR-021): no `eos` on PATH, an
+# engine too old to know `hook` (its argument parser would exit 2, which the
+# harness reads as "block"), a project without .eos. The call is not exec'd for
+# that reason: this script's own exit status is the one the harness sees.
+#
+# Plugin-private state (which hints a session was given) goes under
+# ${CLAUDE_PLUGIN_DATA}, which survives plugin updates. Run pointers stay in
+# EOS_STATE_DIR: the project's wrappers read them, and they run outside the
+# plugin's environment.
+event=${1-}
+[ -n "$event" ] || exit 0
+if [ -n "${CLAUDE_PLUGIN_DATA-}" ] && [ -z "${EOS_HOOK_STATE_DIR-}" ]; then
+  EOS_HOOK_STATE_DIR="$CLAUDE_PLUGIN_DATA/hooks"
+  export EOS_HOOK_STATE_DIR
+fi
+if command -v eos >/dev/null 2>&1; then
+  eos hook "$event" --agent claude 2>/dev/null
+  exit 0
+fi
+runtime="${CLAUDE_PROJECT_DIR:-$PWD}/.eos/runtime/eos.py"
+if [ -f "$runtime" ]; then
+  for python in python3.14 python3.13 python3.12 python3.11 python3; do
+    if command -v "$python" >/dev/null 2>&1; then
+      "$python" "$runtime" hook "$event" --agent claude 2>/dev/null
+      exit 0
+    fi
+  done
+fi
+exit 0

@@ -15,8 +15,13 @@ eos brief . --task "<what you were asked to do>"
 The first prints what is in flight here — claimed, blocked, stale, held by two
 sessions at once, or left running — and the notes that match this branch. The
 second prints the procedure this project follows for the task, its last runs
-and what the failed ones taught. Where `.claude/hooks/eos-brief.py` and
-`.claude/hooks/eos-prompt.py` are installed, both have already run.
+and what the failed ones taught. Where EOS's hooks are installed (the Claude
+Code plugin, or `.claude/hooks/eos-*.py`), both have already run.
+
+Where the project declares wrappers for its external systems, `eos
+capabilities .` lists them and the task brief names the ones a task calls
+for. Use the wrapper rather than the raw command it covers: it keeps the
+output small, applies the project's safety checks and records the call.
 
 Where the project turned routing on, the task brief ends with a `ROUTE` line:
 the model and effort this project's policy picks for the task, and why. Use
@@ -34,5 +39,5 @@ learned something a future `eos scan` could not re-derive (`eos note add .`).
 <!-- eos:mcp-only:begin -->
 EOS's read-only tools are also registered as an MCP server in `.mcp.json`.
 <!-- eos:mcp-only:end -->
-For what each command costs and when a plain file read wins instead, see
-`.claude/skills/eos/SKILL.md`.
+For what each command costs and when a plain file read wins instead, see the
+`eos` skill (the Claude Code plugin's, or `.claude/skills/eos/SKILL.md`).

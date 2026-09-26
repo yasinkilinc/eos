@@ -1,0 +1,17 @@
+{
+  "name": "eos",
+  "version": "1.3.0",
+  "description": "Project memory for coding agents: what is in flight, what was learned, which wrapper to use -- delivered by hooks, with nothing to decide.",
+  "author": {
+    "name": "yasinkilinc"
+  },
+  "homepage": "https://github.com/yasinkilinc/eos",
+  "repository": "https://github.com/yasinkilinc/eos",
+  "license": "MIT",
+  "keywords": [
+    "memory",
+    "hooks",
+    "context",
+    "wrappers"
+  ]
+}

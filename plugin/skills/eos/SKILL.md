@@ -3,7 +3,7 @@ name: eos
 description: Load when a question needs project-wide facts EOS already indexed — where a symbol lives, what a file affects, what earlier sessions learned — and you want to weigh an EOS tool against a plain Read or Grep before reaching for either.
 ---
 
-# EOS (engine {{VERSION}})
+# EOS (engine 1.3.0)
 
 EOS indexes this project into `.eos/data/eos.db`: parsed symbols, imports, a
 project graph, git history, and notes an agent chose to record. It is
@@ -46,39 +46,6 @@ frequently loses. These do not, because nothing else produces what they hold:
   keep an explicit choice the user made. **`eos route . "<task>"`** prints the
   full decision with its factors (cost: low; nothing else holds the policy).
 
-<!-- eos:mcp-only:begin -->
-## The 10 tools (this project chose the MCP surface)
-
-MCP is the exception surface here: everything below also exists as a CLI
-command, which costs nothing until it is run.
-
-| Tool | What it answers | Rough cost | Cheaper alternative |
-|---|---|---|---|
-| `get_project` | Project name, detected stack, entry points | low | reading `.eos/config.toml` yourself |
-| `get_structure` | Bounded list of project files | low–medium | **Glob** — same information, no round trip |
-| `get_file` | Contents of one project-relative file | same as the file | **Read** — identical bytes, nothing gained by going through EOS |
-| `find_symbol` | Where a name is defined, across the whole index | low–medium | **Grep** — usually just as fast, and exact when you know the string |
-| `impact_analysis` | What a file reaches and what reaches it, to `depth` hops; `include` adds provenance, detector coverage and the file's commits | medium | **Grep** for the import string, if the project is small enough that this is quick by hand |
-| `get_context` | Project context; pass `task` to rank notes against it and `target` to anchor on a file; add `route: true` for the model and effort this project's policy picks for the task. Over MCP it returns; the CLI `eos context` **writes** `.eos/data/brain/llm_context.md` unless you pass `--stdout` | medium | **Read** the files it summarizes, when you only need one or two of them |
-| `search_index` | Full-text search over notes, brain documents and index extensions | low | `search_notes`, when you only want authored findings |
-| `get_parent_implementation` | Real source from a linked parent project, by symbol | low–medium | doing it by hand when the parent's names differ from this project's, which is the case it exists for |
-| `search_notes` | What an earlier session already learned about this | low | nothing else holds this — it is not derivable by rescanning |
-| `add_note` | Records a durable finding so the next scan doesn't lose it | low | nothing else does this either |
-
-Two channels cost nothing until a person uses them: the resources
-`@eos:eos://brief` and `@eos:eos://capabilities`, and the prompt
-`/mcp__eos__brief <task>`.
-
-One habit worth forming: when `impact_analysis` comes back with less than you
-expected, ask for `include: ["coverage"]` before concluding there is nothing
-there. It reports what each detector was asked about, so "this file has no
-dependents" and "nothing here looks for that kind of dependency" stop reading
-the same.
-
-The whole generated graph is not a tool: on a project of any real size it is
-larger than what fits usefully in a conversation. `eos graph <project>
---output <file>` exports it for a program to filter.
-<!-- eos:mcp-only:end -->
 
 ## The commands
 
