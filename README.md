@@ -70,13 +70,35 @@ The choice is recorded in `.eos/config.toml` under `[ai] surface`, so
 `eos ai update` after an upgrade does not silently put back a registration a
 project removed on purpose.
 
+**Or: the Claude Code plugin, with nothing written into the project.**
+`plugin/` is a Claude Code plugin (`claude plugin validate plugin` passes; the
+repository root is its marketplace). It registers each hook once and runs
+`eos hook <event>` — the brief at session start and per task, one event on your
+open run per action worth reading (with the subagent that did it, deduplicated
+by the harness's call id), a one-line hint when a raw command bypasses a
+wrapper the project declares (`eos capabilities`), instruction-load and
+per-session logs, and the optional subagent routing hook — and ships the skill
+and the researcher agent. `eos init --claude plugin` / `eos ai update
+--claude plugin` then writes no `.claude/` files and removes the ones `files`
+mode wrote, leaving everything else there alone. `[hooks]` in
+`.eos/config.toml` turns each part off (`brief`, `capture`, `hints`,
+`subagents`, `loaded`, `sessions`, `close`, `usage`). Why wrappers stay the
+default integration and MCP the exception:
+[ADR-026](docs/decisions/026-wrappers-first-mcp-by-exception.md).
+
+```bash
+claude plugin marketplace add /path/to/eos     # or the git URL
+claude plugin install eos@eos
+eos ai update . --claude plugin                # drop the per-project copies
+```
+
 ## CLI
 
 | Command | Purpose |
 |---|---|
 | `eos init <path> [--link-parent <path>] [--link-label <name>] [--surface cli\|mcp\|both] [--no-ai]` | Bootstrap `.eos/`, write the AI integration surfaces |
 | `eos brief <path> [--session <id>] [--agent <name>]` | What a session needs before it starts: work in flight, and the notes matching this branch |
-| `eos route <path> <task> [--file F]… [--model M] [--effort E] [--json] [--fresh] [--no-record] [--stats]` | Which model and how much effort a task deserves, and why; advice for the harness, EOS calls no model |
+| `eos route <path> <task> [--file F]… [--model M] [--effort E] [--json] [--fresh] [--no-record] [--stats] [--eval CORPUS]` | Which model and how much effort a task deserves, and why; advice for the harness, EOS calls no model. `--stats` adds advised-vs-used per session; `--eval` scores the policy on a labelled corpus |
 | `eos scan <path> [--full] [--with-parents]` | Incremental or full scan; optionally index linked parents too |
 | `eos update <path> [--dry-run]` | Update the runtime from canonical `core/` |
 | `eos doctor <path>` | Validate `.eos/` integrity |
@@ -101,7 +123,9 @@ project removed on purpose.
 | `eos parent <path> <symbol> [--limit N]` | Real source for a symbol from a linked parent, inlined |
 | `eos note add\|list\|show\|search\|skip\|amend\|audit <path> ...` | Manage authored knowledge notes (see below) |
 | `eos work add\|claim\|log\|block\|unblock\|done\|drop\|list\|show\|stats <path> ...` | What sessions are working on here, and what came of it (see below) |
-| `eos ai update <path> [--no-agents-md] [--surface cli\|mcp\|both]` | Refresh the AI integration surfaces for the current EOS version |
+| `eos ai update <path> [--no-agents-md] [--surface cli\|mcp\|both] [--claude files\|plugin]` | Refresh the AI integration surfaces for the current EOS version |
+| `eos capabilities <path> [--for "<task>"] [--command "<cmd>"]` | The wrappers this project offers instead of raw commands, the ones a task calls for, or which one covers a command line |
+| `eos hook <event> [--agent NAME]` | Handle one harness hook event (JSON on stdin); what the plugin's hooks run, always exit 0 |
 | `eos mcp <path>` | Start the read-only stdio MCP server |
 | `eos bench <path> [--samples N]` | Measure EOS's own tools against baselines, on this project |
 | `eos ui [port] [--yes] [--no-install]` | Start the multi-project dashboard |
@@ -334,8 +358,11 @@ roster is one server may well want it; run `eos ai update <path> --surface
 mcp` to turn it on. Registered tools:
 
 `get_project`, `get_structure`, `get_context`, `get_file`, `find_symbol`,
-`compose`, `impact_analysis`, `get_graph`, `get_history`,
-`get_parent_implementation`, `search_notes`, `add_note`.
+`impact_analysis`, `search_index`, `get_parent_implementation`,
+`search_notes`, `add_note` — ten since 1.3.0, which removed `get_graph` (the
+whole graph; `eos graph --output` exports it) and the deprecated `compose`
+alias. Two resources (`eos://brief`, `eos://capabilities`) and one prompt
+(`brief`) cost no roster: a client lists them only when a person asks.
 
 All are read-only except `add_note`, which writes a note into the configured
 knowledge directory and nowhere else — it also refuses bodies containing

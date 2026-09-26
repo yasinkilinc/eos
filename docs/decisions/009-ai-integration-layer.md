@@ -1,6 +1,7 @@
 # ADR-009: A Dedicated AI Integration Layer, Written by `eos init`
 
-**Status:** Accepted
+**Status:** Accepted; delivery to Claude Code amended by ADR-026 (the plugin,
+`--claude plugin`), 2026-09-26
 **Date:** 2026-09-12
 **Deciders:** yasinkilinc
 

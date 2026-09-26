@@ -123,3 +123,22 @@ number; `eos cost` will say by how much, which is the point.
 MCP is not deprecated. A single-project setup where the roster is one server
 may reasonably prefer it, and `eos mcp` is unchanged. What is gone is a
 project carrying both surfaces and paying for one of them in every request.
+
+## Addendum, 2026-09-26: the roster re-measured; where the hooks live (ADR-026)
+
+The 2,194 tokens above were measured before Claude Code deferred MCP tool
+schemas behind a search. Re-measured over 135 session transcripts of the same
+workspace (Claude Code 2.1.281): a session is handed tool *names*, and that
+listing was a median 2,543 tokens per session — most of it MCP servers still
+registered for other reasons. EOS's own `tools/list` is 4,881 characters for
+twelve tools and 4,388 for the ten left after ADR-026 removed `get_graph` and
+`compose`. With tool search off (a custom gateway, some clouds) the full schemas
+return to every request. The decision above stands and is sharpened by ADR-026:
+the CLI and the hooks are the default, MCP the exception.
+
+The hooks this ADR introduced were written per project into `.claude/`. In the
+workspace this ADR was measured on, sessions start one directory above the
+projects, a nested `.claude/settings.json` is never loaded, and the copies ran
+in none of thirteen services — 0 invocations in 135 transcripts. ADR-026 moves
+them into a Claude Code plugin that registers each hook once (`eos hook
+<event>`); `eos ai update --claude plugin` removes the copies.
