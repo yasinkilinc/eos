@@ -81,11 +81,14 @@ def record(project_root: str | Path | None, decision: Decision, *, session: str 
                         if isinstance(value, (int, float)) and not isinstance(value, bool)},
             "effort_in_use": effort_in_use(),
         }
+        from core.lib import lock
+
         target = path_for(root)
         target.parent.mkdir(parents=True, exist_ok=True)
-        with open(target, "a", encoding="utf-8") as handle:
-            handle.write(json.dumps(entry, ensure_ascii=False) + "\n")
-        _trim(target)
+        with lock.locked(target, timeout=2.0):
+            with open(target, "a", encoding="utf-8") as handle:
+                handle.write(json.dumps(entry, ensure_ascii=False) + "\n")
+            _trim(target)
         return True
     except Exception:  # a statistic is never worth a failed command
         return False
@@ -198,4 +201,6 @@ def _trim(target: Path) -> None:
         return
     if len(lines) <= MAX_LINES:
         return
-    target.write_text("\n".join(lines[-MAX_LINES:]) + "\n", encoding="utf-8")
+    from core.lib import atomic
+
+    atomic.write_text(target, "\n".join(lines[-MAX_LINES:]) + "\n")

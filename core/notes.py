@@ -1689,25 +1689,31 @@ def record_procedure_run(project_root: str | Path, slug: str, *, outcome: str,
     None when the project has no procedure by that slug -- an execution may
     name one recorded elsewhere, and that is not an error here.
     """
+    from core.lib import atomic, lock
+
     try:
         note = find_procedure(project_root, slug)
     except ValueError:
         return None
     if note.procedure != slug:
         return None  # only an exact slug moves counters; a prefix is a guess
-    fields: dict = {"last_execution": execution}
-    if outcome == "ok":
-        fields["runs_ok"] = str((note.runs_ok or 0) + 1)
-        fields["last_verified"] = at
-    elif outcome == "failed":
-        fields["runs_failed"] = str((note.runs_failed or 0) + 1)
-    raw = note.path.read_text(encoding="utf-8")
-    updated = _set_front(raw, fields)
-    if outcome == "failed" and lesson and lesson.strip():
-        front, separator, body = updated[4:].partition("\n---\n")
-        first = lesson.strip().splitlines()[0]
-        updated = "---\n" + front + separator + _append_known_failure(body, f"{at[:10]} {execution}: {first}")
-    note.path.write_text(updated, encoding="utf-8")
+    # Two sessions finishing runs of one procedure at once each read the old
+    # count and wrote count + 1: the note is re-read under its lock (F2).
+    with lock.locked(note.path):
+        note = find_procedure(project_root, slug)
+        fields: dict = {"last_execution": execution}
+        if outcome == "ok":
+            fields["runs_ok"] = str((note.runs_ok or 0) + 1)
+            fields["last_verified"] = at
+        elif outcome == "failed":
+            fields["runs_failed"] = str((note.runs_failed or 0) + 1)
+        raw = note.path.read_text(encoding="utf-8")
+        updated = _set_front(raw, fields)
+        if outcome == "failed" and lesson and lesson.strip():
+            front, separator, body = updated[4:].partition("\n---\n")
+            first = lesson.strip().splitlines()[0]
+            updated = "---\n" + front + separator + _append_known_failure(body, f"{at[:10]} {execution}: {first}")
+        atomic.write_text(note.path, updated)
     return note.path
 
 
@@ -1759,8 +1765,11 @@ def lessons_for(project_root: str | Path, *, execution: str | None = None,
 
 def append_to_note_section(path: Path, section: str, line: str) -> None:
     """Append one bullet to a section of an existing note, front matter untouched."""
-    raw = path.read_text(encoding="utf-8")
-    if not raw.startswith("---\n"):
-        raise ValueError(f"{path} is not a note")
-    front, separator, body = raw[4:].partition("\n---\n")
-    path.write_text("---\n" + front + separator + append_bullet(body, section, line), encoding="utf-8")
+    from core.lib import atomic, lock
+
+    with lock.locked(path):
+        raw = path.read_text(encoding="utf-8")
+        if not raw.startswith("---\n"):
+            raise ValueError(f"{path} is not a note")
+        front, separator, body = raw[4:].partition("\n---\n")
+        atomic.write_text(path, "---\n" + front + separator + append_bullet(body, section, line))

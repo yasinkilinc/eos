@@ -167,8 +167,9 @@ def current(project_root: str | Path | None = None, session: str | None = None
 def _write_pointer(session: str, execution: str, ledger: Path) -> None:
     target = _pointer(session)
     try:
-        target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_text(f"{execution}\t{ledger}\n", encoding="utf-8")
+        from core.lib import atomic
+
+        atomic.write_text(target, f"{execution}\t{ledger}\n")
     except OSError:
         pass  # capture falls back to explicit ids; recording itself never fails on this
 

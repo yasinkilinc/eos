@@ -748,15 +748,18 @@ def _stop_failure(root: Path, hook: Hook, cfg: dict, agent: str | None) -> str:
 
 
 def _append_log(root: Path, name: str, entry: dict) -> None:
+    from core.lib import atomic, lock
+
     path = root / ".eos" / "data" / name
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
-        if path.is_file() and path.stat().st_size > MAX_LOG_BYTES:
-            kept = path.read_text(encoding="utf-8", errors="replace").splitlines()[-2000:]
-            path.write_text("\n".join(kept) + "\n", encoding="utf-8")
-        with open(path, "a", encoding="utf-8") as handle:
-            handle.write(json.dumps(entry, ensure_ascii=False) + "\n")
-    except OSError:
+        with lock.locked(path, timeout=2.0):
+            if path.is_file() and path.stat().st_size > MAX_LOG_BYTES:
+                kept = path.read_text(encoding="utf-8", errors="replace").splitlines()[-2000:]
+                atomic.write_text(path, "\n".join(kept) + "\n")
+            with open(path, "a", encoding="utf-8") as handle:
+                handle.write(json.dumps(entry, ensure_ascii=False) + "\n")
+    except (OSError, lock.LockTimeout):
         pass
 
 

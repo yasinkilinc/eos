@@ -129,6 +129,10 @@ def declare_answer_size(chars: int) -> None:
     _declared_size = int(chars)
 
 
+# A statistic waits this long for its log's lock, then is skipped.
+STAT_LOCK_SECONDS = 2.0
+
+
 class Timer:
     """Time one call and record it. Never raises, never blocks the command."""
 
@@ -195,12 +199,17 @@ def record(project_root: str | Path, command: str, flags: list[str] | None = Non
         "rebuilt": bool(rebuilt),
         "ok": bool(ok),
     }
+    from core.lib import lock
+
     try:
         target.parent.mkdir(parents=True, exist_ok=True)
-        with open(target, "a", encoding="utf-8") as handle:
-            handle.write(json.dumps(entry, ensure_ascii=False) + "\n")
-        _trim(target)
-    except OSError:
+        # The append and the trim under one lock: a trim that read the file
+        # before another process appended would write that line away.
+        with lock.locked(target, timeout=STAT_LOCK_SECONDS):
+            with open(target, "a", encoding="utf-8") as handle:
+                handle.write(json.dumps(entry, ensure_ascii=False) + "\n")
+            _trim(target)
+    except (OSError, lock.LockTimeout):
         return
 
 
@@ -218,7 +227,9 @@ def _trim(target: Path) -> None:
         return
     if len(lines) <= MAX_LINES:
         return
-    target.write_text("\n".join(lines[-MAX_LINES:]) + "\n", encoding="utf-8")
+    from core.lib import atomic
+
+    atomic.write_text(target, "\n".join(lines[-MAX_LINES:]) + "\n")
 
 
 def load(project_root: str | Path) -> list[dict[str, Any]]:
