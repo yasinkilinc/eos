@@ -39,6 +39,24 @@ canonical `core/` runtime to `~/.local/share/eos/<version>/` and installs an
 executable launcher under `~/.local/bin/eos`. Override the locations with
 `EOS_INSTALL_PREFIX`, `EOS_DATA_DIR`, `EOS_BIN_DIR`, or `EOS_PYTHON`.
 
+## What changed in 1.6
+
+- **Verified completion (ADR-028).** A project's `verify.toml` names which
+  files belong to which check:
+
+  ```toml
+  [[scope]]
+  name = "service"
+  paths = ["services/{service}/src/**"]
+  passes = ['make\s+test\s+{service}\b']
+  run = "make test {service}"
+  ```
+
+  A change made after its scope's last passing check stops the turn once —
+  run the check, or say it is not verified. `eos run finish --outcome ok`
+  labels the run `verified` or `claimed`; `eos run list --stats` gives the
+  verified rate.
+
 ## What changed in 1.5
 
 - **The context diet (ADR-027).** Measured cost is the context re-read by
