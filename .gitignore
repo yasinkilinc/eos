@@ -34,3 +34,6 @@ node_modules/
 
 # SDD scaffolding (ledger, briefs, review packages) - never published
 .superpowers/
+
+# claude plugin eval reports (local runs)
+plugin/evals/results/
