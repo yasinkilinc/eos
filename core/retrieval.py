@@ -27,6 +27,8 @@ low score is not.
 """
 from __future__ import annotations
 
+import math
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -51,6 +53,8 @@ class QueryResult:
     expected: str
     rank: int | None
     top: list[str] = field(default_factory=list)
+    hits: int = 0
+    ms: float = 0.0
 
 
 class GoldenError(ValueError):
@@ -85,17 +89,23 @@ def parse_golden(path: str | Path) -> list[GoldenEntry]:
 
 def evaluate(project_root: str | Path, entries: list[GoldenEntry],
              depth: int = DEFAULT_DEPTH) -> dict:
-    """Recall@k and MRR for `entries` against this project's notes."""
+    """Recall@k, MRR@depth, nDCG@depth, zero-hit count and search latency.
+
+    Every scored query is in every denominator: a query search returned
+    nothing for is a zero, not an absence (2.x roadmap F6).
+    """
     present = {note.path.name for note in notes.load_notes(project_root)}
     broken = [entry for entry in entries if entry.expected not in present]
     scored = [entry for entry in entries if entry.expected in present]
 
     results: list[QueryResult] = []
     for entry in scored:
+        started = time.perf_counter()
         ranked = notes.search_notes(project_root, entry.query, limit=depth)
+        took = (time.perf_counter() - started) * 1000
         names = [note.path.name for note in ranked]
         rank = names.index(entry.expected) + 1 if entry.expected in names else None
-        results.append(QueryResult(entry.query, entry.expected, rank, names[:3]))
+        results.append(QueryResult(entry.query, entry.expected, rank, names[:3], len(names), took))
 
     total = len(results)
     recall = {
@@ -103,12 +113,17 @@ def evaluate(project_root: str | Path, entries: list[GoldenEntry],
         for k in RECALL_AT
     }
     mrr = round(sum(1 / r.rank for r in results if r.rank) / total, 4) if total else 0.0
+    # One relevant note per query: DCG is 1/log2(rank+1) and the ideal DCG is 1.
+    ndcg = round(sum(1 / math.log2(r.rank + 1) for r in results if r.rank) / total, 4) if total else 0.0
     return {
         "corpus": len(present),
         "queries": total,
         "depth": depth,
         "recall": recall,
         "mrr": mrr,
+        "ndcg": ndcg,
+        "zero_hit": sum(1 for r in results if r.hits == 0),
+        "latency_ms": _percentiles([r.ms for r in results]),
         "results": [
             {"query": r.query, "expected": r.expected, "rank": r.rank, "top": r.top}
             for r in results
@@ -120,18 +135,32 @@ def evaluate(project_root: str | Path, entries: list[GoldenEntry],
     }
 
 
+def _percentiles(values: list[float]) -> dict:
+    ordered = sorted(values)
+    if not ordered:
+        return {"p50": 0.0, "p90": 0.0}
+    pick = lambda share: ordered[min(len(ordered) - 1, int(share * len(ordered)))]
+    return {"p50": round(pick(0.5), 1), "p90": round(pick(0.9), 1)}
+
+
+def _worst_first(result: dict) -> tuple:
+    return (0 if result["rank"] is None else 1, -(result["rank"] or 0))
+
+
 def render(report: dict) -> str:
     """The digest a person reads: the score, then only what went wrong."""
     lines = [
         f"{report['queries']} queries over {report['corpus']} notes, depth {report['depth']}",
-        "  recall@1 {r1}   recall@3 {r3}   recall@5 {r5}   MRR {mrr}".format(
-            r1=report["recall"][1], r3=report["recall"][3],
-            r5=report["recall"][5], mrr=report["mrr"]),
+        "  recall@1 {r1}   recall@3 {r3}   recall@5 {r5}   MRR@{d} {mrr}   nDCG@{d} {ndcg}".format(
+            r1=report["recall"][1], r3=report["recall"][3], r5=report["recall"][5],
+            d=report["depth"], mrr=report["mrr"], ndcg=report.get("ndcg", 0.0)),
+        "  zero-hit {zero}   latency p50 {p50} ms   p90 {p90} ms".format(
+            zero=report.get("zero_hit", 0), **report.get("latency_ms", {"p50": 0.0, "p90": 0.0})),
     ]
-    missed = [r for r in report["results"] if r["rank"] != 1]
+    missed = sorted((r for r in report["results"] if r["rank"] != 1), key=_worst_first)
     if missed:
         lines.append("")
-        lines.append(f"Not first ({len(missed)}):")
+        lines.append(f"Not first ({len(missed)}), worst first:")
         for r in missed:
             where = f"rank {r['rank']}" if r["rank"] else f"not in top {report['depth']}"
             lines.append(f"  [{where}] {r['query']}")
