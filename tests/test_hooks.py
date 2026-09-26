@@ -375,3 +375,15 @@ def test_after_compaction_the_session_gets_back_what_it_holds(project, monkeypat
     out = _hook(monkeypatch, capsys, "session-start", _payload(project, source="compact")).out
     assert "kept across the compaction" in out and run.id in out
     assert _hook(monkeypatch, capsys, "session-start", _payload(project, source="startup")).out == ""
+
+
+def test_the_session_summary_keeps_the_context_diet_evidence(project, monkeypatch, capsys):
+    _hooks_config(project, "outline_lines = 5\n")
+    target = project / "long.md"
+    target.write_text("# A\n" + "x\n" * 10, encoding="utf-8")
+    _hook(monkeypatch, capsys, "pre-read", _payload(project, tool_name="Read", tool_input={"file_path": str(target)}))
+    _hook(monkeypatch, capsys, "pre-compact", _payload(project))
+    _hook(monkeypatch, capsys, "post-compact", _payload(project, compact_summary="nothing"))
+    _hook(monkeypatch, capsys, "session-end", _payload(project, reason="other"))
+    entry = json.loads((project / ".eos" / "data" / "sessions.jsonl").read_text().splitlines()[-1])
+    assert entry["outlined"] == 1 and entry["compactions"] == [{"expected": 0, "missing": []}]

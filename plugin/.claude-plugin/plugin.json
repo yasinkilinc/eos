@@ -1,6 +1,6 @@
 {
   "name": "eos",
-  "version": "1.5.0",
+  "version": "1.5.1",
   "description": "Project memory for coding agents: what is in flight, what was learned, which wrapper to use -- delivered by hooks, with nothing to decide.",
   "author": {
     "name": "yasinkilinc"

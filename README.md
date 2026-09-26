@@ -48,6 +48,10 @@ executable launcher under `~/.local/bin/eos`. Override the locations with
   after it; names a file the shell rewrote after the session read it; suggests
   `/clear` when a run closes in a large context (`clear_hint_tokens`); and a
   reading task's ROUTE block says to explore in a subagent.
+- **1.5.1:** PostCompact runs synchronously (an async hook did not survive a
+  headless session's exit), and `sessions.jsonl` keeps the diet's evidence —
+  hints given, outlines served, what each compaction kept — since the session
+  state that held it is removed at session end.
 
 ## What changed in 1.4
 

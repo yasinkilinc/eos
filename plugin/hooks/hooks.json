@@ -157,8 +157,7 @@
           {
             "type": "command",
             "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/eos-hook\" post-compact",
-            "timeout": 5,
-            "async": true
+            "timeout": 5
           }
         ]
       }

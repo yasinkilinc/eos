@@ -759,7 +759,12 @@ def _session_end(root: Path, hook: Hook, cfg: dict, agent: str | None) -> str:
                  "hints": sum(1 for line in lines if line.get("hint")),
                  "subagents": sum(1 for line in lines if line.get("started")),
                  "resets": [line["reset"] for line in lines if line.get("reset")],
-                 "stop_failures": [line["stop_failure"] for line in lines if line.get("stop_failure")]}
+                 "stop_failures": [line["stop_failure"] for line in lines if line.get("stop_failure")],
+                 # The context diet's own evidence (ADR-027), which the state file takes with it.
+                 "hinted": sorted({line["hint"] for line in lines if isinstance(line.get("hint"), str)}),
+                 "outlined": sum(1 for line in lines if line.get("outlined")),
+                 "compactions": [{"expected": line.get("expected", 0), "missing": line.get("missing", [])}
+                                 for line in lines if "compacted" in line]}
         _append_log(root, SESSIONS_FILE, entry)
     for stale in (_state_file(hook.session), _prompted_file(hook.session)) if hook.session else ():
         try:
