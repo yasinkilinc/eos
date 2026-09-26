@@ -422,3 +422,36 @@ def test_a_change_and_the_check_that_passes_after_it_are_recorded(project, monke
     assert hooks._verify_events("s1")[-1] == ("passed", "code")
     assert [e.ref for e in executions.load(project)[-1].events if e.kind == "verified"] == ["code"]
     assert run.id == executions.load(project)[-1].id
+
+
+def test_stop_asks_once_about_a_change_not_checked_since(project, monkeypatch, capsys):
+    source = _verify_project(project)
+    _hooks_config(project, "close = false\n")
+    _hook(monkeypatch, capsys, "post-tool", _payload(project, tool_name="Edit", tool_input={"file_path": str(source)}))
+    first = json.loads(_hook(monkeypatch, capsys, "stop", _payload(project)).out)
+    assert first["decision"] == "block" and "code: make test" in first["reason"]
+    assert _hook(monkeypatch, capsys, "stop", _payload(project)).out == ""          # same set: once
+    assert _hook(monkeypatch, capsys, "stop", _payload(project, stop_hook_active=True)).out == ""
+    _hook(monkeypatch, capsys, "post-tool", _payload(project, tool_name="Bash", tool_use_id="t9",
+                                                     tool_input={"command": "make test"}))
+    _hook(monkeypatch, capsys, "session-end", _payload(project, reason="other"))
+    entry = json.loads((project / ".eos" / "data" / "sessions.jsonl").read_text().splitlines()[-1])
+    assert entry["verify_gates"] == 1 and entry["verify_after_gate"] == 1
+
+
+def test_stop_is_silent_without_scopes_or_for_unscoped_files(project, monkeypatch, capsys):
+    _hooks_config(project, "close = false\n")
+    notes_file = project / "notes.md"
+    notes_file.write_text("x", encoding="utf-8")
+    _hook(monkeypatch, capsys, "post-tool", _payload(project, tool_name="Edit", tool_input={"file_path": str(notes_file)}))
+    assert _hook(monkeypatch, capsys, "stop", _payload(project)).out == ""        # no verify.toml
+    _verify_project(project)
+    assert _hook(monkeypatch, capsys, "stop", _payload(project)).out == ""        # notes.md is in no scope
+
+
+def test_the_verify_gate_and_the_open_run_gate_share_one_block(project, monkeypatch, capsys):
+    source = _verify_project(project)
+    run = _open_run(project)
+    _hook(monkeypatch, capsys, "post-tool", _payload(project, tool_name="Edit", tool_input={"file_path": str(source)}))
+    reason = json.loads(_hook(monkeypatch, capsys, "stop", _payload(project)).out)["reason"]
+    assert "not verified yet" in reason and run.id in reason

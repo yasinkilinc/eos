@@ -803,7 +803,10 @@ def _session_end(root: Path, hook: Hook, cfg: dict, agent: str | None) -> str:
                  "hinted": sorted({line["hint"] for line in lines if isinstance(line.get("hint"), str)}),
                  "outlined": sum(1 for line in lines if line.get("outlined")),
                  "compactions": [{"expected": line.get("expected", 0), "missing": line.get("missing", [])}
-                                 for line in lines if "compacted" in line]}
+                                 for line in lines if "compacted" in line],
+                 "verify_gates": sum(1 for line in lines if line.get("gated")),
+                 "verify_after_gate": sum(1 for index, line in enumerate(lines) if line.get("gated")
+                                          and any(later.get("passed") for later in lines[index + 1:]))}
         _append_log(root, SESSIONS_FILE, entry)
     for stale in (_state_file(hook.session), _prompted_file(hook.session)) if hook.session else ():
         try:
@@ -860,33 +863,55 @@ def _pre_agent(root: Path, hook: Hook, cfg: dict, agent: str | None) -> str:
                                               "updatedInput": {"model": decision.model}}})
 
 
+def _verify_gate(root: Path, hook: Hook, cfg: dict) -> str:
+    """Once per set: the scopes this session changed after their last passing check."""
+    if not cfg["verify"] or hook.stop_active or not hook.session or hook.agent_id:
+        return ""
+    from core import verify
+
+    try:
+        scopes = verify.load(root)
+        found = verify.dirty(scopes, root, _verify_events(hook.session)) if scopes else []
+    except Exception:  # noqa: BLE001 - cannot tell, do not block
+        return ""
+    if not found:
+        return ""
+    mark = verify.signature(found)
+    if any(line.get("gated") == mark for line in _state(hook.session)):
+        return ""
+    _note_state(hook.session, gated=mark)
+    return verify.reason(scopes, found)
+
+
 def _stop(root: Path, hook: Hook, cfg: dict, agent: str | None) -> str:
     if cfg["usage"] and hook.transcript and hook.session:
         _fold_usage(root, hook)
-    if not cfg["close"] or hook.stop_active or not hook.session or hook.agent_id:
-        return ""
-    from core import executions, work
+    reasons = [gate] if (gate := _verify_gate(root, hook, cfg)) else []
+    if cfg["close"] and not hook.stop_active and hook.session and not hook.agent_id:
+        from core import executions, work
 
-    held = [item for item in work.items(root) if item.status == work.ACTIVE
-            and any(holder.get("session") == hook.session for holder in item.holders)]
-    runs = [run for run in executions.load(root) if run.open and run.session == hook.session]
-    _note_state(hook.session, held=len(held), open_runs=len(runs))
-    if not held and not runs:
+        held = [item for item in work.items(root) if item.status == work.ACTIVE
+                and any(holder.get("session") == hook.session for holder in item.holders)]
+        runs = [run for run in executions.load(root) if run.open and run.session == hook.session]
+        _note_state(hook.session, held=len(held), open_runs=len(runs))
+        lines = []
+        if held:
+            lines.append(f"This session still holds {len(held)} work item(s); the next session reads them "
+                         "as work in progress:")
+            lines += [f"  {item.id}  {item.title}" for item in held[:5]]
+            lines.append(f'Close each the way that is true: eos work done|block|drop {root} <id> --note/--reason "…"')
+        if runs:
+            lines.append(f"This session left {len(runs)} run(s) open; a failed one leaves no lesson until finished:")
+            lines += [f"  {run.id}  {run.title}" for run in runs[:5]]
+            lines.append(f"Finish each: eos run finish {root} <id> --outcome ok|failed|abandoned "
+                         '(failed needs --lesson "…")')
+        if lines:
+            reasons.append("\n".join(lines))
+    if not reasons:
         return ""
-    lines = []
-    if held:
-        lines.append(f"This session still holds {len(held)} work item(s); the next session reads them "
-                     "as work in progress:")
-        lines += [f"  {item.id}  {item.title}" for item in held[:5]]
-        lines.append(f'Close each the way that is true: eos work done|block|drop {root} <id> --note/--reason "…"')
-    if runs:
-        lines.append(f"This session left {len(runs)} run(s) open; a failed one leaves no lesson until finished:")
-        lines += [f"  {run.id}  {run.title}" for run in runs[:5]]
-        lines.append(f"Finish each: eos run finish {root} <id> --outcome ok|failed|abandoned "
-                     '(failed needs --lesson "…")')
     # A Stop hook blocks through its JSON answer, so this one still exits 0;
     # the harness sets stop_hook_active on the next stop and it lets go.
-    return json.dumps({"decision": "block", "reason": "\n".join(lines)}, ensure_ascii=False)
+    return json.dumps({"decision": "block", "reason": "\n\n".join(reasons)}, ensure_ascii=False)
 
 
 def _fold_usage(root: Path, hook: Hook) -> None:
