@@ -5,7 +5,7 @@ import math
 import re
 from pathlib import Path
 
-from core.notes.store import Note, _WORD, is_bulk_index, load_notes, note_synonyms, superseded
+from core.notes.store import Note, _WORD, expired, is_bulk_index, load_notes, note_synonyms, superseded
 
 
 # Similarity carried over from the one earlier iteration that actually ran a
@@ -203,7 +203,8 @@ def rank(corpus: list[Note], query: str, limit: int | None = None,
     canon = synonym_groups(synonyms) if synonyms else {}
     query_words = canonical_words(_words(query), canon)
     replaced = superseded(corpus)
-    corpus = [note for note in corpus if note.path.name not in replaced]  # the record stays on disk
+    # Replaced and expired notes stay on disk as the record; search stops offering them.
+    corpus = [note for note in corpus if note.path.name not in replaced and not expired(note)]
     weights = word_weights(corpus, query_words, canon=canon)
     # Every word ubiquitous (or the query is one such word): weighting has
     # nothing left to say, and falling through to equal weights answers with
@@ -270,7 +271,8 @@ def render_context_section(
     if query:
         candidates = search_notes(project_root, query)
     else:
-        candidates = [n for n in reversed(load_notes(project_root)) if n.path.name not in superseded(load_notes(project_root))]
+        candidates = [n for n in reversed(load_notes(project_root))
+                      if n.path.name not in superseded(load_notes(project_root)) and not expired(n)]
     if not candidates:
         return ""
 

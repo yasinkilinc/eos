@@ -75,6 +75,9 @@ def cmd_note_add(args: argparse.Namespace) -> int:
             procedure=args.procedure,
             execution=args.execution,
             supersedes=args.supersedes,
+            provenance=args.provenance,
+            agent=args.agent,
+            valid_until=args.valid_until,
         )
     except (ValueError, FileExistsError) as exc:
         print(f"error: {exc}", file=sys.stderr)

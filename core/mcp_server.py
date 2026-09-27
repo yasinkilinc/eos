@@ -270,6 +270,7 @@ class McpServer:
                             cause=args.get("cause"),
                             solution=args.get("solution"),
                             metric=args.get("metric"),
+                            provenance="agent",  # only an agent calls an MCP tool
                         )
                     )
                 },

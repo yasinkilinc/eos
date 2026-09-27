@@ -679,6 +679,13 @@ so naming two members of a group counts once. Off without the table:
 synonyms = [["wiki", "confluence"], ["sms", "notification"]]
 ```
 
+A new note can say who wrote it and until when it holds:
+`--provenance human|agent|generated`, `--agent <name>` (implies `agent`; the MCP
+`add_note` tool always records `agent`) and `--valid-until YYYY-MM-DD`. After
+that day search and briefs stop offering the note and `eos consolidate` lists it
+under EXPIRED NOTES; the file stays. Validity starts at `created`. Notes written
+before carry none of these and read exactly as they did -- nothing is migrated.
+
 A member is one word; a phrase is dropped, and a word already in an earlier
 group stays there. A host ranking its own corpus passes the same list to
 `notes.rank(corpus, query, synonyms=...)`.

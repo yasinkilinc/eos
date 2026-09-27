@@ -46,6 +46,7 @@ def report(project_root: str | Path) -> dict:
     cites_replaced = sorted({(titles[e.src], titles[e.dst]) for e in note_graph.edges(corpus, None)
                              if e.kind == "cites" and e.dst in replaced and e.src not in replaced})
 
+    expired = [f"{note.title} ({note.valid_until})" for note in corpus if notes.expired(note)]
     stale = notes.stale_notes(root)
     records = executions.load(root)
     silent = _silent_steps(root, records)
@@ -71,6 +72,7 @@ def report(project_root: str | Path) -> dict:
         "near_duplicates": pairs,
         "cites_replaced": cites_replaced,
         "stale_notes": [entry.get("note") for entry in stale],
+        "expired_notes": expired,
         "open_runs_older": old_runs,
         "stale_work": [(item.id, item.title) for item in stale_work],
         "verified_rate": {"verified": verified, "claimed": claimed},
@@ -118,6 +120,8 @@ def render(data: dict) -> str:
     lines += block("NOTES CITING A REPLACED NOTE", [f"{a}  ->  {b}" for a, b in data.get("cites_replaced", [])],
                    "point them at the replacement: eos note show . \"<replaced title>\"")
     lines += block("NOTES WHOSE FILES CHANGED", data["stale_notes"], "eos note audit .")
+    lines += block("EXPIRED NOTES", data.get("expired_notes", []),
+                   "past their valid_until: search no longer offers them; replace or let them go")
     lines += block("RUNS OPEN FOR DAYS", [f"{rid}  {title}  ({days}d)" for rid, title, days in data["open_runs_older"]],
                    "eos run finish . <id> --outcome ok|failed|abandoned")
     lines += block("STALE WORK", [f"{wid}  {title}" for wid, title in data["stale_work"]], "eos work list .")

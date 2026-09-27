@@ -6,7 +6,7 @@ import json
 from pathlib import Path
 
 from core.notes.store import (
-    _front_matter, _hash_file, _one_note, _resolve_scope_entry, _slug, load_notes,
+    PROVENANCES, _front_matter, _hash_file, _one_note, _resolve_scope_entry, _slug, load_notes,
     notes_dir, parse_note,
 )
 from core.notes.guards import (
@@ -123,6 +123,9 @@ def add_note(
     procedure: str | None = None,
     execution: str | None = None,
     supersedes: str | None = None,
+    provenance: str | None = None,
+    agent: str | None = None,
+    valid_until: str | None = None,
 ) -> Path:
     """Write one note and return its path.
 
@@ -148,6 +151,8 @@ def add_note(
     if source is not None:
         _refuse_placeholder(source, "note source")
     _refuse_scope(scope)
+    provenance = _check_provenance(provenance, agent)
+    valid_until = _check_valid_until(valid_until)
     content = _compose_body(kind, body, cause, solution, metric)
 
     found = _find_credential(f"{title}\n{content}")
@@ -221,10 +226,40 @@ def add_note(
                if kind == "procedure" else {"procedure": procedure}),
             "execution": execution,
             "supersedes": replaced.path.name if replaced else None,
+            "provenance": provenance,
+            "agent": agent,
+            "valid_until": valid_until,
         }
     )
     path.write_text(f"{document}\n\n{content}\n", encoding="utf-8")
     return path
+
+
+def _check_provenance(provenance: str | None, agent: str | None) -> str | None:
+    """Naming an agent says an agent wrote it; a person or a generator with an
+    agent's name is a contradiction, refused rather than half-recorded."""
+    if provenance is None:
+        return "agent" if agent else None
+    if provenance not in PROVENANCES:
+        raise ValueError(f"provenance {provenance!r} is not one of {', '.join(PROVENANCES)}")
+    if agent and provenance != "agent":
+        raise ValueError(f"an agent name ({agent!r}) with provenance {provenance!r}; "
+                         "an agent's note is provenance 'agent'")
+    return provenance
+
+
+def _check_valid_until(valid_until: str | None) -> str | None:
+    """An ISO date, today or later: a note already expired when written would
+    never be offered by search."""
+    if valid_until is None:
+        return None
+    try:
+        until = datetime.date.fromisoformat(valid_until)
+    except ValueError:
+        raise ValueError(f"--valid-until {valid_until!r} is not a date (YYYY-MM-DD)") from None
+    if until < datetime.date.today():
+        raise ValueError(f"--valid-until {valid_until} is in the past; the note would never be offered")
+    return until.isoformat()
 
 
 def amend_note(

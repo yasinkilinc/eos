@@ -313,6 +313,11 @@ def main(argv: list[str] | None = None) -> int:
                             "procedure: its slug")
     note_add_p.add_argument("--supersedes", help="The note this one replaces (file name or title): it stays "
                                                  "on disk, search and briefs stop offering it")
+    note_add_p.add_argument("--provenance", choices=notes.PROVENANCES,
+                            help="Who wrote it; --agent alone implies 'agent'")
+    note_add_p.add_argument("--agent", help="The agent that wrote it (claude, devin, ...)")
+    note_add_p.add_argument("--valid-until", help="YYYY-MM-DD: after this day search and briefs stop "
+                                                  "offering it; `eos consolidate` lists it")
 
     note_list_p = note_sub.add_parser("list", help="List notes")
     add_path(note_list_p)

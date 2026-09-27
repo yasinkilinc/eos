@@ -13,6 +13,7 @@ not the project that may commit notes about it.
 from __future__ import annotations
 
 import dataclasses
+import datetime
 import fnmatch
 import hashlib
 import json
@@ -289,6 +290,11 @@ class Note:
     execution: str | None = None
     # The file name of the note this one replaces (ADR-033 addendum).
     supersedes: str | None = None
+    # Who wrote it and until when it holds (2.x M1, forward-only): absent on
+    # every note written before. Validity starts at `created`.
+    provenance: str | None = None
+    agent: str | None = None
+    valid_until: str | None = None
 
 
 def _unscalar(text: str) -> str:
@@ -350,7 +356,25 @@ def parse_note(path: Path) -> Note:
         last_execution=meta.get("last_execution") or None,
         execution=meta.get("execution") or None,
         supersedes=meta.get("supersedes") or None,
+        provenance=meta.get("provenance") or None,
+        agent=meta.get("agent") or None,
+        valid_until=meta.get("valid_until") or None,
     )
+
+
+PROVENANCES = ("human", "agent", "generated")
+
+
+def expired(note: Note, today: datetime.date | None = None) -> bool:
+    """True when the note's `valid_until` is before today. A date that does not
+    parse is not an expiry: a hand-mangled field never hides a note."""
+    if not note.valid_until:
+        return False
+    try:
+        until = datetime.date.fromisoformat(str(note.valid_until))
+    except ValueError:
+        return False
+    return until < (today or datetime.date.today())
 
 
 def _count(value) -> int | None:

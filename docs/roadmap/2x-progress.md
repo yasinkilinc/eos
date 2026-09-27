@@ -155,7 +155,7 @@ measured 2.22 chars/token; A1 candidates proposed into a file, used by nothing u
 | Step | What | Status | Commits / notes |
 |---|---|---|---|
 | N1 | F3 `synonyms`: `[notes] synonyms` in a project's config; off without the table; `rank(..., synonyms=)` for hosts | DONE | each group is one concept: members and a query naming any of them read as one key, its weight counts the notes using any member (not the rarest member's, as planned -- that would let an unused spelling inflate the concept); two members named count once; a phrase member dropped, a word in two groups stays in the first. 9 tests; no host list (default) |
-| N2 | M1 forward-only: `note add` records `provenance` (human/agent/generated), `agent`, `valid_from`; `--valid-until`; `consolidate` lists expired notes; search leaves an expired note out; old notes untouched | TODO | |
+| N2 | M1 forward-only: `note add` records `provenance` (human/agent/generated), `agent`, `valid_from`; `--valid-until`; `consolidate` lists expired notes; search leaves an expired note out; old notes untouched | DONE | `--provenance`, `--agent` (implies agent; with human/generated refused), `--valid-until` (ISO, not in the past); MCP `add_note` records agent; search and the context section leave an expired note out, a mangled date never hides one; `consolidate` EXPIRED NOTES. No `valid_from`: `created` is it. 11 tests. Not done: `amend` cannot change these fields; the brief's procedure match does not look at expiry |
 | N3 | C1 `core/context/budget.py`: one estimator (2.22 chars/token, measured), every chars/3 and chars/4 site through it, L4 provenance kept | TODO | |
 | RVa | Review of N1-N3 | TODO | |
 | N4 | F5b collapse on read: `run show` folds identical consecutive events into one line with `xN`; the ledger stays append-only | TODO | |
@@ -167,7 +167,12 @@ measured 2.22 chars/token; A1 candidates proposed into a file, used by nothing u
 
 ### Decided without asking
 
-(none yet)
+- N1: a synonym group's weight counts the notes using any member (planned: the rarest member's). The rarest spelling is often one no note uses, which would make the concept look rare and outweigh the query's real words.
+- N1: groups are never merged; a word named in two groups stays in the first. Merging would let one careless entry join two meanings.
+- N2: no `valid_from` field; `created` already says when a note starts to hold, and a second date could disagree with it.
+- N2: a `valid_until` in the past is refused on add (the note would never be offered); an unparseable one on disk never hides a note.
+- N2: the MCP `add_note` records provenance `agent` without a name -- the server does not know which agent calls it.
+- Usage: the status line never ran in the VSCode session (no trace file after several turns), so the 50% rule cannot be read here; reported to the user, work continues until they give a reading.
 
 ## Found along the way
 
