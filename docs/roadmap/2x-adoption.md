@@ -78,16 +78,20 @@ finding is fixed with a test (ledger rows RV-RV14).
      (`[hooks] verify`, on by default);
    - `cite_check` is on by default once the plugin is 1.8+.
 
+## Decided (2026-09-27)
+
+- **F3 labels:** the proposal as written -- the 7 rows judged equivalent carry the
+  alternate, and row 11 also accepts the symlink memory note (first place unchanged).
+  Host golden set: recall@1 0.879, recall@3 1.0, MRR@10 0.939. The scorer work is
+  unblocked.
+- **M2:** counters keep moving on every `ok` run. `procedure show` prints how many of
+  those were `verified` / `claimed` beside the counter (1.24.0), not enforced. Revisit
+  after about two weeks of runs finished on 1.24: every earlier host run finished on
+  1.5.1 and carries no label, so a verified-only rule today would freeze every counter
+  for want of labels, not of checks.
+
 ## Decisions waiting for you
 
-- **F3 labels:** `nexus-2x docs/eos-evals/golden/nexus-alternates-proposal.md` --
-  which of the 11 near-duplicate answers are equivalent (7 judged so → recall@1
-  0.879). The retrieval scorer work waits for this.
-- **M2:** should procedure counters move only on `verified` runs? Measured on the
-  host's 57 ok runs: none changed a file in a verify scope (they deliver configs, run
-  scenarios, open PRs), so none is `verified` or `claimed` -- the rule as written
-  would freeze every procedure counter there. A counter rule for operational
-  procedures would have to rest on their `## Success` checks instead.
 - **C1:** one token estimator at the measured 2.22 chars/token would shorten briefs
   by about a quarter (they are sized at 3.0 today).
 - **Procedure texts:** `admin-toolbox`, `review`, `report` are named as tools by three

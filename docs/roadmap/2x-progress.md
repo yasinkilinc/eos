@@ -19,7 +19,7 @@ deletion; the nexus `mac` checkout and the global `eos` CLI are not touched.
 | F2 | `core/lib/lock.py` (O_EXCL, pid, stale 10 s, timeout 15 s) and `core/lib/atomic.py` (tmp+fsync+rename+dir fsync) on every read-modify-write; `check-clean` grep gate | DONE | core/lib/{lock,atomic}.py; counters, note sections, three log trims, run pointer; 16 concurrent finishes lose none (35/100 unlocked); an empty just-created lock was judged dead -- fixed; gate = tests/test_write_discipline.py |
 | F5 | Ledger discipline: `v` on every line, rotation 8 MB x 4, fold reads all, collapse identical consecutive events | DONE | `v` on every line (Python and eos-event); rotation 8 MB x 4 under the ledger lock; the fold reads rotated files oldest first; finish refuses an id never started. Collapse of identical consecutive events deferred: 20% of nexus events repeat, all real wrapper calls at distinct times -- collapsing needs count-aware consumers (with E5 incremental fold) |
 | F6 | `eos note eval`: MRR@10, nDCG@10, worst-first, p50/p90 latency; zero-hit in the denominator | DONE | MRR@depth, nDCG@depth (one relevant note: 1/log2(rank+1)), zero_hit, latency p50/p90, misses worst first |
-| F3 | One retrieval scorer (`core/retrieval.py`) behind the golden-set gate (recall@3 not lower, nexus recall@1 ≥ 0.80) | BLOCKED (labels) | baseline nexus r@1 0.667 r@3 0.970; misses are near-duplicate notes (sections vs procedures written from them). Rejected: title bigram bonus (nexus r@3 0.97->0.94), light stemming (0.97->0.91). Added: golden `a.md|b.md` alternates. Proposal for the user: nexus-2x docs/eos-evals/golden/nexus-alternates-proposal.md (7 of 11 judged equivalent -> r@1 0.879). Structural unification of the search paths waits for the labels |
+| F3 | One retrieval scorer (`core/retrieval.py`) behind the golden-set gate (recall@3 not lower, nexus recall@1 ≥ 0.80) | TODO (labels decided 2026-09-27: host r@1 0.879, r@3 1.0 with the alternates) | baseline nexus r@1 0.667 r@3 0.970; misses are near-duplicate notes (sections vs procedures written from them). Rejected: title bigram bonus (nexus r@3 0.97->0.94), light stemming (0.97->0.91). Added: golden `a.md|b.md` alternates. Proposal for the user: nexus-2x docs/eos-evals/golden/nexus-alternates-proposal.md (7 of 11 judged equivalent -> r@1 0.879). Structural unification of the search paths waits for the labels |
 | F4 | Split `core/eos.py` into `core/cli/*` with zero behaviour change | DONE | eos.py 3,090 -> 716 lines (bootstrap, hook fast path, main); core/cli/{common,project,notes,work,runs,procedures,route,intel}.py moved verbatim by an AST splitter (helpers go with the one group that reaches them, shared ones to common); all 99 help screens byte-identical; runtime copy works; memory_audit C-06 looks in core.cli.runs |
 
 | M5 | Paraphrase guard on `note add`: word-trigram Jaccard ≥ 0.8 against existing notes | DONE | refused on add, reported on amend; bodies under 20 trigrams not compared; measured first: no pair in the host's 20 stores reaches 0.6 |
@@ -66,7 +66,7 @@ deletion; the nexus `mac` checkout and the global `eos` CLI are not touched.
 | M1b | `consolidate` names notes that still cite a replaced note (M1's "superseded but cited") | DONE | reads the note graph's `cites` edges into replaced notes |
 | G2 | `eos note graph [--output]`: the note graph's size, or node-link JSON Graphify reads (ADR-033 addendum) | DONE | host export: 238 nodes, 155 links; `graphify cluster-only --no-label` found 157 communities (11 beyond a pair) and drew graph.html, 0 tokens |
 | M1/M3/M4/M6 | Provenance on every note, generated store, journey fan-out, priors | BLOCKED | M1/M3/M4 migrate the host's notes (~590 files) -- a person decides; M6 needs F3 |
-| M2 | Counters moved only by verified outcomes | NEEDS DECISION | 1.6 labels ok runs verified/claimed from evidence; whether procedure counters move only on verified is a policy call. Measured: the host's 57 ok runs changed no scoped file, so the rule would freeze every counter there |
+| M2 | Counters moved only by verified outcomes | DECIDED: NO (for now) | 2026-09-27: counters stay on ok; `procedure show` prints `of the ok: verified N, claimed M` beside them and `runs_verified`/`runs_claimed` in JSON (1.24.0). The host's 60 ok runs all finished on 1.5.1 and carry no label -- revisit after about two weeks of labelled runs |
 
 ## What is left of §17 (checked against the code at 65aade8)
 
@@ -79,12 +79,12 @@ has barely started. "Absent" below means the name the report gives does not occu
 | Phase | Item | State | What is missing |
 |---|---|---|---|
 | 1 | F2 | done | F2b below; every rewrite through `core/lib/atomic.py` and the index swap are checked first |
-| 1 | F3 | blocked (labels) | the scorer itself: FTS5 BM25 column weights, porter, RRF, MMR, `synonyms` (absent), one scorer behind `eos-query.sh notes` |
+| 1 | F3 | labels decided, scorer TODO | the scorer itself: FTS5 BM25 column weights, porter, RRF, MMR, `synonyms` (absent), one scorer behind `eos-query.sh notes` |
 | 1 | F4 | done | `core/notes/` split by F4b below |
 | 1 | F5 | part | `count` collapsing of identical consecutive events (deferred above) |
 | 1 | gate | not met | nexus recall@1 0.667 against >= 0.80; same top-3 from `eos-query.sh notes` and `eos note search` |
 | 2 | M1 | part | only `supersedes`: `provenance_type`, `agent`, `valid_from`/`valid_until` absent; no "expired" report |
-| 2 | M2 | part | `outcome_source` labels exist; `run finish --source`, event `status`/`source`/`step` fields and the counter rule do not (decision) |
+| 2 | M2 | part | `outcome_source` labels exist; `run finish --source` and event `status`/`source`/`step` fields do not; the counter rule was decided against for now (counters stay on ok, the split is shown) |
 | 2 | M3, M4, M6 | not started | generated store and migration, journey fan-out, priors (M6 needs F3) |
 | 2 | gate | not met | provenance >= 95%, notes store <= 300 files, recall@1 >= 0.85, injection p95 <= 4,000 |
 | 3 | C1 | not started | `core/context/budget.py`; the estimator is a decision (2.22 measured vs 3.5 in the report) |
@@ -109,7 +109,7 @@ has barely started. "Absent" below means the name the report gives does not occu
 | 6 | L3, L4, L5 | L3, L4 done; L5 open | L3 and L4 below; recalibration receipts (L5) need A1's corpus |
 | host | cross-phase | open | M3/M4 moves, `projects.toml` and `capability.toml`, the routing corpus, hook scripts to templates, the service-directory resume eval, generators that rewrite always-loaded files |
 
-Next without a decision (engine only): none left. Everything waits on F3's labels, C1's estimator, M1/M3's migration, A1's corpus or host work.
+Next without a decision (engine only): F3's scorer (labels decided 2026-09-27). Everything else waits on C1's estimator, M1/M3's migration, A1's corpus or host work.
 
 | Step | What | Status | Commits / notes |
 |---|---|---|---|

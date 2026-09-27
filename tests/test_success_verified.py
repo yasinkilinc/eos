@@ -5,6 +5,7 @@ was verified or claimed. A procedure's Success lines name the checks that prove 
 (`scripts/tracker.sh issue X` shows done); a run that ran each named tool with
 exit 0 is verified, one that did not is claimed.
 """
+import json
 import subprocess
 import sys
 from pathlib import Path
@@ -56,6 +57,24 @@ def test_a_run_that_ran_its_success_check_is_verified_and_one_that_did_not_is_cl
     assert executions.outcome_source(root, runs[checked]) == ("verified", [])
     assert executions.outcome_source(root, runs[unchecked]) == ("claimed", ["success: tracker issue"])
     assert "Success check" in said and "tracker" in said
+
+
+def test_the_counter_moves_on_every_ok_run_and_shows_verified_and_claimed_beside_it(tmp_path, monkeypatch):
+    # 2.x M2, decided 2026-09-27: counters stay on ok; the split is shown, not enforced.
+    root, slug = _project(tmp_path, monkeypatch)
+    checked = _eos("run", "start", str(root), "--title", "Close FM-1", "--procedure", slug,
+                   "--session", "s1").split()[0]
+    _eos("run", "event", str(root), checked, "--kind", "called", "--tool", "tracker", "--ref", "issue FM-1",
+         "--exit", "0")
+    _eos("run", "finish", str(root), checked, "--outcome", "ok")
+    unchecked = _eos("run", "start", str(root), "--title", "Close FM-2", "--procedure", slug,
+                     "--session", "s2").split()[0]
+    _eos("run", "finish", str(root), unchecked, "--outcome", "ok")
+
+    shown = _eos("procedure", "show", str(root), slug)
+    assert "2 ok / 0 failed" in shown and "of the ok: verified 1, claimed 1" in shown
+    as_json = json.loads(_eos("procedure", "show", str(root), slug, "--format", "json"))
+    assert (as_json["runs_ok"], as_json["runs_verified"], as_json["runs_claimed"]) == (2, 1, 1)
 
 
 def test_a_failed_success_check_does_not_verify(tmp_path, monkeypatch):

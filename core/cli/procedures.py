@@ -51,7 +51,12 @@ def cmd_procedure_show(args: argparse.Namespace) -> int:
     except ValueError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1
-    runs = executions.of_procedure(args.path, note.procedure or "")[-3:]
+    every = executions.of_procedure(args.path, note.procedure or "")
+    runs = every[-3:]
+    # 2.x M2 (decided 2026-09-27): the counter moves on every ok run; how many of those
+    # were verified or claimed is shown beside it, not enforced.
+    verified = sum(1 for r in every if r.outcome == "ok" and r.outcome_source == "verified")
+    claimed = sum(1 for r in every if r.outcome == "ok" and r.outcome_source == "claimed")
     if args.format == "json":
         print(json.dumps({"procedure": note.procedure, "title": note.title,
                           "steps": notes.procedure_steps(note),
@@ -60,12 +65,14 @@ def cmd_procedure_show(args: argparse.Namespace) -> int:
                           "success": notes.procedure_success(note),
                           "known_failures": notes.procedure_known_failures(note),
                           "runs_ok": note.runs_ok or 0, "runs_failed": note.runs_failed or 0,
+                          "runs_verified": verified, "runs_claimed": claimed,
                           "last_verified": note.last_verified,
                           "recent": [r.to_dict() for r in reversed(runs)],
                           "path": str(note.path)}, indent=2, ensure_ascii=False))
         return 0
     print(f"{note.title}   [{note.procedure}]")
     print(f"  runs      {note.runs_ok or 0} ok / {note.runs_failed or 0} failed   "
+          f"of the ok: verified {verified}, claimed {claimed}   "
           f"last verified {note.last_verified or 'never'}   "
           f"confidence {notes.procedure_confidence(note)}")
     for label, items in (("prerequisites", notes.procedure_prerequisites(note)),
