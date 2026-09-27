@@ -238,6 +238,11 @@ def start(project_root: str | Path, title: str, *, procedure: str | None = None,
     if not title or not title.strip():
         raise ValueError("an execution without a title is not findable by anyone")
     _checked(title, "title")
+    if procedure:
+        newer = notes.replacing_procedure(project_root, procedure)
+        if newer is not None:
+            raise ValueError(f"procedure {procedure!r} was replaced by {newer.procedure!r} "
+                             f"({newer.title}); start the run with --procedure {newer.procedure}")
     sid = session_for(project_root, session)
     commit, branch = work.git_head(project_root)
     record = Record(id=f"x-{work.make_id(title)}", title=title.strip(), procedure=procedure,

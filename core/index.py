@@ -31,7 +31,7 @@ from core import links
 from core import notes
 from core.lib.config_io import ConfigIO
 
-SCHEMA_VERSION = 6
+SCHEMA_VERSION = 7
 
 # Search results scoring below this fraction of the best BM25 score are cut.
 # The OR query (0.35.0) made a question in a sentence find its answer; it also
@@ -68,7 +68,8 @@ CREATE TABLE note (
     session TEXT,
     generated INTEGER NOT NULL,
     body TEXT NOT NULL,
-    sha256 TEXT NOT NULL
+    sha256 TEXT NOT NULL,
+    supersedes TEXT
 );
 CREATE TABLE note_tag (
     note_id INTEGER NOT NULL REFERENCES note(id),
@@ -84,8 +85,8 @@ CREATE TABLE note_scope (
     PRIMARY KEY (note_id, ord)
 ) WITHOUT ROWID;
 CREATE INDEX note_scope_by_entry ON note_scope(entry);
--- Notes linked to notes, derived on every build (core/note_graph.py): cites,
--- lesson, scope, ticket; `via` is the shared file or key.
+-- Notes linked to notes, derived on every build (core/note_graph.py):
+-- supersedes, cites, lesson, scope, ticket; `via` is the shared file or key.
 CREATE TABLE note_edge (src TEXT NOT NULL, dst TEXT NOT NULL, kind TEXT NOT NULL, via TEXT);
 CREATE INDEX note_edge_by_src ON note_edge(src);
 CREATE INDEX note_edge_by_dst ON note_edge(dst);
@@ -955,10 +956,10 @@ def _load_notes(build: BuildContext) -> Path:
         # `updated` is written by `eos note amend` but is not a Note field.
         updated = _front_matter(_text(raw)).get("updated")
         cursor = build.conn.execute(
-            "INSERT INTO note(file, kind, title, created, updated, source, session, generated, body, sha256) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO note(file, kind, title, created, updated, source, session, generated, body, sha256, "
+            "supersedes) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (name, note.kind, note.title, note.created or None, updated, note.source, note.session,
-             int(notes.is_generated(note)), note.body, digest),
+             int(notes.is_generated(note)), note.body, digest, note.supersedes),
         )
         note_id = cursor.lastrowid
         build.conn.executemany(

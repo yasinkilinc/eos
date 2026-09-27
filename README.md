@@ -44,6 +44,8 @@ executable launcher under `~/.local/bin/eos`. Override the locations with
 - **A note can replace another:** `eos note add --supersedes "<note>"`. The old
   note stays as the record; search and briefs stop offering it, `note show`
   points to the replacement, and the note graph links the two.
+- **1.17.1:** amend keeps `supersedes`; a replaced procedure is not offered and
+  cannot start a run; a cycle hides nothing; the index records the column.
 
 ## What changed in 1.16
 

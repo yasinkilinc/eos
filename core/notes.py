@@ -815,9 +815,25 @@ def _one_note(corpus: list[Note], needle: str, what: str) -> Note:
     return matches[0]
 
 
-def superseded(corpus: list[Note]) -> dict[str, str]:
-    """{file name of a replaced note: file name of the note replacing it}."""
-    return {note.supersedes: note.path.name for note in corpus if note.supersedes}
+def superseded(corpus: list[Note]) -> dict[str, list[str]]:
+    """{file name of a replaced note: the notes replacing it}. A pair inside a
+    cycle (hand edits, a merge) replaces nothing: hiding both would lose both."""
+    replaces = {note.path.name: note.supersedes for note in corpus if note.supersedes}
+
+    def in_cycle(start: str) -> bool:
+        seen, current = set(), start
+        while current in replaces and current not in seen:
+            seen.add(current)
+            current = replaces[current]
+            if current == start:
+                return True
+        return False
+
+    found: dict[str, list[str]] = {}
+    for name, target in sorted(replaces.items()):
+        if not in_cycle(name):
+            found.setdefault(target, []).append(name)
+    return found
 
 
 # `_compose_body` writes these as literal `## Name` lines. A raw substring
@@ -1151,6 +1167,7 @@ def amend_note(
                if note.kind == "procedure" else {"procedure": note.procedure}),
             # A lesson keeps the run that taught it through any rewrite.
             "execution": note.execution,
+            "supersedes": note.supersedes,
         }
     )
     path.write_text(f"{document}\n\n{content}\n", encoding="utf-8")
@@ -1450,7 +1467,7 @@ def render_context_section(
     if query:
         candidates = search_notes(project_root, query)
     else:
-        candidates = list(reversed(load_notes(project_root)))
+        candidates = [n for n in reversed(load_notes(project_root)) if n.path.name not in superseded(load_notes(project_root))]
     if not candidates:
         return ""
 
@@ -1694,12 +1711,27 @@ def _procedure_front(slug: str, runs_ok: int, runs_failed: int,
 
 
 def procedures(project_root: str | Path) -> list[Note]:
-    return [n for n in load_notes(project_root) if n.kind == "procedure"]
+    """The procedures in use: one another replaced is left out."""
+    corpus = load_notes(project_root)
+    replaced = superseded(corpus)
+    return [n for n in corpus if n.kind == "procedure" and n.path.name not in replaced]
+
+
+def replacing_procedure(project_root: str | Path, slug: str) -> Note | None:
+    """The procedure that replaced the one with `slug`, when one did."""
+    corpus = load_notes(project_root)
+    replaced = superseded(corpus)
+    old = next((n for n in corpus if n.kind == "procedure" and n.procedure == slug), None)
+    if old is None or old.path.name not in replaced:
+        return None
+    by_name = {n.path.name: n for n in corpus}
+    return by_name.get(replaced[old.path.name][-1])
 
 
 def find_procedure(project_root: str | Path, needle: str) -> Note:
-    """By slug, then by slug prefix, then by title words -- one match or an error."""
-    found = procedures(project_root)
+    """By slug, then by slug prefix, then by title words -- one match or an error.
+    A replaced procedure is still found by its slug: its runs finish against it."""
+    found = [n for n in load_notes(project_root) if n.kind == "procedure"]
     exact = [n for n in found if n.procedure == needle]
     if exact:
         return exact[0]

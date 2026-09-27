@@ -407,7 +407,8 @@ def best_procedure(root: Path, task: str, corpus: list | None = None):
     tagged with; that is what tags are for.
     """
     corpus = corpus if corpus is not None else notes.load_notes(root)
-    candidates = [n for n in corpus if n.kind == "procedure"]
+    replaced = notes.superseded(corpus)
+    candidates = [n for n in corpus if n.kind == "procedure" and n.path.name not in replaced]
     if not candidates:
         return None
     words = notes._words(task)

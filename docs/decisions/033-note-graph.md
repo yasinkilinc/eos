@@ -55,3 +55,12 @@ links the two (`supersedes`, weight 3). The rewrite is expected to read like the
 note it replaces, so the duplicate and paraphrase guards do not compare the two.
 Validity windows and provenance on every note (the rest of M1) are still a
 decision.
+
+Review 14 (1.17.1): an amend kept every field but `supersedes`, so the old note
+came back -- kept now; a replaced procedure was still listed, chosen by the
+brief and could start runs -- it is left out of `procedures()` and the brief,
+and `run start --procedure <old slug>` is refused naming the replacement (its
+earlier runs still finish against it); two notes replacing one are both named;
+a pair replacing each other (a hand edit, a merge) hides neither; the index's
+`note` table records `supersedes` (schema 7); `eos context` without a task
+leaves replaced notes out too.

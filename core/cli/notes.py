@@ -130,9 +130,10 @@ def cmd_note_show(args: argparse.Namespace) -> int:
         for note in matches[:10]:
             print(f"  {note.path.name}\t{note.title}", file=sys.stderr)
         return 1
-    replacement = notes.superseded(recorded).get(matches[0].path.name)
-    if replacement:
-        print(f"Superseded by {replacement} -- read that one; this is the record of what was believed before.\n")
+    replacements = notes.superseded(recorded).get(matches[0].path.name)
+    if replacements:
+        print(f"Superseded by {', '.join(replacements)} -- read that; this is the record of what was believed "
+              "before.\n")
     print(matches[0].path.read_text(encoding="utf-8"))
     return 0
 
