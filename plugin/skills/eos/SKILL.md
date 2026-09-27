@@ -3,7 +3,7 @@ name: eos
 description: Load when a question needs project-wide facts EOS already indexed — where a symbol lives, what a file affects, what earlier sessions learned — and you want to weigh an EOS tool against a plain Read or Grep before reaching for either.
 ---
 
-# EOS (engine 1.15.1)
+# EOS (engine 1.16.0)
 
 EOS indexes this project into `.eos/data/eos.db`: parsed symbols, imports, a
 project graph, git history, and notes an agent chose to record. It is
@@ -70,6 +70,7 @@ argument. Every command takes `--format json`.
 | `eos procedure list` / `eos procedure show <slug>` | How a recurring task is done here: ordered steps, the tools they use, what proves success, how many runs went ok or failed and when it was last verified | Before doing a task the project has done before — follow the recorded steps rather than improvising plausible ones |
 | `eos procedure new --title "…" --step "…"` | Writes a procedure note (`kind: procedure`); counters then move only when a run naming it finishes (`eos run start --procedure <slug>`) | The first time a recurring task is done well enough to be worth repeating; `eos procedure audit` checks counters against the ledger, `eos procedure lint` the tools its steps name |
 | `eos cite [--output file]` | References and quotes in an answer that cannot be right: a missing file, a line past the end, a quote not at the lines it cites. Exit 1 when it finds one | Before handing over an answer that cites code |
+| `eos note related "<note>"` | The notes linked to one: a note citing it, the lessons of a procedure, notes watching the same file or naming the same ticket -- each with its reason | Before acting on a note or a procedure: what else is known next to it |
 | `eos consolidate` | One report of what needs attention: procedures failing or never run, lint, notes that read alike, notes whose files changed, runs open for days, stale work, the verified rate. Changes nothing | Now and then, or before tidying the project's memory |
 | `eos brief --resume` / `eos brief --for-subagent --task "…"` | What this session left open (runs, held work, failures); the short handoff a subagent should start with | After a clear or a compaction; before starting a subagent by hand |
 | `eos run list` / `eos run show <id>` | Past executions and one run's timeline: which tools ran, against what, with what exit code, and how it ended | Before repeating a task: what happened the last time it was done |

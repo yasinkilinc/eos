@@ -31,7 +31,7 @@ from core import links
 from core import notes
 from core.lib.config_io import ConfigIO
 
-SCHEMA_VERSION = 5
+SCHEMA_VERSION = 6
 
 # Search results scoring below this fraction of the best BM25 score are cut.
 # The OR query (0.35.0) made a question in a sentence find its answer; it also
@@ -84,6 +84,11 @@ CREATE TABLE note_scope (
     PRIMARY KEY (note_id, ord)
 ) WITHOUT ROWID;
 CREATE INDEX note_scope_by_entry ON note_scope(entry);
+-- Notes linked to notes, derived on every build (core/note_graph.py): cites,
+-- lesson, scope, ticket; `via` is the shared file or key.
+CREATE TABLE note_edge (src TEXT NOT NULL, dst TEXT NOT NULL, kind TEXT NOT NULL, via TEXT);
+CREATE INDEX note_edge_by_src ON note_edge(src);
+CREATE INDEX note_edge_by_dst ON note_edge(dst);
 
 -- What sessions took on, folded from the append-only ledger (ADR-020). The
 -- ledger stays the source of truth and `eos work` reads it directly; this is
@@ -935,6 +940,7 @@ def _load_notes(build: BuildContext) -> Path:
         return directory
     # File by file, not notes.load_notes(): one unreadable or merge-conflicted
     # note would abort that whole load.
+    parsed = []
     for path in sorted(directory.glob("*.md")):
         name = path.name
         try:
@@ -967,6 +973,15 @@ def _load_notes(build: BuildContext) -> Path:
             ],
         )
         _add_search(build, "note", name, note.title, note.body)
+        parsed.append(note)
+    from core import note_graph
+
+    try:
+        pattern = _ticket_pattern(build.root)
+    except IndexBuildError:
+        pattern = None
+    build.conn.executemany("INSERT INTO note_edge(src, dst, kind, via) VALUES (?, ?, ?, ?)",
+                           [(e.src, e.dst, e.kind, e.via) for e in note_graph.edges(parsed, pattern)])
     return directory
 
 

@@ -39,6 +39,13 @@ canonical `core/` runtime to `~/.local/share/eos/<version>/` and installs an
 executable launcher under `~/.local/bin/eos`. Override the locations with
 `EOS_INSTALL_PREFIX`, `EOS_DATA_DIR`, `EOS_BIN_DIR`, or `EOS_PYTHON`.
 
+## What changed in 1.16
+
+- **The note graph (ADR-033):** notes are linked to notes on every build -- a
+  citation, a lesson's procedure, a shared scope file, a shared ticket.
+  `eos note related <note>` lists the links with their reason, and the task brief
+  names up to three notes linked to its procedure or nearest note.
+
 ## What changed in 1.15
 
 - **Operational runs are labelled too:** a run that changed no scoped file is

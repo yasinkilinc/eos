@@ -316,6 +316,11 @@ def main(argv: list[str] | None = None) -> int:
     note_show_p = note_sub.add_parser("show", help="Print one note in full")
     add_path(note_show_p)
     note_show_p.add_argument("name", help="Note file name, or part of its title")
+    note_related_p = note_sub.add_parser(
+        "related", help="Notes linked to one: citations, a lesson's procedure, shared scope files and tickets")
+    add_path(note_related_p)
+    note_related_p.add_argument("name", help="Note file name, or part of its title")
+    note_related_p.add_argument("--limit", type=int, default=10)
 
     note_search_p = note_sub.add_parser("search", help="Search notes by relevance")
     add_path(note_search_p)

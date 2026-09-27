@@ -133,6 +133,29 @@ def cmd_note_show(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_note_related(args: argparse.Namespace) -> int:
+    """The notes linked to one: citations, a lesson's procedure, shared scope files, shared tickets."""
+    from core import note_graph
+
+    recorded = notes.load_notes(args.path)
+    needle = args.name.casefold()
+    exact = [note for note in recorded if note.path.name.casefold() == needle or note.title.casefold() == needle]
+    matches = exact or [note for note in recorded
+                        if needle in note.path.name.casefold() or needle in note.title.casefold()]
+    if len(matches) != 1:
+        print(f"{len(matches)} notes match {args.name!r}; name exactly one (file name or title).", file=sys.stderr)
+        for note in matches[:10]:
+            print(f"  {note.path.name}\t{note.title}", file=sys.stderr)
+        return 1
+    found = note_graph.related(recorded, matches[0].path.name, note_graph.pattern_for(args.path), limit=args.limit)
+    if not found:
+        print(f"No note is linked to {matches[0].title!r}: no citation, lesson, shared scope file or ticket.")
+        return 0
+    for note, why in found:
+        print(f"{note.path.name}\t{note.kind}\t{note.title}\t({why})")
+    return 0
+
+
 def cmd_note_search(args: argparse.Namespace) -> int:
     matches = notes.search_notes(args.path, args.query, limit=args.limit)
     for note in matches:
@@ -323,6 +346,7 @@ def cmd_note(args: argparse.Namespace) -> int:
         "list": cmd_note_list,
         "search": cmd_note_search,
         "show": cmd_note_show,
+        "related": cmd_note_related,
         "eval": cmd_note_eval,
         "skip": cmd_note_skip,
         "amend": cmd_note_amend,

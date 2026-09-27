@@ -245,6 +245,7 @@ def _branch_brief(root: Path, *, session: str | None, agent: str | None) -> str:
 
 
 ELSEWHERE_LIMIT = 3
+LINK_LIMIT = 3
 
 
 def _elsewhere(root: Path, keys: list[str], now) -> list[str]:
@@ -563,6 +564,22 @@ def _task_sections(root: Path, task: str) -> tuple[list[list[str]], bool]:
         found = True
         sections.append(["RELATED NOTES"] + [f"  - {n.title}  {note_label(n)}" for n in related]
                         + ['  Read one: eos note show . "<title>"'])
+
+    # The note graph: what the procedure, or the nearest note, is linked to --
+    # a lesson, a note citing it, one watching the same file or ticket.
+    anchor = procedure if procedure is not None else (related[0] if related else None)
+    if anchor is not None:
+        from core import note_graph
+
+        shown = {n.path.name for n in related} | {anchor.path.name}
+        linked = [(n, why) for n, why in note_graph.related(corpus, anchor.path.name, note_graph.pattern_for(root),
+                                                            limit=LINK_LIMIT + len(shown))
+                  if n.path.name not in shown and not notes.is_bulk_index(n)][:LINK_LIMIT]
+        if linked:
+            found = True
+            sections.append([f"LINKED TO {_clip(anchor.title, 60)}"]
+                            + [f"  - {n.title}  {note_label(n)}  ({why})" for n, why in linked]
+                            + ['  All of them: eos note related . "<title>"'])
 
     slug = procedure.procedure if procedure is not None else "<slug>"
     sections.append([f"Record this run: eos run start . --title \"…\" "
