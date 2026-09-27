@@ -66,6 +66,7 @@ deletion; the nexus `mac` checkout and the global `eos` CLI are not touched.
 | M1b | `consolidate` names notes that still cite a replaced note (M1's "superseded but cited") | DONE | reads the note graph's `cites` edges into replaced notes |
 | G2 | `eos note graph [--output]`: the note graph's size, or node-link JSON Graphify reads (ADR-033 addendum) | DONE | host export: 238 nodes, 155 links; `graphify cluster-only --no-label` found 157 communities (11 beyond a pair) and drew graph.html, 0 tokens |
 | M1/M3/M4/M6 | Provenance on every note, generated store, journey fan-out, priors | BLOCKED | M1/M3/M4 migrate the host's notes (~590 files) -- a person decides; M6 needs F3 |
+| C5b | Workspace run routing: `<workspace>/.eos/projects.toml` (root, name, aliases), `run start` records a run in the ledger of the one project its title names by a whole alias; `--project`/`--here`; the R15 blocker's near misses printed, never followed; events, `run finish` by id and the Stop close follow the run | DONE | release 1.26.0. Host replay, 20 services aliased by name and name without prefix, 68 run titles: 1 routed (`env0 RIM: …` -> the RIM service), 0 ambiguous -- most host runs are env or workspace work, so routing stays rare and `--project` is the ordinary way in. R15's half-word bound suggested `commit` -> `common`; capped at 1 edit, 0 suggestions |
 | M2 | Counters moved only by verified outcomes | DECIDED: NO (for now) | 2026-09-27: counters stay on ok; `procedure show` prints `of the ok: verified N, claimed M` beside them and `runs_verified`/`runs_claimed` in JSON (1.24.0). The host's 60 ok runs all finished on 1.5.1 and carry no label -- revisit after about two weeks of labelled runs |
 
 ## What is left of §17 (checked against the code at 65aade8)
@@ -91,7 +92,7 @@ has barely started. "Absent" below means the name the report gives does not occu
 | 3 | C2 | part | kind and age shipped; stable ids left out on purpose; the lessons' `evidence:` flag |
 | 3 | C3 | engine done | C3a and C3b below; the host's injection hook narrowing bodies is host work |
 | 3 | C4 | unclear | the context diet on `main` (ADR-027) may cover part; not measured against the item |
-| 3 | C5 | part | read-only ELSEWHERE and `work --across`; `projects.toml`, the alias blocker, hooks once at the root, run routing to the named ledger, host hooks as engine templates |
+| 3 | C5 | part | done: read-only ELSEWHERE, `work --across`, `projects.toml` with the alias blocker, run routing to the named ledger (C5b). Left: hooks once at the root, host hooks as engine templates, the service-directory resume eval |
 | 3 | C6 | done | corrected: hook events carry `agent` (the subagent's type) and land in the session's open run, which is the parent's |
 | 3 | C7 | engine done | `cost --context` and C7b `cost --sessions` below; the saved-vs-baseline column needs the host's baseline sessions |
 | 4 | A1 | not started | routing corpus (>= 200 labelled prompts, ~2 days of human work), `route --bench` absent |

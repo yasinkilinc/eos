@@ -1004,6 +1004,10 @@ def _close_reasons(root: Path, hook: Hook, cfg: dict) -> list[str]:
         held = [item for item in work.items(root) if item.status == work.ACTIVE
                 and any(holder.get("session") == hook.session for holder in item.holders)]
         runs = [run for run in executions.load(root) if run.open and run.session == hook.session]
+        pointed = executions.current(root, hook.session)
+        if pointed and not any(run.id == pointed[0] for run in runs):
+            # Opened here, recorded in a workspace project's ledger (C5).
+            runs += [run for run in executions.load_path(pointed[1]) if run.id == pointed[0] and run.open]
         _note_state(hook.session, held=len(held), open_runs=len(runs))
         lines = []
         if held:

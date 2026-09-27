@@ -24,18 +24,53 @@ def _work_from_branch(path) -> str | None:
     return matches[0].id if len(matches) == 1 else None
 
 
+def _named_project(args: argparse.Namespace):
+    """(root to record in, the line saying why) -- the caller's own path when the
+    workspace names no project for this run (2.x roadmap C5, part 2)."""
+    from core import workspace
+
+    projects = workspace.load(args.path)
+    if args.project:
+        if not projects:
+            raise ValueError(f"--project needs {workspace.path_for(args.path)}, which names no project")
+        chosen = workspace.find(projects, args.project)
+        if chosen is None:
+            raise ValueError(f"no project {args.project!r} in {workspace.path_for(args.path)}; "
+                             f"known: {', '.join(p.name for p in projects)}")
+        return chosen.root, f"recorded in {chosen.name}'s ledger (--project)"
+    if not projects or args.here:
+        return args.path, None
+    named = workspace.named_in(projects, args.title)
+    if len(named) == 1:
+        chosen, words = named[0]
+        return chosen.root, (f"recorded in {chosen.name}'s ledger (the title names {words!r}); "
+                             f"--here keeps a run in this one")
+    if named:
+        return args.path, (f"recorded here: the title names {', '.join(p.name for p, _ in named)}; "
+                           f"--project picks one")
+    near = workspace.near_in(projects, args.title)
+    if near:
+        return args.path, ("recorded here; the title almost names "
+                           + ", ".join(f"{p.name} ({words!r})" for p, words in near[:3])
+                           + " -- --project records it there")
+    return args.path, None
+
+
 def cmd_run_start(args: argparse.Namespace) -> int:
     from core import executions
 
     linked = None if args.work else _work_from_branch(args.path)
     try:
-        record = executions.start(args.path, args.title, procedure=args.procedure,
+        root, why = _named_project(args)
+        record = executions.start(root, args.title, procedure=args.procedure,
                                   work_item=args.work or linked, session=args.session,
                                   agent=args.agent, target=args.target)
     except (ValueError, OSError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1
     print(record.id)
+    if why:
+        print(why, file=sys.stderr)
     if linked:
         print(f"linked to work item {linked} (its ticket is on this branch); --work names another")
     if not record.session:
@@ -43,7 +78,7 @@ def cmd_run_start(args: argparse.Namespace) -> int:
         # their own. Say how to reach it rather than let capture go quiet.
         print(f"No session id found; wrappers will not attach events on their own. "
               f"Export {executions.EXECUTION_ENV}={record.id} and "
-              f"{executions.LEDGER_ENV}={executions.path_for(args.path)}, "
+              f"{executions.LEDGER_ENV}={executions.path_for(root)}, "
               f"or pass --session.", file=sys.stderr)
     _route_run(args.path, record)
     return 0

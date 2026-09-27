@@ -30,6 +30,7 @@ The row-by-row ledger with commits is `docs/roadmap/2x-progress.md`.
 | 1.12.1 | Fifth review | `set -e` read as bash reads it: not in conditions or function bodies, `set +o errexit`, subshells |
 | 1.12.2 | Sixth review | a check inside an if/loop/case/function block never counts; deep nesting refused, not a crash |
 | 1.12.3 | Seventh review | block words read at every command start, not only a fragment's first word |
+| 1.26.0 | Workspace run routing (C5b) | from a root with `.eos/projects.toml`, a run whose title names one project is recorded in that project's ledger; `--project`, `--here`; events, finish and the Stop close follow it |
 | 1.23.3 | Java nested scopes | a nested Java class named like its outer one no longer swaps end lines with it; same-named containers (`Req.Builder`, `Resp.Builder`) each keep their methods |
 | 1.23.2 | Review of L3 and L4 | a Java constructor is never a method's parent, an ambiguous parent is left unlinked, parent resolution is linear; unmeasured totals are None |
 | 1.23.1 | Integrity before replace (F2b) | an atomic rewrite whose temp file does not hold what was written replaces nothing; a new index that fails `PRAGMA quick_check` keeps the previous one |

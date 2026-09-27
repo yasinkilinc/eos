@@ -157,6 +157,9 @@ executable launcher under `~/.local/bin/eos`. Override the locations with
   each symbol's `parent_id`, so a query climbs method → class → file.
 - **Runs join work:** `eos run start` on a ticket's branch links the run to
   that ticket's open work item; `eos work show` lists its runs.
+- **Runs land where they belong:** from a workspace root with
+  `.eos/projects.toml`, `eos run start` records a run whose title names one
+  project in that project's ledger (`--project`, `--here` to choose).
 - **Briefs say how old a note is:** `[finding, 3d]` beside every note named.
 - **Smaller artifacts:** graph and file caches and MCP results are written
   without indentation (a real service: 64.7 MB -> 42.2 MB file cache).
@@ -835,6 +838,12 @@ eos run show . <id> | eos run tools . | eos run diff . <id>
   start, the events of what it did (kind, tool, target, a reference — never a
   payload), and its declared outcome. Wrappers append events with no id and no
   interpreter; capture never fails the command around it.
+- **Workspace routing** — a workspace root whose `.eos/projects.toml` lists its
+  projects (`[[project]]` with `root`, optional `name` and `aliases`) records a
+  run in the ledger of the one project its title names by a whole alias;
+  `--project <name>` picks one, `--here` keeps it at the root. A near miss is
+  printed as a suggestion, never followed. Events and `run finish` follow the
+  run there. Without the file nothing changes.
 - **Procedures** (ADR-023) — notes of `kind: procedure` with `## Steps`. Their
   run counters and `last_verified` move only when a run naming them finishes;
   `eos procedure audit` recomputes them from the ledger. A step may mark

@@ -399,6 +399,11 @@ def finish(project_root: str | Path, execution: str | None = None, *, outcome: s
         # holds it open: worktrees share a committed ledger, so the same id can be
         # open in two of them, and the caller means its own (second review).
         ledger = found[1]
+    elif execution not in {r.id for r in load_path(ledger)}:
+        # Routed to a workspace project by `run start` and finished by id from
+        # the workspace root, in a session that holds no pointer to it (C5).
+        from core import workspace
+        ledger = workspace.ledger_holding(project_root, execution) or ledger
     project_root = _root_of(ledger) or project_root
     _checked(lesson, "lesson")
     _checked(next_time, "next time")

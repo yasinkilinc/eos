@@ -476,6 +476,11 @@ def main(argv: list[str] | None = None) -> int:
     run_start_p.add_argument("--work", help="Work item id this run belongs to")
     run_start_p.add_argument("--target", help="Environment or system this run acts on")
     run_start_p.add_argument("--agent", help="Which agent this is, e.g. claude or devin")
+    where = run_start_p.add_mutually_exclusive_group()
+    where.add_argument("--project", help="Record it in this workspace project's ledger (.eos/projects.toml); "
+                       "without it, the one project the title names by alias")
+    where.add_argument("--here", action="store_true",
+                       help="Record it here even when the title names a workspace project")
     run_actor(run_start_p)
 
     run_event_p = run_sub.add_parser("event", help="Append one thing the session did")

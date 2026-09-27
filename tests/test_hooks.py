@@ -210,6 +210,15 @@ def test_stop_asks_once_about_runs_left_open(project, monkeypatch, capsys):
     assert again.out == ""
 
 
+def test_stop_asks_about_a_run_recorded_in_a_workspace_projects_ledger(project, tmp_path, monkeypatch, capsys):
+    service = tmp_path / "service"
+    service.mkdir()
+    assert subprocess.run(EOS + ["init", str(service), "--no-ai"], capture_output=True).returncode == 0
+    record = executions.start(service, "routed from the workspace", session="s1")
+    answer = json.loads(_hook(monkeypatch, capsys, "stop", _payload(project)).out)
+    assert answer["decision"] == "block" and record.id in answer["reason"]
+
+
 def test_stop_close_off_in_config_never_blocks(project, monkeypatch, capsys):
     config = project / ".eos" / "config.toml"
     config.write_text(config.read_text(encoding="utf-8") + "\n[hooks]\nclose = false\n", encoding="utf-8")
