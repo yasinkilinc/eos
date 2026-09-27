@@ -22,8 +22,10 @@ _PLACEHOLDER = re.compile(r"\{([A-Za-z_]\w*)\}")
 # Words that run the next word as the command and pass its exit status through.
 _LEAD = (r"(?:(?:/\S*/)?(?:bash|sh|env|command|exec|time|nice|nohup)\s+|(?:/\S*/)?timeout\s+\S+\s+"
          r"|\w+=\S*\s+)*")
-# After the check, `&&` may run only these: none of them changes a file or the outcome.
-_HARMLESS = {"echo", "printf", "true", ":", "exit"}
+# After the check, `&&` may run only these (and read-only git): none of them changes
+# a file or the outcome.
+_HARMLESS = {"echo", "printf", "true", ":", "exit", "cd", "pwd", "ls", "cat", "head", "tail", "wc"}
+_GIT_READS = {"status", "diff", "log", "show", "rev-parse"}
 _PIPEFAIL = re.compile(r"\s*set\b[^;\n]*\s-\w*o\s+pipefail\b")
 # `set -e`, `set -euo pipefail`, `set -o errexit`; `set +e` turns it off.
 _ERREXIT = re.compile(r"\s*set\b[^;\n]*(?:\s-[a-z]*e[a-z]*\b|\s-o\s+errexit\b)")
@@ -314,6 +316,14 @@ def _block_words(bare: str) -> tuple[int, bool]:
     return delta, touched
 
 
+def _harmless(segment: str) -> bool:
+    """A command after the check that changes no file and no outcome."""
+    words = segment.split()
+    if not words:
+        return True
+    return words[0] in _HARMLESS or (words[0] == "git" and len(words) > 1 and words[1] in _GIT_READS)
+
+
 def _ends_shell(command: str) -> bool:
     """Whether a command may end the shell before what follows it: `exit`,
     `return` or `exec <program>` starting one of its `&&`/`||` commands (a
@@ -359,6 +369,8 @@ def _runs(command: str, regex: str, level: int = 0) -> bool:
     if level > MAX_NESTING:
         return False
     commands = _commands(_masked(command))
+    if len(commands) >= 2 and re.fullmatch(r'\s*exit\s+"?\$\?"?\s*', commands[-1]):
+        commands = commands[:-1]  # `check; exit $?` exits with the check's own status
     errexit = pipefail = False
     block = 0
     for index, current in enumerate(commands):
@@ -379,8 +391,8 @@ def _runs(command: str, regex: str, level: int = 0) -> bool:
                     local_pipefail = True
                 if _stage_hit(segment, regex, local_pipefail, level) is None:
                     continue
-                after = [s.split(maxsplit=1)[0] if s.split() else "" for s in segments[position + 1:]]
-                if last and all(word in _HARMLESS for word in after):
+                after = segments[position + 1:]
+                if last and all(_harmless(s) for s in after):
                     return True
                 if errexit and not after:
                     return True

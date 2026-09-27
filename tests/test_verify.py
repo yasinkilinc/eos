@@ -280,3 +280,12 @@ def test_nothing_after_an_exit_counts(tmp_path):
         assert not _cleared(tmp_path / str(n), command), command
     assert _cleared(tmp_path / "ok", "make test && exit 0")
     assert _cleared(tmp_path / "pipe", "echo x | exit 0; make test")          # a pipeline's exit is a subshell's
+
+
+def test_exit_status_passed_on_and_read_only_tails_count(tmp_path):
+    for n, command in enumerate(["make test; exit $?", "make test\nexit $?", "make test && git status --short",
+                                 "make test && cd .. && ls", "make test && tail -3 log.txt"]):
+        assert _cleared(tmp_path / str(n), command), command
+    for n, command in enumerate(["make test; echo $?", "make test && git commit -am x", "make test && sed -i s/a/b/ f",
+                                 "true; exit $?"]):
+        assert not _cleared(tmp_path / f"x{n}", command), command

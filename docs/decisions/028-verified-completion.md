@@ -46,7 +46,9 @@ section as text only.
   heredocs) run in real bash with the check passing and failing: after one fix
   (a check after `exit 0` counted), 0 false clears and 0 crashes; the rule refuses
   27% of the commands whose status really is the check's -- the price of certainty.
-  The fuzzer is `tools/verify_fuzz.py`; `tests/test_verify_fuzz.py` runs 400 of its
+  Reading `check; exit $?` as the check and allowing read-only tails after `&&`
+  (`cd`, `ls`, `cat`, `tail`, `git status|diff|log`) brought refusals to 22%, still
+  with no false clear. The fuzzer is `tools/verify_fuzz.py`; `tests/test_verify_fuzz.py` runs 400 of its
   commands on every suite run. Nesting past 20 levels is
   refused, not followed.
 - **Said at once, not only at Stop.** Replaying the host's 61 sessions since
