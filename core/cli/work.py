@@ -155,6 +155,16 @@ def cmd_work_show(args: argparse.Namespace) -> int:
         print(f"{entry.at}  {entry.event:<8} {who}{where}")
         if entry.body:
             print(f"    {entry.body}")
+    from core import executions
+
+    runs = [r for r in executions.load(args.path) if r.work_item == item.id]
+    if runs:
+        print(f"\nRuns ({len(runs)}):")
+        for record in runs[-10:]:
+            state = record.outcome or "open"
+            if record.outcome_source:
+                state += f" ({record.outcome_source})"
+            print(f"  {record.id}  {state:<18} {record.title}")
     if evidence is None:
         print("\nNo ticket on this item, so there is nothing to check it against.")
     elif not evidence["indexed"]:

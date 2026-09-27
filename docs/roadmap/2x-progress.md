@@ -29,6 +29,7 @@ deletion; the nexus `mac` checkout and the global `eos` CLI are not touched.
 | E2a | `eos procedure lint`: step tools not declared / unknown, procedures with no Success | DONE | on the host: 15 procedures, 11 problems -- 8 scripts not declared, 3 unknown tools (admin-toolbox, review, report); typed step fields (in/out/on_failure) and cycles not done |
 | C2a | Kind and age on every note a brief names (`[finding, 3d]`) | DONE | ids (`note:<file>`) left out: 60-100 characters each against an 800-token brief |
 | E6a | Compact machine artifacts: graph.json, file_cache.json, MCP results without indentation | DONE | measured on one service: file_cache 64.7 -> 42.2 MB, graph 23.3 -> 18.9 MB; `eos graph --output` exports stay indented (a person reads them); graph.json split/pagination not done |
+| E4 | Work and runs linked: `run start` joins the one open item whose ticket the branch names; `work show` lists its runs with verified/claimed | DONE | the Stop-hook "ask about both" part is the host gate's |
 | M1/M3/M4/M6 | Provenance on every note, generated store, journey fan-out, priors | BLOCKED | M1/M3/M4 migrate the host's notes (~590 files) -- a person decides; M6 needs F3 |
 | M2 | Counters moved only by verified outcomes | NEEDS DECISION | 1.6 labels ok runs verified/claimed from evidence; whether procedure counters move only on verified is a policy call |
 

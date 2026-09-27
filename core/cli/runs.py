@@ -11,17 +11,33 @@ import sys
 from core.cli.common import _route_run, _run_line
 
 
+def _work_from_branch(path) -> str | None:
+    """The one open work item whose ticket the current branch names (2.x roadmap E4)."""
+    from core import brief, work
+
+    _, branch = work.git_head(path)
+    keys = set(brief.ticket_keys(path, branch or ""))
+    if not keys:
+        return None
+    matches = [item for item in work.items(path)
+               if item.ticket in keys and item.status in (work.ACTIVE, work.BLOCKED)]
+    return matches[0].id if len(matches) == 1 else None
+
+
 def cmd_run_start(args: argparse.Namespace) -> int:
     from core import executions
 
+    linked = None if args.work else _work_from_branch(args.path)
     try:
         record = executions.start(args.path, args.title, procedure=args.procedure,
-                                  work_item=args.work, session=args.session,
+                                  work_item=args.work or linked, session=args.session,
                                   agent=args.agent, target=args.target)
     except (ValueError, OSError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1
     print(record.id)
+    if linked:
+        print(f"linked to work item {linked} (its ticket is on this branch); --work names another")
     if not record.session:
         # Nothing to key the pointer on, so wrappers cannot find this run on
         # their own. Say how to reach it rather than let capture go quiet.
