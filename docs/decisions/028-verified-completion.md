@@ -30,8 +30,11 @@ section as text only.
   `true`, `:`; a piped check counts only under an earlier `set -o pipefail`. A
   check inside `$(...)` or backticks never counts (`echo $(false; make test)`
   exits 0); `bash -c "<check>"` is read as the check it runs. Under an earlier
-  `set -e`, a check ending its own `&&` chain counts wherever it is; a shell named
-  by its path (`/bin/bash`) passes through like `bash`.
+  `set -e`, a check ending its own `&&` chain counts wherever it is -- never in an
+  `if`/`while` condition, after `!`, in a function body or `{ }` group, and a
+  subshell's `set -e` stays in the subshell (`set +e`/`set +o errexit` turn it off);
+  a subshell `( … )` is read as the check it runs; a shell named by its path
+  (`/bin/bash`) passes through like `bash`.
 - **Said at once, not only at Stop.** Replaying the host's 61 sessions since
   2026-09-15 through the rule: 36 of the 37 that changed a scoped file would be
   stopped, for 47 unchecked instances -- 24 of them had run their check, piped into

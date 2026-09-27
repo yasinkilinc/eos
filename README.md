@@ -49,6 +49,8 @@ executable launcher under `~/.local/bin/eos`. Override the locations with
 - **`eos consolidate` names silent steps:** steps whose tool no run of the
   procedure ever recorded, so no run can say how they went.
 - **`eos cost --context` says when it over-counts** the cache reads.
+- **1.12.1:** a fifth review of the errexit rule: conditions, function bodies,
+  `set +o errexit` and subshells are read as bash reads them.
 
 ## What changed in 1.11
 

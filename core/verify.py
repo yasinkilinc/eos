@@ -27,7 +27,13 @@ _HARMLESS = {"echo", "printf", "true", ":"}
 _PIPEFAIL = re.compile(r"\s*set\b[^;\n]*\s-\w*o\s+pipefail\b")
 # `set -e`, `set -euo pipefail`, `set -o errexit`; `set +e` turns it off.
 _ERREXIT = re.compile(r"\s*set\b[^;\n]*(?:\s-[a-z]*e[a-z]*\b|\s-o\s+errexit\b)")
-_NO_ERREXIT = re.compile(r"\s*set\s+\+[a-z]*e")
+_NO_ERREXIT = re.compile(r"\s*set\b[^;\n]*(?:\s\+[a-z]*e[a-z]*\b|\s\+o\s+errexit\b)")
+_NO_PIPEFAIL = re.compile(r"\s*set\b[^;\n]*\s\+o\s+pipefail\b")
+# Where errexit does not apply, or text that does not run where it stands:
+# conditions, loop and case heads, `!`, a function body or a `{ }` group.
+_COMPOUND = re.compile(r"\s*(?:if|elif|while|until|for|case|select|do|then|else|function|!)(?:\s|$)"
+                       r"|.*\w\s*\(\)|(?:.*\s)?\{(?:\s|$)")
+_SUBSHELL = re.compile(r"\s*\((?P<inner>.*)\)\s*$", re.S)
 
 
 @dataclasses.dataclass(frozen=True)
@@ -156,11 +162,11 @@ def _values(scope: Scope, key: str) -> dict:
 
 
 def _commands(command: str) -> list[str]:
-    """The command's top-level commands, split at unquoted `;` and newlines, with
-    comments, heredoc bodies and subshell parentheses removed. Quoted text stays
+    """The command's top-level commands, split at unquoted `;` and newlines
+    outside subshells, with comments and heredoc bodies removed. Quoted text stays
     as written, so a regex still sees it; a separator inside quotes is not one."""
     text = command.replace("\\\n", " ")
-    commands, current, quote, index, pending = [], [], "", 0, []
+    commands, current, quote, index, pending, depth = [], [], "", 0, [], 0
     while index < len(text):
         char = text[index]
         if quote:
@@ -192,15 +198,19 @@ def _commands(command: str) -> list[str]:
                 current.append("<<" + found.group(2))
                 index += found.end() - 1
         elif char in ";\n":
-            commands.append("".join(current))
-            current = []
+            if depth:  # inside a subshell: its own separator, not the command's
+                current.append(";")
+            else:
+                commands.append("".join(current))
+                current = []
             if char == "\n":
                 for tag in pending:  # the bodies start on the next line and end at their tag
                     end = re.compile(r"^[ \t]*" + re.escape(tag) + r"[ \t]*$", re.M).search(text, index + 1)
                     index = end.end() if end else len(text)
                 pending = []
         elif char in "()":
-            current.append(" ")
+            depth = depth + 1 if char == "(" else max(depth - 1, 0)
+            current.append(char)
         else:
             current.append(char)
         index += 1
@@ -210,14 +220,16 @@ def _commands(command: str) -> list[str]:
 
 def _split(command: str, separator: str) -> list[str]:
     """`command` split at unquoted `separator` (`&&` or `|`); `||` is never a pipe."""
-    parts, current, quote, index = [], [], "", 0
+    parts, current, quote, index, depth = [], [], "", 0, 0
     while index < len(command):
         char = command[index]
         if quote:
             quote = "" if char == quote else quote
         elif char in "'\"":
             quote = char
-        elif command.startswith(separator, index) and not (separator == "|" and (
+        elif char in "()":
+            depth = depth + 1 if char == "(" else max(depth - 1, 0)
+        elif depth == 0 and command.startswith(separator, index) and not (separator == "|" and (
                 command.startswith("||", index) or command[index - 1:index] == "|")):
             parts.append("".join(current))
             current = []
@@ -278,7 +290,9 @@ def _stage_hit(segment: str, regex: str, pipefail: bool) -> int | None:
     reaches the segment's: the last stage, or any under pipefail."""
     stages = _split(segment, "|")
     for n, stage in enumerate(stages):
-        if re.match(_LEAD + regex, stage) or ((inner := _DASH_C.match(stage)) and _runs(inner.group("inner"), regex)):
+        if (re.match(_LEAD + regex, stage)
+                or ((inner := _DASH_C.match(stage)) and _runs(inner.group("inner"), regex))
+                or ((inner := _SUBSHELL.match(stage)) and _runs(inner.group("inner"), regex))):
             return n if n == len(stages) - 1 or pipefail else None
     return None
 
@@ -300,7 +314,7 @@ def _runs(command: str, regex: str) -> bool:
     errexit = pipefail = False
     for index, current in enumerate(commands):
         last = index == len(commands) - 1
-        if _safe(current):
+        if _safe(current) and not _COMPOUND.match(current):
             segments = _split(current, "&&")
             local_pipefail = pipefail
             for position, segment in enumerate(segments):
@@ -317,7 +331,9 @@ def _runs(command: str, regex: str) -> bool:
             errexit = False
         elif _ERREXIT.match(current):
             errexit = True
-        if _PIPEFAIL.match(current):
+        if _NO_PIPEFAIL.match(current):
+            pipefail = False
+        elif _PIPEFAIL.match(current):
             pipefail = True
     return False
 
@@ -343,7 +359,7 @@ def attempted(scopes: list[Scope], command: str, keys: list[str]) -> list[str]:
     """The instances among `keys` whose check this command runs -- it starts a
     command somewhere in it -- without the exit status counting (`| tail`, `;`)."""
     by_name = {scope.name: scope for scope in scopes}
-    masked, counted = _masked(command), set(cleared(scopes, command, keys))
+    masked, counted = _unquoted(_masked(command)), set(cleared(scopes, command, keys))
     found = []
     for key in keys:
         scope = by_name.get(key.split(":", 1)[0])

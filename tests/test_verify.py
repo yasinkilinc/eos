@@ -219,3 +219,22 @@ def test_a_check_run_so_it_cannot_count_is_told_apart_from_no_check(tmp_path):
     assert verify.attempted(scopes, "cd x && make test; echo done", keys) == keys
     assert verify.attempted(scopes, "make test", keys) == []                 # it counted
     assert verify.attempted(scopes, "git add Makefile && echo make test", keys) == []
+
+
+# --- fifth review findings ---------------------------------------------------------------
+
+
+def test_errexit_does_not_reach_conditions_function_bodies_or_subshells(tmp_path):
+    for n, command in enumerate(["set -e\nif echo lint && make test; then echo ok; fi\necho after",
+                                 "set -e\nwhile make test; do break; done\necho after",
+                                 "set -e\nf() { true && make test; }\necho after",
+                                 "set -e; set +o errexit; true && make test; echo after",
+                                 "(set -e; make test); echo after",
+                                 "set -eo pipefail; set +o pipefail; make test | tail -3"]):
+        assert not _cleared(tmp_path / str(n), command), command
+    assert _cleared(tmp_path / "ok", "set -e; (cd x && make test); echo after")
+
+
+def test_a_quoted_check_is_not_an_attempt(tmp_path):
+    scopes = verify.load(_project(tmp_path, SECOND))
+    assert verify.attempted(scopes, 'echo "(make test)"; true', ["unit:billing"]) == []
