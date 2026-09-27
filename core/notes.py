@@ -40,7 +40,9 @@ def notes_dir(project_root: str | Path) -> Path:
     config_path = project / ".eos" / "config.toml"
     if config_path.is_file():
         cfg = ConfigIO.read_toml(config_path)
-        value = cfg.get("knowledge", {}).get("dir")
+        knowledge = cfg.get("knowledge")
+        # `knowledge = "…"` is not a table: the setting is absent, not a crash.
+        value = knowledge.get("dir") if isinstance(knowledge, dict) else None
         if value:
             configured = str(value)
 
@@ -646,7 +648,8 @@ PARAPHRASE_JACCARD = 0.8
 PARAPHRASE_MIN_TRIGRAMS = 20
 
 
-_FENCED = re.compile(r"^(`{3,}|~{3,})[^\n]*\n.*?^\1[ \t]*$", re.M | re.S)
+# A fence may be indented (inside a list) and may never close (a truncated paste).
+_FENCED = re.compile(r"^[ \t]*(`{3,}|~{3,})[^\n]*\n.*?(?:^[ \t]*\1[ \t]*$|\Z)", re.M | re.S)
 
 
 def _prose(text: str) -> str:

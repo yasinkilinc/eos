@@ -130,3 +130,11 @@ def test_a_new_file_gets_the_umask_mode_not_a_private_one(tmp_path):
     finally:
         os.umask(old)
     assert (tmp_path / "new.txt").stat().st_mode & 0o777 == 0o644
+
+
+def test_a_new_file_mode_never_touches_the_process_umask(tmp_path, monkeypatch):
+    import os
+
+    monkeypatch.setattr(os, "umask", lambda *_: (_ for _ in ()).throw(AssertionError("umask changed")))
+    atomic.write_text(tmp_path / "other.txt", "x")
+    assert (tmp_path / "other.txt").read_text() == "x"

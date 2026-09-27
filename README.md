@@ -51,6 +51,9 @@ executable launcher under `~/.local/bin/eos`. Override the locations with
   config instead of a traceback.
 - **1.13.2:** the session summary counts a gate as answered only by a pass of
   what it named.
+- **1.13.3:** a review of those fixes: fences left unclosed or indented are
+  evidence too; a `knowledge` setting that is not a table is ignored, not a crash;
+  atomic writes never touch the process umask.
 
 ## What changed in 1.12
 

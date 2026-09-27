@@ -63,3 +63,12 @@ def test_a_broken_config_is_an_error_not_a_traceback(tmp_path):
     (root / ".eos" / "config.toml").write_text("not valid toml [[[", encoding="utf-8")
     done = subprocess.run(EOS + ["consolidate", str(root)], capture_output=True, text=True)
     assert done.returncode == 1 and "Traceback" not in done.stderr and "error:" in done.stderr
+
+
+def test_a_config_of_the_wrong_shape_is_read_as_no_setting(tmp_path):
+    root = tmp_path / "proj"
+    root.mkdir()
+    assert subprocess.run(EOS + ["init", str(root), "--no-ai"], capture_output=True).returncode == 0
+    (root / ".eos" / "config.toml").write_text('knowledge = "oops"\n', encoding="utf-8")
+    done = subprocess.run(EOS + ["consolidate", str(root)], capture_output=True, text=True)
+    assert done.returncode == 0 and "Traceback" not in done.stderr

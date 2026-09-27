@@ -593,3 +593,20 @@ def test_a_pass_of_another_scope_does_not_answer_a_gate(project, monkeypatch, ca
     _hook(monkeypatch, capsys, "session-end", _payload(project, reason="other"))
     entry = json.loads((project / ".eos" / "data" / "sessions.jsonl").read_text().splitlines()[-1])
     assert entry["verify_gates"] == 1 and entry["verify_after_gate"] == 0
+
+
+def test_a_gate_on_a_key_with_a_bar_is_answered_by_its_pass(project, monkeypatch, capsys):
+    (project / ".eos" / "knowledge" / "verify.toml").write_text(
+        '[[scope]]\nname = "svc"\npaths = ["src/{part}/**"]\npasses = [\'make\\s+test\\b\']\nrun = "make test"\n',
+        encoding="utf-8")
+    source = project / "src" / "a|b" / "x.py"
+    source.parent.mkdir(parents=True)
+    source.write_text("x = 1\n", encoding="utf-8")
+    _hooks_config(project, "close = false\n")
+    _hook(monkeypatch, capsys, "post-tool", _payload(project, tool_name="Edit", tool_input={"file_path": str(source)}))
+    _hook(monkeypatch, capsys, "stop", _payload(project))
+    _hook(monkeypatch, capsys, "post-tool", _payload(project, tool_name="Bash", tool_use_id="k1",
+                                                     tool_input={"command": "make test"}))
+    _hook(monkeypatch, capsys, "session-end", _payload(project, reason="other"))
+    entry = json.loads((project / ".eos" / "data" / "sessions.jsonl").read_text().splitlines()[-1])
+    assert entry["verify_gates"] == 1 and entry["verify_after_gate"] == 1

@@ -69,3 +69,12 @@ def test_a_shared_quoted_log_does_not_make_two_notes_the_same():
     quoted = "\n".join(f"> {line}" for line in log.splitlines())
     share = notes.trigram_jaccard(f"Cause A differs here.\n{quoted}", f"Cause B is another.\n{quoted}")
     assert share < notes.PARAPHRASE_JACCARD
+
+
+def test_an_unterminated_or_indented_fence_is_still_evidence():
+    log = "\n".join(f"2026-09-27 04:{n:02d} ERROR order {n} payment timeout retry {n % 3}" for n in range(60))
+    open_fence = ("Root cause: pool exhausted.\n```\n" + log, "Root cause: proxy idle drop.\n```\n" + log)
+    indented = tuple(f"{cause}\n\n- evidence:\n  ```\n" + "\n".join(f"  {l}" for l in log.splitlines()) + "\n  ```\n"
+                     for cause in ("Root cause: pool exhausted.", "Root cause: proxy idle drop."))
+    for first, second in (open_fence, indented):
+        assert notes.trigram_jaccard(first, second) < notes.PARAPHRASE_JACCARD
