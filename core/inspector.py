@@ -179,13 +179,20 @@ def find_symbols(root: str | Path, query: str, max_results: int = 100) -> list[d
     cache = _read_json(project / ".eos" / "data" / "cache" / "file_cache.json", {})
     matches: list[dict[str, Any]] = []
     needle = query.casefold()
+    from core import symbols as placed
+
     for path, entry in cache.items() if isinstance(cache, dict) else []:
         semantic = entry.get("semantic", {}) if isinstance(entry, dict) else {}
-        for symbol in semantic.get("symbols", []) if isinstance(semantic, dict) else []:
+        found = [s for s in (semantic.get("symbols", []) if isinstance(semantic, dict) else []) if isinstance(s, dict)]
+        if not any(needle in str(symbol.get("name", "")).casefold() for symbol in found):
+            continue
+        # Where each one sits, method > class > file (2.x roadmap L3).
+        crumbs = placed.rows(path, found)
+        for symbol, crumb in zip(found, crumbs):
             name = str(symbol.get("name", ""))
             if needle not in name.casefold():
                 continue
-            matches.append({"path": path, **symbol})
+            matches.append({"path": path, **symbol, "breadcrumb": crumb["breadcrumb"]})
             if len(matches) >= max_results:
                 return matches
     return matches

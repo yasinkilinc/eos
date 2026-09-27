@@ -31,7 +31,7 @@ from core import links
 from core import notes
 from core.lib.config_io import ConfigIO
 
-SCHEMA_VERSION = 7
+SCHEMA_VERSION = 8
 
 # Search results scoring below this fraction of the best BM25 score are cut.
 # The OR query (0.35.0) made a question in a sentence find its answer; it also
@@ -226,6 +226,21 @@ CREATE TABLE node_symbol (
     PRIMARY KEY (nid, role, name)
 ) WITHOUT ROWID;
 CREATE INDEX node_symbol_by_name ON node_symbol(name);
+-- Every symbol a parser saw, with the one it sits in (2.x roadmap L3): method ->
+-- class -> file, so a caller can climb from the small unit to the large one.
+CREATE TABLE symbol (
+    sid INTEGER PRIMARY KEY,
+    nid INTEGER NOT NULL REFERENCES node(nid),
+    name TEXT NOT NULL,
+    short TEXT NOT NULL,
+    kind TEXT,
+    line INTEGER,
+    end_line INTEGER,
+    parent_id INTEGER REFERENCES symbol(sid),
+    breadcrumb TEXT NOT NULL
+);
+CREATE INDEX symbol_by_short ON symbol(short);
+CREATE INDEX symbol_by_node ON symbol(nid);
 CREATE TABLE edge (
     src INTEGER NOT NULL REFERENCES node(nid),
     dst INTEGER NOT NULL REFERENCES node(nid),
@@ -836,6 +851,9 @@ def _sources_digest(root: Path) -> str:
                  *(data / "brain" / name for name in inspector.BRAIN_FILES)):
         # With mtimes: they decide whether _load_brain takes the scan as complete.
         add("brain", path.name, _file_digest(path), *_stat(path))
+    # The symbols' source. Size and mtime only: it is tens of MB on a large
+    # service and every scan that rewrites it also rewrites last_scan.json.
+    add("symbols", *_stat(data / "cache" / "file_cache.json"))
     add("ticket_pattern", _ticket_pattern(root).pattern)
     merge_branch_pattern = _merge_branch_pattern(root)
     # A configured merge_branch_pattern changes which branch names get pulled
@@ -1096,6 +1114,36 @@ def _load_verifications(build: BuildContext) -> None:
 # --- brain and graph ---------------------------------------------------------------
 
 
+def _load_symbols(build: BuildContext, data: Path, nid_by_path: dict[str, int]) -> None:
+    """The parsers' symbols from the scan's file cache, each linked to its parent."""
+    from core import symbols
+
+    path = data / "cache" / "file_cache.json"
+    if not path.is_file():
+        return
+    try:
+        cache = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        build.issue("symbols", None, "file_cache.json is not readable JSON; symbols not indexed")
+        return
+    rows, sid = [], 0
+    for rel, entry in sorted(cache.items()) if isinstance(cache, dict) else []:
+        nid = nid_by_path.get(rel)
+        semantic = entry.get("semantic") if isinstance(entry, dict) else None
+        found = [s for s in (semantic.get("symbols") or []) if isinstance(s, dict)] if isinstance(semantic, dict) else []
+        if nid is None or not found:
+            continue
+        first = sid + 1
+        for placed in symbols.rows(rel, found):
+            sid += 1
+            parent = placed["parent_index"]
+            rows.append((sid, nid, placed["name"], placed["short"], placed["kind"], placed["line"],
+                         placed["end_line"], first + parent if parent is not None else None, placed["breadcrumb"]))
+    build.conn.executemany(
+        "INSERT INTO symbol(sid, nid, name, short, kind, line, end_line, parent_id, breadcrumb) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)", rows)
+
+
 def _load_brain(build: BuildContext) -> None:
     data = build.root / ".eos" / "data"
     last_scan_path = data / "last_scan.json"
@@ -1168,6 +1216,7 @@ def _load_brain(build: BuildContext) -> None:
         node_rows,
     )
     build.conn.executemany("INSERT OR IGNORE INTO node_symbol(nid, role, name) VALUES (?, ?, ?)", symbol_rows)
+    _load_symbols(build, data, {row[4]: row[0] for row in node_rows})
     build.conn.executemany(
         "INSERT OR IGNORE INTO edge(src, dst, kind, imported) VALUES (?, ?, ?, ?)",
         [
