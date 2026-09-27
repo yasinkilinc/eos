@@ -107,6 +107,18 @@ def cmd_procedure_new(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_procedure_lint(args: argparse.Namespace) -> int:
+    """Steps naming a tool nobody can find, and procedures with no success (2.x roadmap E2)."""
+    from core import procedure_lint
+
+    reports = procedure_lint.lint(args.path)
+    if args.format == "json":
+        print(json.dumps(reports, indent=2, ensure_ascii=False))
+    else:
+        print(procedure_lint.render(reports))
+    return 0
+
+
 def cmd_procedure_audit(args: argparse.Namespace) -> int:
     from core import executions
 
@@ -130,4 +142,5 @@ def cmd_procedure(args: argparse.Namespace) -> int:
         "show": cmd_procedure_show,
         "new": cmd_procedure_new,
         "audit": cmd_procedure_audit,
+        "lint": cmd_procedure_lint,
     }[args.procedure_command](args)

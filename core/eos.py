@@ -425,6 +425,9 @@ def main(argv: list[str] | None = None) -> int:
     proc_new_p.add_argument("--source")
     proc_new_p.add_argument("--session", default=None)
 
+    proc_lint_p = proc_sub.add_parser("lint", help="Steps naming a tool nobody can find; procedures without a success")
+    add_path(proc_lint_p)
+    proc_lint_p.add_argument("--format", choices=("text", "json"), default="text")
     proc_audit_p = proc_sub.add_parser("audit", help="Counters against the ledger, failing and unverified procedures")
     add_path(proc_audit_p)
     proc_audit_p.add_argument("--format", choices=("text", "json"), default="text")
