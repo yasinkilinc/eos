@@ -1,6 +1,6 @@
 # EOS 2.x branch — what landed overnight and how to adopt it
 
-Branch `eos-2x` (from `main` 1.5.1), released on the branch as 1.6.0 → 1.23.2.
+Branch `eos-2x` (from `main` 1.5.1), released on the branch as 1.6.0 → 1.23.3.
 Every step: tests first, the full suite green before the commit
 (1,169 passed, 1 skipped at 1.13.4), `tools/check-clean.sh` clean. `main` untouched.
 The row-by-row ledger with commits is `docs/roadmap/2x-progress.md`.
@@ -30,6 +30,7 @@ The row-by-row ledger with commits is `docs/roadmap/2x-progress.md`.
 | 1.12.1 | Fifth review | `set -e` read as bash reads it: not in conditions or function bodies, `set +o errexit`, subshells |
 | 1.12.2 | Sixth review | a check inside an if/loop/case/function block never counts; deep nesting refused, not a crash |
 | 1.12.3 | Seventh review | block words read at every command start, not only a fragment's first word |
+| 1.23.3 | Java nested scopes | a nested Java class named like its outer one no longer swaps end lines with it; same-named containers (`Req.Builder`, `Resp.Builder`) each keep their methods |
 | 1.23.2 | Review of L3 and L4 | a Java constructor is never a method's parent, an ambiguous parent is left unlinked, parent resolution is linear; unmeasured totals are None |
 | 1.23.1 | Integrity before replace (F2b) | an atomic rewrite whose temp file does not hold what was written replaces nothing; a new index that fails `PRAGMA quick_check` keeps the previous one |
 | 1.23.0 | Symbols with their place (L3) | `find_symbol` returns `breadcrumb` (file > class > method); `eos.db` has a `symbol` table with `parent_id` (schema 8, rebuilt on the next `eos index`) |
@@ -62,7 +63,7 @@ finding is fixed with a test (ledger rows RV-RV14).
 
 1. Review `eos-2x` against `main` (a PR on GitHub from `eos-2x`), then merge.
 2. In nexus: `git subtree pull --prefix tools/eos eos main --squash`, then
-   `bash automation/install-eos-cli.sh` (the global CLI moves to 1.23.2).
+   `bash automation/install-eos-cli.sh` (the global CLI moves to 1.23.3).
 3. The nexus side of this work is on the local branch `eos-2x` in the worktree
    `../nexus-2x` (not pushed: the VPN was off). Its own commits: the `verify.toml`
    scopes and their test (4ebb01c), the verified-completion design as built

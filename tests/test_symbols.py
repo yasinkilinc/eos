@@ -93,14 +93,68 @@ def test_a_java_constructor_is_never_a_parent():
     assert rows[2]["breadcrumb"] == "src/com/acme/Line.java > com.acme.Line > price"
 
 
-def test_two_classes_under_one_name_leave_the_parent_unresolved():
-    rows = symbols.rows("A.java", [
-        {"name": "com.acme.B", "kind": "class", "line": 3},
-        {"name": "com.acme.B", "kind": "class", "line": 4},
-        {"name": "m", "kind": "method", "line": 5, "parent": "com.acme.B"},
-    ])
-    assert rows[2]["parent_index"] is None
-    assert rows[2]["breadcrumb"] == "A.java > com.acme.B > m"
+def _java(src: str) -> list[dict]:
+    import dataclasses
+    from core.plugins.java.plugin import JavaPlugin
+    return [dataclasses.asdict(symbol) for symbol in JavaPlugin().parse_file("X.java", src).symbols]
+
+
+def test_same_named_nested_classes_each_keep_their_methods():
+    """Review 19: the rule "link only a unique name" dropped every method of
+    `Req.Builder` and `Resp.Builder`; the class containing the method wins."""
+    found = _java("""package p;
+public final class Proto {
+  public static final class Req {
+    public static final class Builder {
+      public Req build() { return null; }
+    }
+  }
+  public static final class Resp {
+    public static final class Builder {
+      public Resp build() { return null; }
+    }
+  }
+}
+""")
+    rows = symbols.rows("X.java", found)
+    builds = [(row, found[row["parent_index"]]) for row in rows if row["short"] == "build"]
+    assert [parent["line"] for _, parent in builds] == [4, 9]
+
+
+def test_an_outer_method_after_a_same_named_inner_class_stays_outer():
+    found = _java("""package com.acme;
+public class A {
+    static class B {
+        static class C {
+            static class B {
+                void x() {}
+            }
+        }
+        void m() {}
+    }
+}
+""")
+    rows = symbols.rows("X.java", found)
+    parent = {row["short"]: found[row["parent_index"]]["line"] for row in rows if row["short"] in ("x", "m")}
+    assert parent == {"x": 5, "m": 3}
+
+
+def test_the_java_parser_closes_the_scope_it_opened():
+    found = _java("""package com.acme;
+public class A {
+    static class B {
+        static class B2 {
+        }
+        static class C {
+            static class B {
+            }
+        }
+    }
+}
+""")
+    spans = {(s["name"], s["line"]): s["end_line"] for s in found if s["kind"] == "class"}
+    assert spans[("com.acme.B", 3)] == 10
+    assert spans[("com.acme.B", 7)] == 8
 
 
 def test_parent_resolution_is_linear():

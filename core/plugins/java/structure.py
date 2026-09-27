@@ -496,7 +496,10 @@ def _enclosing_type(stack: list[_Scope]) -> str | None:
 
 def _close(out: JavaStructure, scope: _Scope, at: int) -> None:
     line = out.source.line_of(at)
-    for symbol in out.symbols:
+    # Scopes close innermost first, so the one closing is the latest-declared
+    # open symbol of its name: searched from the front, a nested class named
+    # like its outer one (both `pkg.B`) gave its end to the outer (review 19).
+    for symbol in reversed(out.symbols):
         if symbol.name == scope.name and symbol.line <= line and not symbol.end_line:
             symbol.end_line = line
             break
