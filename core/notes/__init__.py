@@ -40,7 +40,7 @@ from core.notes.validate import (
     _refuse_placeholder, _DEFECT_SECTIONS, _DEFECT_HEADING, _canonical_scope,
 )  # noqa: F401
 from core.notes.render import (
-    _RELEVANCE_THRESHOLD, SCORE_FLOOR, _KEY, _words, word_weights, relevance,
+    _RELEVANCE_THRESHOLD, SCORE_FLOOR, _KEY, _words, word_weights, relevance, NARROWED_KINDS,
     search_notes, _OMITTED_TITLE_LIMIT, _render_note, render_context_section,
 )  # noqa: F401
 from core.notes.write import (

@@ -89,7 +89,7 @@ has barely started. "Absent" below means the name the report gives does not occu
 | 2 | gate | not met | provenance >= 95%, notes store <= 300 files, recall@1 >= 0.85, injection p95 <= 4,000 |
 | 3 | C1 | not started | `core/context/budget.py`; the estimator is a decision (2.22 measured vs 3.5 in the report) |
 | 3 | C2 | part | kind and age shipped; stable ids left out on purpose; the lessons' `evidence:` flag |
-| 3 | C3 | part | C3a below: `narrow_by_terms`, `get_file terms`, the target file in `get_context`; note bodies in the brief and injection (C3b) not yet |
+| 3 | C3 | engine done | C3a and C3b below; the host's injection hook narrowing bodies is host work |
 | 3 | C4 | unclear | the context diet on `main` (ADR-027) may cover part; not measured against the item |
 | 3 | C5 | part | read-only ELSEWHERE and `work --across`; `projects.toml`, the alias blocker, hooks once at the root, run routing to the named ledger, host hooks as engine templates |
 | 3 | C6 | done | corrected: hook events carry `agent` (the subagent's type) and land in the session's open run, which is the parent's |
@@ -109,8 +109,7 @@ has barely started. "Absent" below means the name the report gives does not occu
 | 6 | L3, L4, L5 | not started | symbol `parent_id`/`breadcrumb`; `measured/derived/unmeasured` on printed numbers (only in agent templates today); recalibration receipts (need A1) |
 | host | cross-phase | open | M3/M4 moves, `projects.toml` and `capability.toml`, the routing corpus, hook scripts to templates, the service-directory resume eval, generators that rewrite always-loaded files |
 
-Next without a decision: C3b (narrowed note bodies). Everything after that waits on
-F3's labels, C1's estimator, M1/M3's migration or A1's corpus.
+Next without a decision (engine only): C7b `eos cost --sessions`, L4 `measured/derived/unmeasured` on printed numbers, L3 symbol `parent_id`/`breadcrumb`. Everything else waits on F3's labels, C1's estimator, M1/M3's migration, A1's corpus or host work.
 
 | Step | What | Status | Commits / notes |
 |---|---|---|---|
@@ -118,7 +117,7 @@ F3's labels, C1's estimator, M1/M3's migration or A1's corpus.
 | F5b | `count` on identical consecutive events, consumers read it | NEEDS DECISION | collapsing at write means rewriting the ledger's last line: against ADR-020's append-only rule, racing `bin/eos-event` (which appends without the lock), and losing the later `at` the verify gate reads (a check that passed again after a change). Collapsing on read, for display, is safe and is what `run show` would need |
 | C3a | `core/context/narrow.py`: `narrow_by_terms`; `get_file terms`; a long `get_context` target narrowed to the task | DONE | release 1.19.0; 15 tests. Words match whole (`_` separates, so `refund` finds `refund_payment`), a stem of 4+ characters when no word does; a term on over a quarter of the lines is set aside while another is more selective; tables and fenced blocks whole or not at all; best spans by distinct terms, the rest counted. Measured here at a 16,000 limit: the research report 220,613 -> 15,669 characters (7 ms), core/hooks.py 47,784 -> 3,573, README 62,830 -> 1,452. Without `terms` `get_file` returns exactly what it did |
 | RV15 | Review of 7c756de (notes split) and 52d557e (C3a) | DONE | the split: nothing found (re-exports, patching, runtime copy checked). C3a, 5 findings, each fixed with a test, release 1.19.1: context around a prose hit cut into a neighbouring table or fenced block -- it now stops short of it; `splitlines` counted form feeds and U+2028 as lines, so `@@ L` numbers drifted -- newlines only; a line cut to fit had no newline and left the target's closing fence on its line, swallowing the rest of the context -- it ends ` …(line cut)`; the narrowed target (outline + spans) could outgrow the head cut and be dropped by the budget fit at budgets that kept it before -- it is now held to the head cut's size; non-string `terms` failed with an AttributeError -- refused by name. A 20,000-case fuzz of limit, order and block wholeness: 0 violations; 2,000 kept in the suite |
-| C3b | Note bodies narrowed by the task's terms in the task brief and `render_context_section` (1,200 per body, 16,000 total) | TODO | |
+| C3b | Note bodies narrowed by the task's terms in `render_context_section` (1,200 per body) | DONE | release 1.20.0; a finding longer than 1,200 characters is narrowed to the query's terms and says so, naming `eos note show` for the rest; lessons, decisions, defects and procedures stay whole (their sections are the point, ADR-024 and C2); without a query nothing changes. The task brief carries titles, not bodies, so it had nothing to narrow; the host's injection hook is host work. Not measured on the host's corpus (not reachable from here) |
 
 ## Found along the way
 

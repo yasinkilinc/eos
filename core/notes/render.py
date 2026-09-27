@@ -167,7 +167,14 @@ def search_notes(project_root: str | Path, query: str, limit: int | None = None)
 _OMITTED_TITLE_LIMIT = 25
 
 
-def _render_note(note: Note) -> str:
+# Only a finding is narrowed (2.x roadmap C3b). A lesson, a decision and a defect
+# are worth re-reading only with all their sections (ADR-024), and a procedure's
+# Rules come whole (report §17, C2) -- narrowing would keep the line that matched
+# and drop the part that says what to do.
+NARROWED_KINDS = ("finding",)
+
+
+def _render_note(note: Note, terms: list[str] | None = None) -> str:
     header = f"### {note.title} ({note.kind})"
     meta_bits = []
     if note.tags:
@@ -175,7 +182,17 @@ def _render_note(note: Note) -> str:
     if note.source:
         meta_bits.append(f"source: {note.source}")
     meta = f"_{' | '.join(meta_bits)}_\n\n" if meta_bits else ""
-    return f"{header}\n\n{meta}{note.body}"
+    body = note.body
+    if terms and note.kind in NARROWED_KINDS:
+        from core.context import narrow
+
+        if len(body) > narrow.LIMIT_CHARS:
+            found = narrow.narrow_by_terms(body, terms)
+            if found is not None:
+                body = (f"{found.text}\n_Narrowed to the lines the task's terms hit "
+                        f"({', '.join(found.terms)}); `eos note show <project> {note.path.name}` "
+                        "reads all of it._")
+    return f"{header}\n\n{meta}{body}"
 
 
 def render_context_section(
@@ -212,8 +229,9 @@ def render_context_section(
 
     lines = ["## Accumulated Knowledge"]
     included = 0
+    terms = sorted(_words(query)) if query else None
     for note in candidates:
-        entry = _render_note(note)
+        entry = _render_note(note, terms)
         projected = len("\n\n".join(lines + [entry]))
         if included > 0 and projected > max_chars:
             break
