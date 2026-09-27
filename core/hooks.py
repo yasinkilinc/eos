@@ -59,7 +59,7 @@ from pathlib import Path
 # directory (the plugin exports it); otherwise beside the run pointers.
 STATE_ENV = "EOS_HOOK_STATE_DIR"
 SETTINGS = ("brief", "capture", "hints", "subagents", "loaded", "sessions", "close", "usage", "compact",
-            "verify")
+            "verify", "cite_check")
 # Numeric settings, 0 = off. outline_lines: a main-session Read of a longer file
 # with no range is answered once with its outline instead; clear_hint_tokens: a
 # finished run in a session holding more context than this gets one /clear hint.
@@ -728,13 +728,33 @@ def _subagent_stop(root: Path, hook: Hook, cfg: dict, agent: str | None) -> str:
     if not (cfg["subagents"] and cfg["capture"]) or not hook.agent_id:
         return ""
     citations = len(_CITATION.findall(hook.last_message or ""))
-    _note_state(hook.session, subagent=hook.agent_type or "?", stopped=hook.agent_id, citations=citations)
+    problems = []
+    if cfg["cite_check"] and hook.last_message:
+        from core import citations as cited
+
+        try:
+            problems = cited.wrong(hook.last_message, [hook.cwd or root, root])
+        except Exception:  # noqa: BLE001 - cannot tell, do not stop the subagent
+            problems = []
+    _note_state(hook.session, subagent=hook.agent_type or "?", stopped=hook.agent_id, citations=citations,
+                wrong_citations=len(problems))
     run = _open_run(root, hook.session)
     if run is not None:
         _record(root, hook, run, kind="verified", tool="subagent", target=hook.agent_type or None,
-                ref=f"agent:{hook.agent_id}", body=f"{citations} citation(s) in its answer",
+                ref=f"agent:{hook.agent_id}",
+                body=f"{citations} citation(s) in its answer" + (f", {len(problems)} wrong" if problems else ""),
                 tool_use_id=f"stop:{hook.agent_id}")
-    return ""
+    if not problems or hook.stop_active:
+        return ""
+    if any(line.get("cite_asked") == hook.agent_id for line in _state(hook.session)):
+        return ""
+    _note_state(hook.session, cite_asked=hook.agent_id)
+    # A subagent is stopped once (2.x roadmap E3a): only references that cannot
+    # be right are listed, so the ask is about a fact, never a guess.
+    reason = ("EOS: these references in your answer cannot be right:\n"
+              + "\n".join(f"- {problem}" for problem in problems[:5])
+              + "\nCorrect them, or say in your answer that they are unverified.")
+    return json.dumps({"decision": "block", "reason": reason}, ensure_ascii=False)
 
 
 def _stop_failure(root: Path, hook: Hook, cfg: dict, agent: str | None) -> str:

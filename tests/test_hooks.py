@@ -489,3 +489,15 @@ def test_no_handoff_unless_configured(project, monkeypatch, capsys):
     _open_run(project)
     call = _payload(project, tool_name="Agent", tool_input={"prompt": "check the tracker ticket", "subagent_type": "Explore"})
     assert _hook(monkeypatch, capsys, "pre-agent", call).out == ""
+
+
+def test_a_subagent_citing_a_line_that_is_not_there_is_asked_once(project, monkeypatch, capsys):
+    source = project / "svc.py"
+    source.write_text("x = 1\n", encoding="utf-8")
+    stop = _payload(project, agent_id="a1", agent_type="Explore",
+                    last_assistant_message=f"The value is set at {source}:120.")
+    first = json.loads(_hook(monkeypatch, capsys, "subagent-stop", stop).out)
+    assert first["decision"] == "block" and "the file has 1 lines" in first["reason"]
+    assert _hook(monkeypatch, capsys, "subagent-stop", stop).out == ""                   # once
+    fine = _payload(project, agent_id="a2", agent_type="Explore", last_assistant_message=f"See {source}:1.")
+    assert _hook(monkeypatch, capsys, "subagent-stop", fine).out == ""
