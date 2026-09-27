@@ -39,6 +39,13 @@ canonical `core/` runtime to `~/.local/share/eos/<version>/` and installs an
 executable launcher under `~/.local/bin/eos`. Override the locations with
 `EOS_INSTALL_PREFIX`, `EOS_DATA_DIR`, `EOS_BIN_DIR`, or `EOS_PYTHON`.
 
+## What changed in 1.14
+
+- **ELSEWHERE in the session brief:** a project on a ticket's branch sees that
+  ticket's open work and runs recorded by sibling projects under the same
+  knowledge root -- a ticket worked from the workspace root is no longer
+  invisible from the service a session opens in.
+
 ## What changed in 1.13
 
 - **The verify check rule is held to real bash:** `tools/verify_fuzz.py` runs

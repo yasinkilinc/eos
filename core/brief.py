@@ -233,6 +233,7 @@ def _branch_brief(root: Path, *, session: str | None, agent: str | None) -> str:
         "matched": notes.search_notes(root, query, limit=NOTE_LIMIT) if query else [],
         "recorded": len(notes.load_notes(root)), "open_runs": _open_runs(root),
         "state": work.sync_state(root),
+        "elsewhere": _elsewhere(root, keys, now) if keys else [],
     }
     cap = int(BRANCH_BUDGET * CHARS_PER_TOKEN)
     text = ""
@@ -241,6 +242,42 @@ def _branch_brief(root: Path, *, session: str | None, agent: str | None) -> str:
         if len(text) <= cap or len(facts["in_flight"]) <= 1:
             break
     return text
+
+
+ELSEWHERE_LIMIT = 3
+
+
+def _elsewhere(root: Path, keys: list[str], now) -> list[str]:
+    """Open work and runs naming the branch's ticket in the sibling projects
+    that share this project's knowledge root (2.x roadmap C5, read-only): a
+    ticket worked from the workspace root is otherwise invisible from the
+    service a session opens in."""
+    from core import executions
+
+    wanted = [key.upper() for key in keys]
+    own = work.path_for(root)
+    found: list[str] = []
+    try:
+        ledgers = work.across_ledgers(root)
+    except Exception:  # noqa: BLE001 - a sibling that cannot be read costs its lines, not the brief
+        return []
+    for label, ledger in ledgers:
+        if ledger == own:
+            continue
+        try:
+            items = work.fold(work.load_path(ledger))
+            runs = executions.load_path(ledger.parent / executions.FILENAME)
+        except Exception:  # noqa: BLE001
+            continue
+        for item in items:
+            text = f"{item.id} {item.title or ''} {item.ticket or ''}".upper()
+            if item.status in (work.OPEN, work.ACTIVE, work.BLOCKED) and any(key in text for key in wanted):
+                found.append(f"  {label}: {item.status} {item.id}  {_clip(item.title or '', DETAIL_CHARS)}")
+        for record in runs:
+            if record.open and any(key in (record.title or "").upper() for key in wanted):
+                found.append(f"  {label}: run open {record.id}  {_clip(record.title or '', DETAIL_CHARS)}  "
+                             f"[{work.ago(record.started_at, now)}]")
+    return found
 
 
 def _branch_text(root: Path, facts: dict, *, session: str | None, work_limit: int) -> str:
@@ -264,6 +301,14 @@ def _branch_text(root: Path, facts: dict, *, session: str | None, work_limit: in
         lines.append("")
         lines.append("IN FLIGHT (0) — nothing is claimed here. "
                      "Claim what you start: eos work add . --title \"…\" --claim")
+
+    elsewhere = facts.get("elsewhere") or []
+    if elsewhere:
+        lines.append("")
+        lines.append(f"ELSEWHERE ({len(elsewhere)}) — this branch's ticket in sibling projects")
+        lines.extend(elsewhere[:ELSEWHERE_LIMIT])
+        if len(elsewhere) > ELSEWHERE_LIMIT:
+            lines.append(f"  …{len(elsewhere) - ELSEWHERE_LIMIT} more: eos work list . --across")
 
     matched, recorded = facts["matched"], facts["recorded"]
     lines.append("")
