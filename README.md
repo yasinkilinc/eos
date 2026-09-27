@@ -53,6 +53,8 @@ executable launcher under `~/.local/bin/eos`. Override the locations with
   `set +o errexit` and subshells are read as bash reads them.
 - **1.12.2:** a sixth review: a check inside an if/loop/case/function block never
   counts; deep nesting is refused instead of crashing.
+- **1.12.3:** a seventh review: block words are read at every command start
+  (`fi && if …`, `time if …`).
 
 ## What changed in 1.11
 

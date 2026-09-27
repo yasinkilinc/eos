@@ -1,6 +1,6 @@
 # EOS 2.x branch — what landed overnight and how to adopt it
 
-Branch `eos-2x` (from `main` 1.5.1), released on the branch as 1.6.0 → 1.12.2.
+Branch `eos-2x` (from `main` 1.5.1), released on the branch as 1.6.0 → 1.12.3.
 Every step: tests first, the full suite green before the commit
 (1,138 passed, 1 skipped at 1.12.1), `tools/check-clean.sh` clean. `main` untouched.
 The row-by-row ledger with commits is `docs/roadmap/2x-progress.md`.
@@ -29,20 +29,21 @@ The row-by-row ledger with commits is `docs/roadmap/2x-progress.md`.
 | 1.12.0 | Verify gate measured on the host's history | 36 of 37 past sessions with scoped changes would be stopped; half had run the check uncountably, so that now gets a hint at once; `consolidate` names silent steps |
 | 1.12.1 | Fifth review | `set -e` read as bash reads it: not in conditions or function bodies, `set +o errexit`, subshells |
 | 1.12.2 | Sixth review | a check inside an if/loop/case/function block never counts; deep nesting refused, not a crash |
+| 1.12.3 | Seventh review | block words read at every command start, not only a fragment's first word |
 
 Live-verified in headless sessions: the verify Stop gate (1.9.1: gate once, the
 check re-run so it counts; 1.10.2: `&& echo VERIFIED` counts and no gate fires),
 the subagent handoff, the subagent citation check, and on 1.11.0 the main
 session's citation check (stopped once, the model read the file and corrected it),
 and on 1.12.0 the uncounted-check hint (a piped check was named at once, the model
-re-ran it countably, no Stop gate). Six fresh reviews ran over the branch; every
-finding is fixed with a test (ledger rows RV-RV6).
+re-ran it countably, no Stop gate). Seven fresh reviews ran over the branch; every
+finding is fixed with a test (ledger rows RV-RV7).
 
 ## Adopting it
 
 1. Review `eos-2x` against `main` (a PR on GitHub from `eos-2x`), then merge.
 2. In nexus: `git subtree pull --prefix tools/eos eos main --squash`, then
-   `bash automation/install-eos-cli.sh` (the global CLI moves to 1.12.2).
+   `bash automation/install-eos-cli.sh` (the global CLI moves to 1.12.3).
 3. The nexus side of this work is on the local branch `eos-2x` in the worktree
    `../nexus-2x` (not pushed: the VPN was off). Its own commits: the `verify.toml`
    scopes and their test (4ebb01c), the verified-completion design as built

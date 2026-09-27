@@ -257,3 +257,15 @@ def test_errexit_does_not_count_a_check_inside_a_block_that_may_not_run(tmp_path
 
 def test_deep_nesting_is_refused_not_a_crash(tmp_path):
     assert verify._runs("(" * 600 + "make test" + ")" * 600, r"make\s+test\b") is False
+
+
+# --- seventh review findings -------------------------------------------------------------
+
+
+def test_a_block_opened_after_a_close_or_behind_a_prefix_is_still_a_block(tmp_path):
+    for n, command in enumerate(["set -e\nif true; then\n  :\nfi && if false\nthen\nmake test\nfi",
+                                 "set -e\ntime if false\nthen\nmake test\nfi",
+                                 "set -e\n! if false\nthen\nmake test\nfi",
+                                 "set -e\nthen_x=1; if false\nthen if true\nthen\nmake test\nfi\nfi"]):
+        assert not _cleared(tmp_path / str(n), command), command
+    assert _cleared(tmp_path / "echo-done", "make test && echo done")       # a keyword as an argument

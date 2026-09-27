@@ -36,7 +36,9 @@ section as text only.
   a subshell `( … )` is read as the check it runs; a shell named by its path
   (`/bin/bash`) passes through like `bash`. A check inside an `if`/loop/`case`/
   function/`{ }` block never counts, even where it would run (`if true; then make
-  test; fi`): the rule refuses what it cannot be sure of. Nesting past 20 levels is
+  test; fi`, `fi && make test`): the rule refuses what it cannot be sure of. Block
+  words are read at every command start in a fragment -- after `&&`, `||`, `|` and
+  before-words such as `!`, `time`, `then` -- never only at its first word. Nesting past 20 levels is
   refused, not followed.
 - **Said at once, not only at Stop.** Replaying the host's 61 sessions since
   2026-09-15 through the rule: 36 of the 37 that changed a scoped file would be
