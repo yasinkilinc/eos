@@ -421,7 +421,7 @@ class McpServer:
                 return self._error(request_id, -32602, f"Unknown tool: {name}")
             try:
                 value = definition["handler"](params.get("arguments") or {})
-                text = json.dumps(value, ensure_ascii=False, indent=2)
+                text = json.dumps(value, ensure_ascii=False, separators=(",", ":"))  # indentation is tokens the model pays for (E6)
                 return self._result(request_id, {"content": [{"type": "text", "text": text}]})
             except Exception as exc:
                 return self._result(

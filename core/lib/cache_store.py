@@ -59,7 +59,8 @@ class CacheStore:
         payload = {_FORMAT_KEY: _CACHE_FORMAT}
         payload.update(self._data)
         with open(self._store_path, "w", encoding="utf-8") as f:
-            json.dump(payload, f, indent=2, ensure_ascii=False)
+            # Compact (2.x roadmap E6): 64.7 MB -> 42.2 MB on a real service.
+            json.dump(payload, f, ensure_ascii=False, separators=(",", ":"))
 
     def get(self, rel_path: str) -> Optional[Dict[str, Any]]:
         return self._data.get(rel_path)
