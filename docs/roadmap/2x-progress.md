@@ -89,5 +89,9 @@ deletion; the nexus `mac` checkout and the global `eos` CLI are not touched.
 - End-to-end live on 1.13.1+ (one headless session, nexus-2x): edit -> check piped into `tail` -> the
   hint named it -> re-run on its own (no Stop gate for it) -> an answer citing CLAUDE.md:9999 stopped
   once at Stop -> the model read the file and corrected it. verify_gates 0, hinted verify-form. $0.23.
+- The overnight commit loop ran the gate as `gate.sh | tail -2 && git add …`: the pipe hid the gate's
+  exit code, so 529dc5c went out with check-clean failing (an internal identifier in this ledger), fixed
+  in 7b34981. Every earlier run's tail read "gate: ok"; the loop now keeps the exit code. The verify
+  gate's own lesson, met by its author.
 - Host shell tests on 1.13.4: 24 pass, 2 skipped (live/install), test-release-run-recovery 2 of 8 as on
   1.12.0 -- unchanged by anything since.
