@@ -466,6 +466,15 @@ def cmd_trace(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_consolidate(args: argparse.Namespace) -> int:
+    """What needs a person's attention in this project's memory; changes nothing (2.x roadmap L1)."""
+    from core import consolidate
+
+    data = consolidate.report(args.path)
+    print(json.dumps(data, indent=2, ensure_ascii=False) if args.format == "json" else consolidate.render(data))
+    return 0
+
+
 def cmd_brief(args: argparse.Namespace) -> int:
     """What a session needs before it starts, in one call it did not choose.
 

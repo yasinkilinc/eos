@@ -61,7 +61,7 @@ _FILL_SESSION = frozenset(
 
 
 from core.cli.common import VERSION  # noqa: F401
-from core.cli.intel import cmd_ask, cmd_brief, cmd_cost, cmd_draft_test, cmd_impact, cmd_parent, cmd_parents, cmd_query, cmd_rules, cmd_trace, cmd_verify, cmd_why  # noqa: F401
+from core.cli.intel import cmd_ask, cmd_brief, cmd_consolidate, cmd_cost, cmd_draft_test, cmd_impact, cmd_parent, cmd_parents, cmd_query, cmd_rules, cmd_trace, cmd_verify, cmd_why  # noqa: F401
 from core.cli.notes import cmd_findings, cmd_note  # noqa: F401
 from core.cli.procedures import cmd_procedure  # noqa: F401
 from core.cli.project import cmd_ai, cmd_bench, cmd_clean, cmd_compose, cmd_context, cmd_doctor, cmd_graph, cmd_hook, cmd_index, cmd_info, cmd_init, cmd_mcp, cmd_scan, cmd_status, cmd_ui, cmd_update  # noqa: F401
@@ -348,6 +348,11 @@ def main(argv: list[str] | None = None) -> int:
     note_audit_p = note_sub.add_parser("audit", help="Report notes whose scoped files changed")
     add_path(note_audit_p)
 
+    consolidate_p = sub.add_parser(
+        "consolidate", help="What needs attention in this project's memory: failing and unrun procedures, "
+                            "lint, notes that read alike, stale notes and work (changes nothing)")
+    add_path(consolidate_p)
+    consolidate_p.add_argument("--format", choices=("text", "json"), default="text")
     brief_p = sub.add_parser(
         "brief", help="What a session needs before it starts: in flight, and known here")
     add_path(brief_p)
@@ -644,6 +649,7 @@ def main(argv: list[str] | None = None) -> int:
         "run": cmd_run,
         "procedure": cmd_procedure,
         "brief": cmd_brief,
+        "consolidate": cmd_consolidate,
         "route": cmd_route,
         "ai": cmd_ai,
         "capabilities": cmd_capabilities,
