@@ -49,6 +49,8 @@ executable launcher under `~/.local/bin/eos`. Override the locations with
   misses runs; the paraphrase guard ignores quoted logs and code blocks; a shell
   builtin name is not a tool for `procedure lint`; `consolidate` reports a broken
   config instead of a traceback.
+- **1.13.2:** the session summary counts a gate as answered only by a pass of
+  what it named.
 
 ## What changed in 1.12
 

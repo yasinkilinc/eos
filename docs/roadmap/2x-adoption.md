@@ -1,8 +1,8 @@
 # EOS 2.x branch — what landed overnight and how to adopt it
 
-Branch `eos-2x` (from `main` 1.5.1), released on the branch as 1.6.0 → 1.13.1.
+Branch `eos-2x` (from `main` 1.5.1), released on the branch as 1.6.0 → 1.13.2.
 Every step: tests first, the full suite green before the commit
-(1,144 passed, 1 skipped at 1.13.0), `tools/check-clean.sh` clean. `main` untouched.
+(1,165 passed, 1 skipped at 1.13.2), `tools/check-clean.sh` clean. `main` untouched.
 The row-by-row ledger with commits is `docs/roadmap/2x-progress.md`.
 
 ## What changed, by the question it answers
@@ -39,14 +39,15 @@ check re-run so it counts; 1.10.2: `&& echo VERIFIED` counts and no gate fires),
 the subagent handoff, the subagent citation check, and on 1.11.0 the main
 session's citation check (stopped once, the model read the file and corrected it),
 and on 1.12.0 the uncounted-check hint (a piped check was named at once, the model
-re-ran it countably, no Stop gate). Seven fresh reviews, a differential fuzz and a final whole-branch review ran; every
+re-ran it countably, no Stop gate), and on 1.13.1+ all of it end to end in one
+session. Seven fresh reviews, a differential fuzz and a final whole-branch review ran; every
 finding is fixed with a test (ledger rows RV-RV9).
 
 ## Adopting it
 
 1. Review `eos-2x` against `main` (a PR on GitHub from `eos-2x`), then merge.
 2. In nexus: `git subtree pull --prefix tools/eos eos main --squash`, then
-   `bash automation/install-eos-cli.sh` (the global CLI moves to 1.13.1).
+   `bash automation/install-eos-cli.sh` (the global CLI moves to 1.13.2).
 3. The nexus side of this work is on the local branch `eos-2x` in the worktree
    `../nexus-2x` (not pushed: the VPN was off). Its own commits: the `verify.toml`
    scopes and their test (4ebb01c), the verified-completion design as built

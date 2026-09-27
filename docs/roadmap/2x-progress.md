@@ -83,3 +83,6 @@ deletion; the nexus `mac` checkout and the global `eos` CLI are not touched.
 - Hook latency on nexus-2x, 15 runs each, realistic payloads: 1.13 p50 51-65 ms per event (post-tool
   Bash 62, Edit 56, pre-read 51, stop 65, user-prompt 51) against the global 1.5.1's 79-90 ms -- the
   verify gate and citation check add no measurable cost; part of the gap is the global launcher.
+- End-to-end live on 1.13.1+ (one headless session, nexus-2x): edit -> check piped into `tail` -> the
+  hint named it -> re-run on its own (no Stop gate for it) -> an answer citing CLAUDE.md:9999 stopped
+  once at Stop -> the model read the file and corrected it. verify_gates 0, hinted verify-form. $0.23.
