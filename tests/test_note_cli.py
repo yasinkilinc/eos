@@ -272,7 +272,7 @@ def test_real_credentials_are_still_refused():
     # refused no matter where in the value it sits. An earlier version of
     # this pattern full-string-matched the value and missed both of these --
     # a real regression this test now pins down. (This is a property of
-    # notes.py's own guard, not a claim that .githooks/pre-commit finds these
+    # core/notes/guards.py's own guard, not a claim that .githooks/pre-commit finds these
     # the same way -- its SECRET_ASSIGNMENT_PATTERN requires the run to start
     # immediately after the assignment, so the leading-punctuation case here
     # would defeat it there but does not defeat this guard.)
@@ -282,7 +282,7 @@ def test_real_credentials_are_still_refused():
     # character -- must still be refused: _find_credential used to test the
     # value *after* stripping surrounding punctuation, which could shorten a
     # 13+ char run below the 12-char floor before the length test ever saw
-    # it (see the raw_value comment in core/notes.py).
+    # it (see the raw_value comment in core/notes/guards.py).
     dot_padded = ".." + "S" * 11
     # A trailing period must not rescue a value whose credential-charset run
     # already reaches 12 without it: only the period is stripped before the

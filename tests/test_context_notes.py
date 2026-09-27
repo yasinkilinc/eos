@@ -52,7 +52,7 @@ def test_build_context_notes_section_is_capped_near_15_percent_of_budget(tmp_pat
     proj = _scanned_project(tmp_path)
     # Titles and bodies vary per note: normalized_title_key masks digits to a
     # single token, so "Finding number 0" and "Finding number 1" collide;
-    # identical bodies trip the body-duplicate check too (core/notes.py).
+    # identical bodies trip the body-duplicate check too (core/notes/write.py).
     topics = [
         "auth", "cache", "queue", "retry", "timeout", "socket", "thread", "buffer",
         "cursor", "index", "schema", "token", "header", "payload", "handler", "router",

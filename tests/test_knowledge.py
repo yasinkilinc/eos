@@ -108,7 +108,7 @@ def test_add_note_refuses_to_overwrite_an_existing_note(tmp_path):
     first = notes.add_note(proj, kind="finding", title="Same title", body="Original insight.")
 
     # A same-day, same-title collision now trips the title-duplicate check
-    # (core/notes.py) before path.exists() is ever reached.
+    # (core/notes/write.py) before path.exists() is ever reached.
     with pytest.raises(notes.DuplicateNoteError):
         notes.add_note(proj, kind="finding", title="Same title", body="Different insight.")
 
@@ -257,7 +257,7 @@ def test_render_context_section_drops_the_lowest_ranked_notes_over_budget_and_sa
     proj = _project(tmp_path)
     # Titles and bodies vary per note: normalized_title_key masks digits to a
     # single token, so "Finding number 0" and "Finding number 1" collide;
-    # identical bodies trip the body-duplicate check too (core/notes.py).
+    # identical bodies trip the body-duplicate check too (core/notes/write.py).
     topics = ["auth", "cache", "queue", "retry", "timeout", "socket", "thread",
               "buffer", "cursor", "index"]
     for i, topic in enumerate(topics):

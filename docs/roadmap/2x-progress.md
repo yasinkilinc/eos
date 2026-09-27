@@ -80,7 +80,7 @@ has barely started. "Absent" below means the name the report gives does not occu
 |---|---|---|---|
 | 1 | F2 | mostly | the integrity check before `os.replace`; "every derived file" is not in the rows above |
 | 1 | F3 | blocked (labels) | the scorer itself: FTS5 BM25 column weights, porter, RRF, MMR, `synonyms` (absent), one scorer behind `eos-query.sh notes` |
-| 1 | F4 | part | `core/notes.py` (1,889 lines) is still one module; the report's `notes/{store,validate,guards,render,procedures}` |
+| 1 | F4 | done | `core/notes/` split by F4b below |
 | 1 | F5 | part | `count` collapsing of identical consecutive events (deferred above) |
 | 1 | gate | not met | nexus recall@1 0.667 against >= 0.80; same top-3 from `eos-query.sh notes` and `eos note search` |
 | 2 | M1 | part | only `supersedes`: `provenance_type`, `agent`, `valid_from`/`valid_until` absent; no "expired" report |
@@ -109,13 +109,12 @@ has barely started. "Absent" below means the name the report gives does not occu
 | 6 | L3, L4, L5 | not started | symbol `parent_id`/`breadcrumb`; `measured/derived/unmeasured` on printed numbers (only in agent templates today); recalibration receipts (need A1) |
 | host | cross-phase | open | M3/M4 moves, `projects.toml` and `capability.toml`, the routing corpus, hook scripts to templates, the service-directory resume eval, generators that rewrite always-loaded files |
 
-Next without a decision, in order: F4b (split `core/notes.py`, zero behaviour change),
-then F5b (event collapsing with count-aware consumers). Everything after that waits on
+Next without a decision: F5b (event collapsing with count-aware consumers). Everything after that waits on
 F3's labels, C1's estimator, M1/M3's migration or A1's corpus.
 
 | Step | What | Status | Commits / notes |
 |---|---|---|---|
-| F4b | `core/notes.py` → `core/notes/` package, zero behaviour change | TODO | |
+| F4b | `core/notes.py` → `core/notes/` package, zero behaviour change | DONE | 1,889 lines moved verbatim by an AST splitter (0 definitions or comments lost) into store, guards, procedures, validate, render and write -- the report's five plus `write` for add/amend, which need all the others; layered so each imports only earlier ones; `__init__` re-exports all 105 names. All 73 help screens byte-identical; 1,192 passed, 2 skipped (both environmental, same before); a deployed runtime copy adds and finds a note as before. `memory_audit` found `core/` through `notes.__file__` -- now its own |
 | F5b | `count` on identical consecutive events, consumers read it | TODO | |
 
 ## Found along the way

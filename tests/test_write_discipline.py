@@ -11,7 +11,9 @@ from pathlib import Path
 
 CORE = Path(__file__).resolve().parents[1] / "core"
 ALLOWED = {
-    "notes.py": 2,            # add_note and the lesson writer create new files
+    "notes/write.py": 2,      # add_note and the lesson writer create new files
+    "notes/store.py": 0,
+    "notes/procedures.py": 0,
     "telemetry.py": 0,
     "hooks.py": 0,
     "executions.py": 0,

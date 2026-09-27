@@ -253,7 +253,7 @@ def check_c09(root: Path) -> Result:
 
 
 def check_c10(root: Path) -> Result:
-    core_dir = Path(notes.__file__).resolve().parent
+    core_dir = Path(__file__).resolve().parent
     offenders = [p.name for p in core_dir.rglob("*.py")
                  if _VECTOR_IMPORTS.search(p.read_text(encoding="utf-8", errors="ignore"))]
     if offenders:
@@ -407,7 +407,7 @@ def check_c20(root: Path) -> Result:
 
 
 def check_c21(root: Path) -> Result:
-    templates = Path(notes.__file__).resolve().parent / "ai" / "templates"
+    templates = Path(__file__).resolve().parent / "ai" / "templates"
     if not (templates / "prompt_submit.py").exists():
         return _r("C-21", MISSING, "no UserPromptSubmit hook template (M3)")
     settings = root / ".claude" / "settings.json"
