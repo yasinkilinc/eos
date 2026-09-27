@@ -45,7 +45,9 @@ section as text only.
   if/loops/case, functions called and not, `!`, `time`, `bash -c`, substitutions,
   heredocs) run in real bash with the check passing and failing: after one fix
   (a check after `exit 0` counted), 0 false clears and 0 crashes; the rule refuses
-  27% of the commands whose status really is the check's -- the price of certainty. Nesting past 20 levels is
+  27% of the commands whose status really is the check's -- the price of certainty.
+  The fuzzer is `tools/verify_fuzz.py`; `tests/test_verify_fuzz.py` runs 400 of its
+  commands on every suite run. Nesting past 20 levels is
   refused, not followed.
 - **Said at once, not only at Stop.** Replaying the host's 61 sessions since
   2026-09-15 through the rule: 36 of the 37 that changed a scoped file would be
