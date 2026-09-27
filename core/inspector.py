@@ -141,7 +141,12 @@ def read_file(root: str | Path, relative_path: str, max_chars: int = 20000,
         from core import outline
         from core.context import narrow
 
-        wanted = terms.replace(",", " ").split() if isinstance(terms, str) else list(terms)
+        if isinstance(terms, str):
+            wanted = terms.replace(",", " ").split()
+        elif isinstance(terms, (list, tuple)) and all(isinstance(t, str) for t in terms):
+            wanted = list(terms)
+        else:
+            raise ValueError(f"terms must be a string or a list of strings; got {terms!r}")
         shape = outline.outline(content, outline.kind_of(candidate))
         found = narrow.narrow_by_terms(content, wanted, limit=max_chars)
         if found is not None:
@@ -153,7 +158,7 @@ def read_file(root: str | Path, relative_path: str, max_chars: int = 20000,
                 "spans": [list(span) for span in found.spans],
                 "terms": found.terms,
                 "omitted_spans": found.omitted,
-                "lines": len(content.splitlines()),
+                "lines": len(narrow.split_lines(content)),
                 "truncated": False,
             }
     truncated = len(content) > max_chars
@@ -470,6 +475,44 @@ def _fit_sections(sections: list[str], max_chars: int) -> str:
     return "\n\n".join(kept)
 
 
+def _head_section(file_data: dict[str, Any]) -> str:
+    # read_file reports whether it cut the file short; dropping that flag
+    # hands the agent a half-read file that looks whole, and it will reason
+    # about the missing half as if it were absent from the source.
+    cut = (
+        "\n\n_File truncated at 12,000 characters — use `get_file` with a "
+        "larger `max_chars` for the rest._"
+        if file_data["truncated"] else ""
+    )
+    return f"## Target File\n\n`{file_data['path']}`\n\n```\n{file_data['content']}\n```{cut}"
+
+
+def _narrowed_section(project: Path, target: str, task: str, ceiling: int) -> str | None:
+    """The target's outline and the spans the task's terms hit, in at most `ceiling`
+    characters; None when nothing hits or it cannot be made to fit."""
+    from core import notes
+
+    terms = sorted(notes._words(task))
+    limit = 12000
+    for _ in range(2):
+        data = read_file(project, target, max_chars=max(limit, 1), terms=terms)
+        if not data.get("narrowed"):
+            return None
+        shape = "\n".join(data["outline"])
+        outline_block = f"Outline:\n\n```\n{shape}\n```\n\n" if shape else ""
+        section = (
+            f"## Target File\n\n`{data['path']}` ({data['lines']} lines), narrowed to the lines "
+            f"the task's terms hit ({', '.join(data['terms'])}) -- `get_file` without `terms` "
+            f"reads all of it.\n\n{outline_block}```\n{data['content']}```"
+        )
+        if len(section) <= ceiling:
+            return section
+        limit -= len(section) - ceiling
+        if limit <= 0:
+            return None
+    return None
+
+
 def build_context(root: str | Path, budget: int = 12000, task: str | None = None, target: str | None = None) -> str:
     """Assemble bounded orientation for an agent starting work on this project.
 
@@ -505,41 +548,15 @@ def build_context(root: str | Path, budget: int = 12000, task: str | None = None
 
     if task:
         sections.append(f"## Task\n\n{task}")
-    embedded = False
-    if target and task:
-        # A target longer than the section holds is narrowed to the task's terms
-        # (2.x roadmap C3) before it is cut at the head.
-        whole = read_file(project, target, max_chars=12000)
-        if whole["truncated"]:
-            from core import notes
-
-            file_data = read_file(project, target, max_chars=12000, terms=sorted(notes._words(task)))
-            if file_data.get("narrowed"):
-                shape = "\n".join(file_data["outline"])
-                outline_block = f"Outline:\n\n```\n{shape}\n```\n\n" if shape else ""
-                sections.append(
-                    f"## Target File\n\n`{file_data['path']}` ({file_data['lines']} lines), "
-                    f"narrowed to the lines the task's terms hit ({', '.join(file_data['terms'])})"
-                    f" -- `get_file` without `terms` reads all of it.\n\n"
-                    f"{outline_block}```\n{file_data['content']}```"
-                )
-                embedded = True
-                target_section = _target_facts(project, target)
-                if target_section:
-                    sections.append(target_section)
-    if target and not embedded:
+    if target:
         file_data = read_file(project, target, max_chars=12000)
-        # read_file reports whether it cut the file short; dropping that flag
-        # hands the agent a half-read file that looks whole, and it will reason
-        # about the missing half as if it were absent from the source.
-        cut = (
-            "\n\n_File truncated at 12,000 characters — use `get_file` with a "
-            "larger `max_chars` for the rest._"
-            if file_data["truncated"] else ""
-        )
-        sections.append(
-            f"## Target File\n\n`{file_data['path']}`\n\n```\n{file_data['content']}\n```{cut}"
-        )
+        section = _head_section(file_data)
+        if task and file_data["truncated"]:
+            # A target longer than the section holds is narrowed to the task's
+            # terms (2.x roadmap C3) -- never into a section larger than the head
+            # cut it replaces, which the budget fit would drop instead.
+            section = _narrowed_section(project, target, task, len(section)) or section
+        sections.append(section)
         target_section = _target_facts(project, target)
         if target_section:
             sections.append(target_section)

@@ -32,6 +32,9 @@ LIMIT_CHARS = 1200
 UBIQUITOUS_SHARE = 0.25
 MIN_STEM = 4
 
+# Ends a line cut to fit, so a reader never takes a cut line for a whole one.
+CUT = " …(line cut)\n"
+
 _FENCE = re.compile(r"^\s*(`{3,}|~{3,})")
 
 
@@ -50,7 +53,7 @@ def narrow_by_terms(text: str, terms, *, context: int = CONTEXT_CHARS,
                     limit: int = LIMIT_CHARS) -> Narrowed | None:
     """The spans of `text` around the lines `terms` hit, within `limit` characters."""
     wanted = list(dict.fromkeys(t.strip().casefold() for t in terms if t and t.strip()))
-    lines = text.splitlines()
+    lines = split_lines(text)
     if not wanted or not lines:
         return None
     hits = _hits(lines, wanted, whole_words=True) or _hits(
@@ -77,10 +80,10 @@ def narrow_by_terms(text: str, terms, *, context: int = CONTEXT_CHARS,
             piece = _render(lines, first, last) if first is not None else ""
             if not piece and not picked:
                 header = f"@@ L{anchor + 1}-L{anchor + 1}\n"
-                room = limit - used - len(header)
+                room = limit - used - len(header) - len(CUT)
                 if room > 0:
                     first = last = anchor
-                    piece = header + lines[anchor][:room]
+                    piece = header + lines[anchor][:room] + CUT
         if not piece or used + len(piece) > limit:
             omitted += 1
             continue
@@ -96,6 +99,15 @@ def narrow_by_terms(text: str, terms, *, context: int = CONTEXT_CHARS,
         terms=[t for t in wanted if t in decided],
         omitted=omitted,
     )
+
+
+def split_lines(text: str) -> list[str]:
+    """Lines as `grep -n` and an editor count them: split on newlines only
+    (`str.splitlines` also splits on form feeds and U+2028), a CR ending dropped."""
+    lines = text.split("\n")
+    if lines and lines[-1] == "":
+        lines.pop()
+    return [line[:-1] if line.endswith("\r") else line for line in lines]
 
 
 def _hits(lines: list[str], terms: list[str], *, whole_words: bool) -> dict[str, list[int]]:
@@ -136,14 +148,17 @@ def _blocks(lines: list[str]) -> dict[int, tuple[int, int]]:
 
 
 def _span(lines: list[str], row: int, blocks: dict, context: int) -> tuple[int, int]:
+    """Whole lines around `row`, stopping short of a block it is not in: context
+    that runs into a table or a fenced block would cut it (review of C3a)."""
     if row in blocks:
         return blocks[row]
     first, budget = row, context
-    while first > 0 and budget - len(lines[first - 1]) - 1 >= 0:
+    while first > 0 and first - 1 not in blocks and budget - len(lines[first - 1]) - 1 >= 0:
         first -= 1
         budget -= len(lines[first]) + 1
     last, budget = row, context
-    while last + 1 < len(lines) and budget - len(lines[last + 1]) - 1 >= 0:
+    while (last + 1 < len(lines) and last + 1 not in blocks
+           and budget - len(lines[last + 1]) - 1 >= 0):
         last += 1
         budget -= len(lines[last]) + 1
     return first, last

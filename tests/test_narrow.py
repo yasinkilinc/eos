@@ -139,6 +139,7 @@ def test_get_file_with_terms_gives_the_outline_first_then_the_spans(tmp_path):
     assert "def refund_payment(order):" in data["content"]
     assert "handler_10(" not in data["content"]
     assert data["terms"] == ["refund"]
+    assert data["lines"] == _big_module().count("\n")
 
 
 def test_get_file_with_terms_that_miss_reads_as_before(tmp_path):
@@ -161,3 +162,90 @@ def test_a_long_target_file_is_narrowed_to_the_task(tmp_path):
     assert "def refund_payment(order):" in context
     assert "field_10'" not in context          # the outline names it; its body is not read
     assert "narrowed" in context.lower()
+
+
+# --- review of C3a ------------------------------------------------------------------
+
+
+def test_context_stops_at_a_neighbouring_block_rather_than_cut_it():
+    code = ["```python"] + [f"x = compute_value_{i}(alpha, beta, gamma)" for i in range(40)] + ["```"]
+    table = ["| name | limit |", "|---|---|"] + [f"| row{i} | {i} |" for i in range(40)]
+    for block in (code, table):
+        text = "\n".join(block + ["needle here"] + block) + "\n"
+        result = narrow.narrow_by_terms(text, ["needle"], limit=16000)
+        assert result.spans == [(len(block) + 1, len(block) + 1)], result.spans
+
+
+def test_shrinking_takes_a_block_whole_or_leaves_it():
+    table = ["| name | limit |", "|---|---|"] + [f"| row{i} | {i} |" for i in range(40)]
+    text = "\n".join(["intro line"] * 3 + table + ["needle here"] + ["tail line"] * 30) + "\n"
+    result = narrow.narrow_by_terms(text, ["needle", "table"], limit=200)
+    body = [line for line in result.text.splitlines() if not line.startswith("@@")]
+    assert not any(line.startswith("|") for line in body)
+
+
+def test_line_numbers_count_newlines_only():
+    result = narrow.narrow_by_terms("a\x0cb\nx\ntarget\n", ["target"], limit=16000)
+    assert result.spans == [(1, 3)]
+    assert "a\x0cb\n" in result.text
+    crlf = narrow.narrow_by_terms("one\r\ntwo target\r\nthree\r\n", ["target"], limit=16000)
+    assert crlf.spans == [(1, 3)]
+    assert "\r" not in crlf.text
+
+
+def test_a_cut_line_says_so_and_ends_its_line():
+    result = narrow.narrow_by_terms("needle " + "x" * 5000 + "\n", ["needle"], limit=500)
+    assert len(result.text) <= 500
+    assert result.text.endswith("(line cut)\n")
+
+
+def _target_section(context: str) -> str:
+    rest = context.split("## Target File", 1)[1]
+    return "## Target File" + rest.split("\n# ", 1)[0].split("\n## ", 1)[0]
+
+
+def test_a_narrowed_target_never_costs_more_than_the_head_cut(tmp_path):
+    body = "import os\n" + "".join(f"def handler_{i}(event):\n    return event.get('refund_{i}')\n\n"
+                                   for i in range(400))
+    proj = _project(tmp_path, "big.py", body)
+    narrowed = _target_section(inspector.build_context(proj, budget=100000, task="refund", target="big.py"))
+    head = _target_section(inspector.build_context(proj, budget=100000, task="zzz", target="big.py"))
+    assert "truncated" in head
+    assert len(narrowed) <= len(head), (len(narrowed), len(head))
+
+
+def test_a_long_line_target_keeps_its_fence_closed(tmp_path):
+    proj = _project(tmp_path, "big.py", "refund = '" + "x" * 20000 + "'\n")
+    context = inspector.build_context(proj, budget=100000, task="refund", target="big.py")
+    assert "x```" not in context
+    assert "(line cut)" in context
+
+
+def test_terms_must_be_strings(tmp_path):
+    import pytest
+    proj = _project(tmp_path, "big.py", _big_module())
+    with pytest.raises(ValueError, match="terms"):
+        inspector.read_file(proj, "big.py", terms=[1, "refund"])
+    with pytest.raises(ValueError, match="terms"):
+        inspector.read_file(proj, "big.py", terms={"refund": 1})
+
+
+def test_fuzz_limit_order_and_whole_blocks():
+    """A kept sample of the 20,000-case fuzz run for the C3a review fixes."""
+    import random
+    rng = random.Random(7)
+    pool = ["plain words here", "needle in the text", "| a | b |", "|---|---|", "```", "~~~", "",
+            "x" * 300, "alpha needle beta", "\r", "tab\tneedle", "needle_suffix", "form\x0cfeed needle"]
+    for _ in range(2000):
+        text = "\n".join(rng.choice(pool) for _ in range(rng.randint(0, 60))) + rng.choice(["", "\n"])
+        limit = rng.choice([50, 200, 1200, 16000])
+        result = narrow.narrow_by_terms(text, ["needle", "beta"], context=rng.choice([0, 100, 600]), limit=limit)
+        if result is None:
+            continue
+        assert len(result.text) <= limit and result.text.endswith("\n")
+        assert all(a <= b for a, b in result.spans)
+        assert all(result.spans[i][1] < result.spans[i + 1][0] for i in range(len(result.spans) - 1))
+        blocks = set(narrow._blocks(narrow.split_lines(text)).values())
+        for a, b in result.spans:
+            for first, last in blocks:
+                assert last < a - 1 or first > b - 1 or (first >= a - 1 and last <= b - 1), (text, result.spans)
