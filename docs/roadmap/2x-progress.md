@@ -147,6 +147,12 @@ Usage limit (user, 21:25): before each step read `~/.claude/usage/rate-limits.js
 by the status line); at `seven_day.used_percentage` >= 50 stop development, write the
 morning report and end the loop. A reading older than an hour or missing is reported,
 not guessed.
+The status line never runs in this VSCode session, so the reading comes from the user
+and a proxy: the session's cost-weighted token total (main + subagent transcripts;
+input 1, cache write 1.25, cache read 0.1, output 5), scratchpad `usage_meter.py`.
+Readings: 21:39 = 36% at 2.11M units. With a second reading: stop at a projected 48%.
+Without one: stop once 1.0M units have been spent after 21:39 (half of what the whole
+session had used by then).
 
 Defaults the user accepted (21:10): synonyms engine-only and off, no host list;
 L2 status quo; M1 forward-only, no migration of existing notes; C1 estimator = the
