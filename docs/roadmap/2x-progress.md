@@ -93,7 +93,7 @@ has barely started. "Absent" below means the name the report gives does not occu
 | 3 | C4 | unclear | the context diet on `main` (ADR-027) may cover part; not measured against the item |
 | 3 | C5 | part | read-only ELSEWHERE and `work --across`; `projects.toml`, the alias blocker, hooks once at the root, run routing to the named ledger, host hooks as engine templates |
 | 3 | C6 | done | corrected: hook events carry `agent` (the subagent's type) and land in the session's open run, which is the parent's |
-| 3 | C7 | part | `cost --context` shipped; `cost --sessions` (telemetry + routing-usage + deliveries) absent |
+| 3 | C7 | engine done | `cost --context` and C7b `cost --sessions` below; the saved-vs-baseline column needs the host's baseline sessions |
 | 4 | A1 | not started | routing corpus (>= 200 labelled prompts, ~2 days of human work), `route --bench` absent |
 | 4 | A2, A3 | not started | the envelope (`verify_depth` absent); advised-vs-used-vs-outcome report; only `hook_dry_run` exists |
 | 4 | A4 | part | `capabilities.toml` predates 2.x; the six-state truth model and `verifyBeforeUse` |
@@ -109,7 +109,7 @@ has barely started. "Absent" below means the name the report gives does not occu
 | 6 | L3, L4, L5 | not started | symbol `parent_id`/`breadcrumb`; `measured/derived/unmeasured` on printed numbers (only in agent templates today); recalibration receipts (need A1) |
 | host | cross-phase | open | M3/M4 moves, `projects.toml` and `capability.toml`, the routing corpus, hook scripts to templates, the service-directory resume eval, generators that rewrite always-loaded files |
 
-Next without a decision (engine only): C7b `eos cost --sessions`, L4 `measured/derived/unmeasured` on printed numbers, L3 symbol `parent_id`/`breadcrumb`. Everything else waits on F3's labels, C1's estimator, M1/M3's migration, A1's corpus or host work.
+Next without a decision (engine only): L4 `measured/derived/unmeasured` on printed numbers, L3 symbol `parent_id`/`breadcrumb`. Everything else waits on F3's labels, C1's estimator, M1/M3's migration, A1's corpus or host work.
 
 | Step | What | Status | Commits / notes |
 |---|---|---|---|
@@ -119,6 +119,7 @@ Next without a decision (engine only): C7b `eos cost --sessions`, L4 `measured/d
 | RV15 | Review of 7c756de (notes split) and 52d557e (C3a) | DONE | the split: nothing found (re-exports, patching, runtime copy checked). C3a, 5 findings, each fixed with a test, release 1.19.1: context around a prose hit cut into a neighbouring table or fenced block -- it now stops short of it; `splitlines` counted form feeds and U+2028 as lines, so `@@ L` numbers drifted -- newlines only; a line cut to fit had no newline and left the target's closing fence on its line, swallowing the rest of the context -- it ends ` …(line cut)`; the narrowed target (outline + spans) could outgrow the head cut and be dropped by the budget fit at budgets that kept it before -- it is now held to the head cut's size; non-string `terms` failed with an AttributeError -- refused by name. A 20,000-case fuzz of limit, order and block wholeness: 0 violations; 2,000 kept in the suite |
 | C3b | Note bodies narrowed by the task's terms in `render_context_section` (1,200 per body) | DONE | release 1.20.0; a finding longer than 1,200 characters is narrowed to the query's terms and says so, naming `eos note show` for the rest; lessons, decisions, defects and procedures stay whole (their sections are the point, ADR-024 and C2); without a query nothing changes. The task brief carries titles, not bodies, so it had nothing to narrow; the host's injection hook is host work. Not measured on the host's corpus (not reachable from here) |
 | RV16 | The flaky rotation test (`test_a_reader_during_a_rotation_still_sees_every_run`) | DONE | failed 8 of 40 runs alone, 1 of 4 full suites. A real race, not the test: a reader looked at `.1` before a rotation's rename and at the ledger after it, saw no file at all, and an absent ledger read as empty -- a run vanished from that read. RV9's retry never fired, because nothing had vanished from what it looked at. A ledger that was ever written has a lock file (`lock.ever_locked`), so an all-absent look at one is read again under the lock; a never-written ledger is still empty at once. Release 1.20.1; a deterministic test (red before), 0 of 40 stress runs fail |
+| C7b | `eos cost --sessions`: per session, EOS's delivered tokens against the model's new and read tokens, and the hooks' counters | DONE | release 1.21.0; `core/session_cost.py` joins telemetry.jsonl, routing-usage.jsonl and sessions.jsonl by session id and changes nothing. The share is EOS tokens over new tokens (input + cache creation: what entered the context once), since cache reads repeat on every call; a source without a line for a session is None/`—`, and the overall share covers only sessions both sides measured. EOS tokens are the telemetry's own chars/4 (no fourth estimator before C1 decides one). Not run on the host's data from here |
 
 ## Found along the way
 

@@ -149,6 +149,9 @@ executable launcher under `~/.local/bin/eos`. Override the locations with
   no Success section.
 - **`eos cost --context`:** what a project's agent sessions keep re-reading,
   by source, from the harness's transcripts, checked against their cache reads.
+- **`eos cost --sessions`:** per session, what EOS delivered (telemetry) against
+  what the model read (`routing-usage.jsonl`) and the hooks' counters; a
+  source with nothing for a session prints `—`, never 0.
 - **Runs join work:** `eos run start` on a ticket's branch links the run to
   that ticket's open work item; `eos work show` lists its runs.
 - **Briefs say how old a note is:** `[finding, 3d]` beside every note named.

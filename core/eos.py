@@ -208,7 +208,10 @@ def main(argv: list[str] | None = None) -> int:
     cost_p.add_argument("--context", action="store_true",
                         help="What this project's agent sessions keep re-reading, by source, from the "
                              "harness's transcripts (tokens x calls kept), checked against their cache reads")
-    cost_p.add_argument("--since", help="With --context: sessions started on or after this date (YYYY-MM-DD)")
+    cost_p.add_argument("--sessions", action="store_true",
+                        help="Per session: what EOS delivered against what the model read, joined from "
+                             "telemetry, routing-usage and the hooks' session lines")
+    cost_p.add_argument("--since", help="With --context or --sessions: sessions seen on or after this date (YYYY-MM-DD)")
     cost_p.add_argument("--transcripts", help="With --context: the transcript folder (default: the harness's)")
 
     findings_p = sub.add_parser("findings", help="Recorded runs and what they were judged to be")

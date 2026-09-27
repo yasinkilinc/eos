@@ -281,6 +281,13 @@ def cmd_cost(args: argparse.Namespace) -> int:
     """What EOS has cost this project, per command; with --context, what its sessions re-read."""
     from core import telemetry
 
+    if getattr(args, "sessions", False):
+        from core import session_cost
+
+        data = session_cost.report(args.path, since=args.since or "")
+        print(json.dumps(data, indent=2, ensure_ascii=False) if args.format == "json" else session_cost.render(data))
+        return 0
+
     if getattr(args, "context", False):
         from core import context_cost
 
