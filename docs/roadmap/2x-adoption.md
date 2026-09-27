@@ -68,7 +68,11 @@ finding is fixed with a test (ledger rows RV-RV11).
 - **F3 labels:** `nexus-2x docs/eos-evals/golden/nexus-alternates-proposal.md` --
   which of the 11 near-duplicate answers are equivalent (7 judged so → recall@1
   0.879). The retrieval scorer work waits for this.
-- **M2:** should procedure counters move only on `verified` runs?
+- **M2:** should procedure counters move only on `verified` runs? Measured on the
+  host's 57 ok runs: none changed a file in a verify scope (they deliver configs, run
+  scenarios, open PRs), so none is `verified` or `claimed` -- the rule as written
+  would freeze every procedure counter there. A counter rule for operational
+  procedures would have to rest on their `## Success` checks instead.
 - **C1:** one token estimator at the measured 2.22 chars/token would shorten briefs
   by about a quarter (they are sized at 3.0 today).
 - **Procedure texts:** `admin-toolbox`, `review`, `report` are named as tools by three
