@@ -58,3 +58,10 @@ remain over all history, where files changed after the answer, and 1 of 69 quote
 the last three days. The hook keeps checking references only: a misread quote would
 stop a subagent that did nothing wrong. Not done from the roadmap's E3: changed files
 within the procedure's scope, wrapper exits, depth 2.
+
+## Addendum: the main session (1.11.0)
+
+The Stop hook checks the main session's final answer (`last_assistant_message`,
+which the harness hands Stop as it does SubagentStop) the same way: a missing
+absolute path or a line past the end stops the turn once per set of problems,
+under the same `[hooks] cite_check`. Quotes stay out of the hook, as for subagents.

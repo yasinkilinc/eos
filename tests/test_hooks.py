@@ -534,3 +534,22 @@ def test_a_handoff_is_not_made_into_a_whole_prompt(project, monkeypatch, capsys)
     call = _payload(project, tool_name="Agent", tool_input={"description": "check the tracker ticket",
                                                             "subagent_type": "Explore"})
     assert _hook(monkeypatch, capsys, "pre-agent", call).out == ""
+
+
+def test_the_main_session_citing_a_line_that_is_not_there_is_asked_once(project, monkeypatch, capsys):
+    source = project / "svc.py"
+    source.write_text("x = 1\n", encoding="utf-8")
+    stop = _payload(project, last_assistant_message=f"Fixed at {source}:120.")
+    first = json.loads(_hook(monkeypatch, capsys, "stop", stop).out)
+    assert first["decision"] == "block" and "the file has 1 lines" in first["reason"]
+    assert _hook(monkeypatch, capsys, "stop", stop).out == ""                              # once
+    assert _hook(monkeypatch, capsys, "stop", _payload(project, last_assistant_message=f"See {source}:1.")).out == ""
+
+
+def test_the_main_session_citation_check_follows_cite_check(project, monkeypatch, capsys):
+    source = project / "svc.py"
+    source.write_text("x = 1\n", encoding="utf-8")
+    config = project / ".eos" / "config.toml"
+    config.write_text(config.read_text(encoding="utf-8") + "\n[hooks]\ncite_check = false\n", encoding="utf-8")
+    stop = _payload(project, last_assistant_message=f"Fixed at {source}:120.")
+    assert _hook(monkeypatch, capsys, "stop", stop).out == ""

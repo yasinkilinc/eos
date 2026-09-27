@@ -21,7 +21,9 @@ and, sessions starting one directory up, never ran in any of them.
     stop                 fold the transcript's model/effort/token counts into
                          routing usage (detached; where routing is configured),
                          and ask once about work items and runs this session
-                         left open -- every honest answer closes the question
+                         left open, work changed after its last check (ADR-028)
+                         and references in the answer that cannot be right
+                         (ADR-030) -- every honest answer closes the question
     stop-failure         a run cut short by the harness (rate limit, overload)
     session-end          one summary line per session (.eos/data/sessions.jsonl)
     pre-agent            the routing decision for an untyped subagent (ADR-025):
@@ -943,6 +945,10 @@ def _stop(root: Path, hook: Hook, cfg: dict, agent: str | None) -> str:
         reasons += _close_reasons(root, hook, cfg)
     except Exception:  # noqa: BLE001 - the open-run check failing costs its lines, not the gate
         pass
+    try:
+        reasons += _cite_reasons(root, hook, cfg)
+    except Exception:  # noqa: BLE001 - cannot tell, do not stop the turn
+        pass
     if not reasons:
         return ""
     if mark:
@@ -950,6 +956,25 @@ def _stop(root: Path, hook: Hook, cfg: dict, agent: str | None) -> str:
     # A Stop hook blocks through its JSON answer, so this one still exits 0;
     # the harness sets stop_hook_active on the next stop and it lets go.
     return json.dumps({"decision": "block", "reason": "\n\n".join(reasons)}, ensure_ascii=False)
+
+
+def _cite_reasons(root: Path, hook: Hook, cfg: dict) -> list[str]:
+    """The main session's answer, checked as a subagent's is (ADR-030): a
+    reference that cannot be right stops the turn once per set of problems."""
+    if not cfg["cite_check"] or hook.stop_active or hook.agent_id or not hook.last_message or not hook.session:
+        return []
+    from core import citations as cited
+
+    problems = cited.wrong(hook.last_message, [hook.cwd or root, root])
+    if not problems:
+        return []
+    signature = "|".join(sorted(problems))
+    if any(line.get("cite_gated") == signature for line in _state(hook.session)):
+        return []
+    _note_state(hook.session, cite_gated=signature, wrong_citations=len(problems))
+    return ["EOS: these references in your answer cannot be right:\n"
+            + "\n".join(f"- {problem}" for problem in problems[:5])
+            + "\nCorrect them, or say in your answer that they are unverified."]
 
 
 def _close_reasons(root: Path, hook: Hook, cfg: dict) -> list[str]:
