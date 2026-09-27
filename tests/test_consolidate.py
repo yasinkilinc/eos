@@ -54,3 +54,12 @@ def test_a_step_tool_no_run_ever_recorded_is_named(tmp_path, monkeypatch):
     data = consolidate.report(root)
     assert data["procedures"]["silent_steps"] == {slug: ["step 2 (tool: grants)"]}
     assert f"STEPS NO RUN RECORDED (1)" in consolidate.render(data)
+
+
+def test_a_broken_config_is_an_error_not_a_traceback(tmp_path):
+    root = tmp_path / "proj"
+    root.mkdir()
+    assert subprocess.run(EOS + ["init", str(root), "--no-ai"], capture_output=True).returncode == 0
+    (root / ".eos" / "config.toml").write_text("not valid toml [[[", encoding="utf-8")
+    done = subprocess.run(EOS + ["consolidate", str(root)], capture_output=True, text=True)
+    assert done.returncode == 1 and "Traceback" not in done.stderr and "error:" in done.stderr

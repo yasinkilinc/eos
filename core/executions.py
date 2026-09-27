@@ -23,6 +23,7 @@ from __future__ import annotations
 import dataclasses
 import json
 import os
+import time
 from pathlib import Path
 
 from core import notes
@@ -421,16 +422,46 @@ _BASE_EVENT_FIELDS = ("execution", "ord", "at", "kind", "tool", "target", "ref",
                       "ms", "body", "session")
 
 
-def load_path(ledger: Path) -> list[Record]:
-    """Every execution in one ledger, in the order it was started."""
-    parts = [rotated(ledger, index) for index in range(KEEP_ROTATED, 0, -1)] + [ledger]
-    texts = []
+def _identities(parts: list[Path]) -> tuple:
+    found = []
     for part in parts:
-        if part.is_file():
+        try:
+            found.append(part.stat().st_ino)
+        except OSError:
+            found.append(None)
+    return tuple(found)
+
+
+def _read_consistently(parts: list[Path], attempts: int = 8) -> list[str]:
+    """The files' texts, read again when a rotation renamed one of them during
+    the read -- lock-free, a reader could otherwise find neither the moved file
+    nor the new one (whole-branch review)."""
+    texts: list[str] = []
+    for attempt in range(attempts):
+        before = _identities(parts)
+        texts, vanished = [], False
+        for part, identity in zip(parts, before):
             try:
                 texts.append(part.read_text(encoding="utf-8", errors="replace"))
             except OSError:
-                continue
+                vanished = vanished or identity is not None  # there a moment ago
+        if not vanished and _identities(parts) == before:
+            return texts
+        time.sleep(0.002 * (attempt + 1))
+    # Still moving: read under the writers' lock, which a rotation holds.
+    from core.lib import lock
+
+    try:
+        with lock.locked(parts[-1], timeout=2.0):
+            return [p.read_text(encoding="utf-8", errors="replace") for p in parts if p.is_file()]
+    except (lock.LockTimeout, OSError):
+        return texts
+
+
+def load_path(ledger: Path) -> list[Record]:
+    """Every execution in one ledger, in the order it was started."""
+    parts = [rotated(ledger, index) for index in range(KEEP_ROTATED, 0, -1)] + [ledger]
+    texts = _read_consistently(parts)
     if not texts:
         return []
     text = "".join(t if t.endswith("\n") else t + "\n" for t in texts)

@@ -100,3 +100,36 @@ def test_finish_survives_an_unreadable_config_above_the_project(tmp_path, monkey
     (project / ".eos" / "config.toml").write_text(f'[knowledge]\ndir = "{shared}"\n', encoding="utf-8")
     run = executions.start(project, "Redirected notes", session="s1")
     assert executions.finish(project, run.id, outcome="ok", session="s1").outcome == "ok"
+
+
+def test_a_reader_during_a_rotation_still_sees_every_run(tmp_path, monkeypatch):
+    """Whole-branch review: between the rename and the next append a lock-free
+    reader could find neither file (about 1% of reads in a tight loop)."""
+    import os
+    import threading
+
+    monkeypatch.setenv("EOS_STATE_DIR", str(tmp_path / "state"))
+    (tmp_path / ".eos").mkdir()
+    run = executions.start(tmp_path, "Kept across rotations", session="s1")
+    ledger = executions.path_for(tmp_path)
+    first = executions.rotated(ledger, 1)
+    stop, misses = threading.Event(), []
+
+    from core.lib import lock
+
+    def flip():  # the rename a rotation does, and back, under the writers' lock as _append holds it
+        while not stop.is_set():
+            with lock.locked(ledger):
+                os.replace(ledger, first)
+                os.replace(first, ledger)
+
+    worker = threading.Thread(target=flip)
+    worker.start()
+    try:
+        for _ in range(2000):
+            if run.id not in {r.id for r in executions.load_path(ledger)}:
+                misses.append(1)
+    finally:
+        stop.set()
+        worker.join()
+    assert misses == []

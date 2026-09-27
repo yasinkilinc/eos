@@ -45,6 +45,10 @@ executable launcher under `~/.local/bin/eos`. Override the locations with
   generated commands with the check passing and failing; 20,000 of them find no
   false clear, and 400 run with every test suite. `check; exit $?` and read-only
   tails after `&&` (`cd`, `ls`, `tail`, `git status`) now count.
+- **1.13.1:** a whole-branch review: a ledger read during a rotation no longer
+  misses runs; the paraphrase guard ignores quoted logs and code blocks; a shell
+  builtin name is not a tool for `procedure lint`; `consolidate` reports a broken
+  config instead of a traceback.
 
 ## What changed in 1.12
 

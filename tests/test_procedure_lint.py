@@ -60,3 +60,11 @@ def test_a_wrapper_path_is_not_taken_for_the_program_it_is_named_after(tmp_path)
     _procedure(root, "Tag a release", ["Tag it (tool: scripts/git.sh)"], success="the tag exists")
     [report] = procedure_lint.lint(root)
     assert any("scripts/git.sh" in p and "not declared" in p for p in report["problems"]), report
+
+
+def test_a_shell_builtin_name_is_not_a_tool(tmp_path):
+    """Whole-branch review: `(tool: test)` passed because /bin/test exists."""
+    root = _project(tmp_path)
+    _procedure(root, "Run the suite", ["Run it (tool: test)"], success="green")
+    [report] = procedure_lint.lint(root)
+    assert any("(tool: test)" in p and "unknown tool" in p for p in report["problems"])

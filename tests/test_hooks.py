@@ -563,3 +563,13 @@ def test_a_check_run_so_it_cannot_count_gets_one_hint_at_once(project, monkeypat
     assert "does not count" in out and "make test" in out
     again = _payload(project, tool_name="Bash", tool_use_id="b2", tool_input={"command": "make test; echo x"})
     assert "does not count" not in _hook(monkeypatch, capsys, "post-tool", again).out   # once
+
+
+def test_a_subagent_does_not_use_up_the_main_sessions_verify_hint(project, monkeypatch, capsys):
+    source = _verify_project(project)
+    _hook(monkeypatch, capsys, "post-tool", _payload(project, tool_name="Edit", tool_input={"file_path": str(source)}))
+    sub = _payload(project, tool_name="Bash", tool_use_id="s1", agent_id="a1", agent_type="Explore",
+                   tool_input={"command": "make test | tail -3"})
+    _hook(monkeypatch, capsys, "post-tool", sub)
+    main = _payload(project, tool_name="Bash", tool_use_id="m1", tool_input={"command": "make test | tail -3"})
+    assert "does not count" in _hook(monkeypatch, capsys, "post-tool", main).out

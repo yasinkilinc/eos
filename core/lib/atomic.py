@@ -22,6 +22,10 @@ def write_text(path: str | Path, text: str, encoding: str = "utf-8") -> None:
             os.fsync(stream.fileno())
         if target.exists():
             os.chmod(name, target.stat().st_mode & 0o7777)
+        else:  # mkstemp makes it 0600; a new file gets what open() would give it
+            current = os.umask(0)
+            os.umask(current)
+            os.chmod(name, 0o666 & ~current)
         os.replace(name, target)
     except BaseException:
         try:

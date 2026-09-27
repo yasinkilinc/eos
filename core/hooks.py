@@ -418,7 +418,7 @@ def _record_passes(root: Path, hook: Hook, run, command: str) -> str:
         return ""
     # Measured on the host: half the changes a Stop gate would ask about had
     # their check run, piped or followed by `;` -- said now, it costs nothing.
-    _note_state(hook.session, hint="verify-form", actor=hook.actor)
+    # Marked by the caller, only when it shows it: a subagent's run must not use it up.
     named = ", ".join(f"{key} (`{verify.run_hint(scopes, key)}`)" for key in uncounted[:3])
     return (f"EOS: this ran the check for {named}, but its exit status is not this "
             "command's (`| tail`, `;`, `||`), so it does not count as verified. Run it as the last command, "
@@ -704,6 +704,7 @@ def _post_tool(root: Path, hook: Hook, cfg: dict, agent: str | None, failed: boo
         # A background command reports success when it starts, not when it passes.
         form = _record_passes(root, hook, run, command)
         if form and main_session and cfg["hints"]:
+            _note_state(hook.session, hint="verify-form", actor=hook.actor)
             hints.append(form)
     output = _context(event_name, "\n".join(hints)) if hints else ""
     if run is None or capabilities.wrapper_in(command, declared) is not None:

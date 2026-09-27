@@ -57,3 +57,15 @@ def test_amend_reports_a_paraphrase_without_refusing(tmp_path):
                                  BODY.replace("nightly", "overnight")], capture_output=True, text=True)
     assert done.returncode == 0, done.stderr
     assert "says this in other words" in done.stderr
+
+
+def test_a_shared_quoted_log_does_not_make_two_notes_the_same():
+    """Whole-branch review: two defects quoting the same 60-line log scored 0.92."""
+    log = "\n".join(f"2026-09-27 04:{n:02d} ERROR order {n} payment timeout after 30000 ms retry {n % 3}"
+                    for n in range(60))
+    first = f"Root cause: the gateway pool was exhausted.\n\n```\n{log}\n```\n"
+    second = f"Root cause: a proxy dropped idle connections.\n\n```\n{log}\n```\n"
+    assert notes.trigram_jaccard(first, second) < notes.PARAPHRASE_JACCARD
+    quoted = "\n".join(f"> {line}" for line in log.splitlines())
+    share = notes.trigram_jaccard(f"Cause A differs here.\n{quoted}", f"Cause B is another.\n{quoted}")
+    assert share < notes.PARAPHRASE_JACCARD

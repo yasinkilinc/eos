@@ -46,3 +46,7 @@ all real wrapper calls at distinct times; collapsing them needs readers that cou
   the file, so they still share one lock.
 - `eos-event` (shell) appends without the lock; an append during a rotation lands
   in the rotated file, which the fold still reads.
+- Readers take no lock. A read that overlaps a rotation's rename could see neither
+  file (about 1% of reads in a tight loop, whole-branch review), so `load_path`
+  reads again when a file's identity changed or it vanished mid-read, and after
+  eight tries reads under the writers' lock.

@@ -19,6 +19,9 @@ import shutil
 from pathlib import Path
 
 SCRIPT_DIRS = ("scripts", "automation", "bin", "tools")
+# Names that resolve on PATH as a shell builtin's twin, not as a tool a step means.
+BUILTINS = {"test", "true", "false", "echo", "printf", "read", "time", "cd", "type", "command", "wait",
+            "kill", "[", "which", "yes", "sleep", "env"}
 SCRIPT_SUFFIXES = ("", ".sh", ".py")
 
 
@@ -54,7 +57,7 @@ def lint(project_root: str | Path) -> list[dict]:
             key = executions.normalize_tool(tool)
             # A tool written as a path is a script, never the program its name
             # resembles (scripts/git.sh is not git).
-            program = "/" not in tool and bool(shutil.which(tool))
+            program = "/" not in tool and tool not in BUILTINS and bool(shutil.which(tool))
             if key in declared or program:
                 continue
             script = _script(root, tool)

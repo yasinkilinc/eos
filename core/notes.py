@@ -646,8 +646,18 @@ PARAPHRASE_JACCARD = 0.8
 PARAPHRASE_MIN_TRIGRAMS = 20
 
 
+_FENCED = re.compile(r"^(`{3,}|~{3,})[^\n]*\n.*?^\1[ \t]*$", re.M | re.S)
+
+
+def _prose(text: str) -> str:
+    """The note's own words: fenced blocks and `>` quotes are evidence two
+    different notes may share (whole-branch review)."""
+    text = _FENCED.sub(" ", text or "")
+    return "\n".join(line for line in text.splitlines() if not line.lstrip().startswith(">"))
+
+
 def _trigrams(text: str) -> set[tuple[str, str, str]]:
-    words = [token.casefold() for token in _WORD.findall(text)]
+    words = [token.casefold() for token in _WORD.findall(_prose(text))]
     return {tuple(words[index:index + 3]) for index in range(len(words) - 2)}
 
 

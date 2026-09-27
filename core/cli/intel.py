@@ -495,7 +495,11 @@ def cmd_consolidate(args: argparse.Namespace) -> int:
     """What needs a person's attention in this project's memory; changes nothing (2.x roadmap L1)."""
     from core import consolidate
 
-    data = consolidate.report(args.path)
+    try:
+        data = consolidate.report(args.path)
+    except (OSError, ValueError) as exc:  # a malformed config.toml is a TOMLDecodeError, a ValueError
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
     print(json.dumps(data, indent=2, ensure_ascii=False) if args.format == "json" else consolidate.render(data))
     return 0
 

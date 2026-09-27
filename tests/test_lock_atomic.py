@@ -119,3 +119,14 @@ def test_an_unwritable_state_directory_falls_back_beside_the_file(tmp_path, monk
     with lock.locked(target, timeout=2):
         target.write_text("x", encoding="utf-8")
     assert target.read_text(encoding="utf-8") == "x"
+
+
+def test_a_new_file_gets_the_umask_mode_not_a_private_one(tmp_path):
+    import os
+
+    old = os.umask(0o022)
+    try:
+        atomic.write_text(tmp_path / "new.txt", "x")
+    finally:
+        os.umask(old)
+    assert (tmp_path / "new.txt").stat().st_mode & 0o777 == 0o644
