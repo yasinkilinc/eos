@@ -153,6 +153,9 @@ input 1, cache write 1.25, cache read 0.1, output 5), scratchpad `usage_meter.py
 Readings: 21:39 = 36% at 2.11M units. With a second reading: stop at a projected 48%.
 Without one: stop once 1.0M units have been spent after 21:39 (half of what the whole
 session had used by then).
+The proxy stopped the night at 22:01 (2.08M units); the user said to continue at 22:08.
+From then on every step runs in a background subagent and the main session stays idle;
+the stop is the user's next `/usage` reading at or over 50%.
 
 Defaults the user accepted (21:10): synonyms engine-only and off, no host list;
 L2 status quo; M1 forward-only, no migration of existing notes; C1 estimator = the
@@ -163,12 +166,12 @@ measured 2.22 chars/token; A1 candidates proposed into a file, used by nothing u
 | N1 | F3 `synonyms`: `[notes] synonyms` in a project's config; off without the table; `rank(..., synonyms=)` for hosts | DONE | each group is one concept: members and a query naming any of them read as one key, its weight counts the notes using any member (not the rarest member's, as planned -- that would let an unused spelling inflate the concept); two members named count once; a phrase member dropped, a word in two groups stays in the first. 9 tests; no host list (default) |
 | N2 | M1 forward-only: `note add` records `provenance` (human/agent/generated), `agent`, `valid_from`; `--valid-until`; `consolidate` lists expired notes; search leaves an expired note out; old notes untouched | DONE | `--provenance`, `--agent` (implies agent; with human/generated refused), `--valid-until` (ISO, not in the past); MCP `add_note` records agent; search and the context section leave an expired note out, a mangled date never hides one; `consolidate` EXPIRED NOTES. No `valid_from`: `created` is it. 11 tests. Not done: `amend` cannot change these fields; the brief's procedure match does not look at expiry |
 | N3 | C1 `core/context/budget.py`: one estimator (2.22 chars/token, measured), every chars/3 and chars/4 site through it, L4 provenance kept | DONE | `budget.tokens`/`budget.chars`; `context_cost.py` (already 2.22), `brief.py` (3.0), `inject.py` (2.7), `bench.py` and `telemetry.py` (chars/4) now import it, `brief.CHARS_PER_TOKEN`/`inject.CHARS_PER_TOKEN` kept as re-exports so existing callers and tests are untouched. Task brief cap 1,500 tok: 4,500 chars -> 3,330; branch brief 800 tok: 2,400 -> 1,776; injection 3,000/4,000 tok: 8,100/10,800 -> 6,660/8,880 chars. `core/cli/intel.py`'s `eos cost` also had a hardcoded "estimated at 4 chars each" string, now printed from `budget.CHARS_PER_TOKEN`. Four tests pinned the old chars/4 ratio as literals (two in `test_telemetry.py`: `entry["chars"] // 4`, a 3-sample median of 2; two in `test_honest_numbers.py`: `eos cost`'s printed `~300` and a `totals["eos_tokens"] == 400`); all four updated to the values the new ratio produces (median 3; `~540`; `720`). 4 new tests (`tests/test_token_budget.py`) |
-| RVa | Review of N1-N3 | NOT STARTED | stopped by the usage rule at 22:01 |
-| N4 | F5b collapse on read: `run show` folds identical consecutive events into one line with `xN`; the ledger stays append-only | NOT STARTED | stopped by the usage rule at 22:01 |
-| N5 | A2/A3 advised-vs-used: `eos route --stats` joins the route decision with the model the subagent really ran and the run outcome | NOT STARTED | stopped by the usage rule at 22:01 |
-| N6 | E3 rest: `run finish` names changed files outside the procedure's declared scope | NOT STARTED | stopped by the usage rule at 22:01 |
-| RVb | Review of N4-N6 | NOT STARTED | stopped by the usage rule at 22:01 |
-| N7 | A1 candidates (host, nexus worktree): real prompts from transcripts with a proposed label into `docs/eos-evals/golden/routing-candidates.tsv`, used by nothing | NOT STARTED | stopped by the usage rule at 22:01 |
+| RVa | Review of N1-N3 | TODO | |
+| N4 | F5b collapse on read: `run show` folds identical consecutive events into one line with `xN`; the ledger stays append-only | TODO | |
+| N5 | A2/A3 advised-vs-used: `eos route --stats` joins the route decision with the model the subagent really ran and the run outcome | TODO | |
+| N6 | E3 rest: `run finish` names changed files outside the procedure's declared scope | TODO | |
+| RVb | Review of N4-N6 | TODO | |
+| N7 | A1 candidates (host, nexus worktree): real prompts from transcripts with a proposed label into `docs/eos-evals/golden/routing-candidates.tsv`, used by nothing | TODO | |
 | MR | Morning report `docs/roadmap/2x-night2-report.md`: what landed, measured numbers, decisions taken, how to merge | DONE | written at 22:05 when the usage rule stopped the night |
 
 ### Decided without asking
