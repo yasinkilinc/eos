@@ -68,6 +68,56 @@ deletion; the nexus `mac` checkout and the global `eos` CLI are not touched.
 | M1/M3/M4/M6 | Provenance on every note, generated store, journey fan-out, priors | BLOCKED | M1/M3/M4 migrate the host's notes (~590 files) -- a person decides; M6 needs F3 |
 | M2 | Counters moved only by verified outcomes | NEEDS DECISION | 1.6 labels ok runs verified/claimed from evidence; whether procedure counters move only on verified is a policy call. Measured: the host's 57 ok runs changed no scoped file, so the rule would freeze every counter there |
 
+## What is left of §17 (checked against the code at 65aade8)
+
+The research report is now in this repo (`docs/plans/eos-2x-architecture-research.md`).
+Read item by item against the code, no phase is closed and no phase gate is met: the
+overnight run took Phase 1 most of the way and pieces of Phases 2, 3, 5 and 6; Phase 4
+has barely started. "Absent" below means the name the report gives does not occur in
+`core/` or `bin/`.
+
+| Phase | Item | State | What is missing |
+|---|---|---|---|
+| 1 | F2 | mostly | the integrity check before `os.replace`; "every derived file" is not in the rows above |
+| 1 | F3 | blocked (labels) | the scorer itself: FTS5 BM25 column weights, porter, RRF, MMR, `synonyms` (absent), one scorer behind `eos-query.sh notes` |
+| 1 | F4 | part | `core/notes.py` (1,889 lines) is still one module; the report's `notes/{store,validate,guards,render,procedures}` |
+| 1 | F5 | part | `count` collapsing of identical consecutive events (deferred above) |
+| 1 | gate | not met | nexus recall@1 0.667 against >= 0.80; same top-3 from `eos-query.sh notes` and `eos note search` |
+| 2 | M1 | part | only `supersedes`: `provenance_type`, `agent`, `valid_from`/`valid_until` absent; no "expired" report |
+| 2 | M2 | part | `outcome_source` labels exist; `run finish --source`, event `status`/`source`/`step` fields and the counter rule do not (decision) |
+| 2 | M3, M4, M6 | not started | generated store and migration, journey fan-out, priors (M6 needs F3) |
+| 2 | gate | not met | provenance >= 95%, notes store <= 300 files, recall@1 >= 0.85, injection p95 <= 4,000 |
+| 3 | C1 | not started | `core/context/budget.py`; the estimator is a decision (2.22 measured vs 3.5 in the report) |
+| 3 | C2 | part | kind and age shipped; stable ids left out on purpose; the lessons' `evidence:` flag |
+| 3 | C3 | part | `core/outline.py` predates 2.x; `narrow_by_terms` absent |
+| 3 | C4 | unclear | the context diet on `main` (ADR-027) may cover part; not measured against the item |
+| 3 | C5 | part | read-only ELSEWHERE and `work --across`; `projects.toml`, the alias blocker, hooks once at the root, run routing to the named ledger, host hooks as engine templates |
+| 3 | C6 | part | subagent events carry neither `agent` nor the parent run |
+| 3 | C7 | part | `cost --context` shipped; `cost --sessions` (telemetry + routing-usage + deliveries) absent |
+| 4 | A1 | not started | routing corpus (>= 200 labelled prompts, ~2 days of human work), `route --bench` absent |
+| 4 | A2, A3 | not started | the envelope (`verify_depth` absent); advised-vs-used-vs-outcome report; only `hook_dry_run` exists |
+| 4 | A4 | part | `capabilities.toml` predates 2.x; the six-state truth model and `verifyBeforeUse` |
+| 4 | A5 | part | `route --eval` suggestions, not the report's `route --learn` from outcomes |
+| 5 | E1 | part | hook events and change records exist; the >= 95% capture acceptance is unmeasured |
+| 5 | E2 | mostly | lint does not check step tools against the capability table |
+| 5 | E3 | part | `eos cite` and the hook checks; `eos verify --output`, changed files within the procedure scope, depth 2 (running `## Success`) |
+| 5 | E4 | mostly | `eos-close` asking about both |
+| 5 | E5 | not needed | measured on a copy without git history; `index --shadow` absent |
+| 5 | E6 | part | `graph.json` not split |
+| 6 | L1 | part | priors, keyword proposals, routing accuracy, advised-vs-used, stale generated artifacts |
+| 6 | L2 | decision | ADR-032 proposed |
+| 6 | L3, L4, L5 | not started | symbol `parent_id`/`breadcrumb`; `measured/derived/unmeasured` on printed numbers (only in agent templates today); recalibration receipts (need A1) |
+| host | cross-phase | open | M3/M4 moves, `projects.toml` and `capability.toml`, the routing corpus, hook scripts to templates, the service-directory resume eval, generators that rewrite always-loaded files |
+
+Next without a decision, in order: F4b (split `core/notes.py`, zero behaviour change),
+then F5b (event collapsing with count-aware consumers). Everything after that waits on
+F3's labels, C1's estimator, M1/M3's migration or A1's corpus.
+
+| Step | What | Status | Commits / notes |
+|---|---|---|---|
+| F4b | `core/notes.py` → `core/notes/` package, zero behaviour change | TODO | |
+| F5b | `count` on identical consecutive events, consumers read it | TODO | |
+
 ## Found along the way
 
 - `eos run finish <unknown id>` succeeded and wrote a finish line for a run never started
