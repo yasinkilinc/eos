@@ -88,8 +88,13 @@ deliver configs, run scenarios, open PRs -- so none carried a label. A run that
 changed no scoped file is now labelled from its procedure's `## Success` lines:
 the first word of each backticked command, kept when it is a declared capability,
 a program on PATH (not a shell builtin) or a script in the project (`#id` or
-`status:` in backticks are not checks). The run is `verified` when each of those
-tools ran in it with exit 0, `claimed` otherwise, and `run finish` names the
-checks that never ran. On the host all 17 procedure runs are `verified`. The label
+`status:` in backticks are not checks), with its subcommand unless that is a
+placeholder or a flag. The run is `verified` when each check -- that tool with
+that subcommand -- ran with exit 0 after the run's last change, `claimed`
+otherwise, and `run finish` names the checks that never ran. (The first version
+matched the program name anywhere in the run: an early `git status` passed for a
+later `git log`, and 17 of 17 host runs read verified.) On the host: 9 verified, 8
+claimed -- seven scenario runs never ran the `scenario.sh state` their procedure
+names as proof, one config delivery never ran `bb.sh pr`. The label
 says the checks ran and exited 0, not that their output showed the expected
 result; procedure counters are unchanged (M2 is still a decision).

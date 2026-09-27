@@ -50,3 +50,10 @@ def test_nothing_is_said_off_a_ticket_branch_or_when_nothing_matches(tmp_path, m
     assert "ELSEWHERE" not in brief.build(service)
     work.open_item(hub, "FM-12 digital channel order", session="s0")
     assert "ELSEWHERE" not in brief.build(hub)          # the hub is on no ticket branch
+
+
+def test_a_key_does_not_match_inside_a_longer_one(tmp_path, monkeypatch):
+    hub, service = _workspace(tmp_path, monkeypatch)
+    subprocess.run(["git", "checkout", "-q", "-b", "feature/FM-1"], cwd=service, check=True)
+    work.open_item(hub, "FM-12 unrelated work", session="s0")
+    assert "ELSEWHERE" not in brief.build(service)

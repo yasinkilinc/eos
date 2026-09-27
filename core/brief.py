@@ -254,7 +254,22 @@ def _elsewhere(root: Path, keys: list[str], now) -> list[str]:
     service a session opens in."""
     from core import executions
 
-    wanted = [key.upper() for key in keys]
+    # A key matched whole: FM-1 is not in FM-12 (review 12).
+    patterns = [re.compile(rf"(?<![A-Z0-9]){re.escape(key.upper())}(?![0-9])") for key in keys]
+
+    def names(text: str) -> bool:
+        return any(pattern.search(text.upper()) for pattern in patterns)
+
+    def mentioned(paths) -> bool:
+        # Cheap before a full parse: a sibling ledger that never names the key is skipped.
+        for path in paths:
+            try:
+                if names(path.read_text(encoding="utf-8", errors="replace")):
+                    return True
+            except OSError:
+                continue
+        return False
+
     own = work.path_for(root)
     found: list[str] = []
     try:
@@ -264,17 +279,19 @@ def _elsewhere(root: Path, keys: list[str], now) -> list[str]:
     for label, ledger in ledgers:
         if ledger == own:
             continue
+        run_ledger = ledger.parent / executions.FILENAME
+        run_parts = [run_ledger] + [executions.rotated(run_ledger, n) for n in range(1, executions.KEEP_ROTATED + 1)]
         try:
-            items = work.fold(work.load_path(ledger))
-            runs = executions.load_path(ledger.parent / executions.FILENAME)
+            items = work.fold(work.load_path(ledger)) if mentioned([ledger]) else []
+            runs = executions.load_path(run_ledger) if mentioned(run_parts) else []
         except Exception:  # noqa: BLE001
             continue
         for item in items:
-            text = f"{item.id} {item.title or ''} {item.ticket or ''}".upper()
-            if item.status in (work.OPEN, work.ACTIVE, work.BLOCKED) and any(key in text for key in wanted):
+            text = f"{item.id} {item.title or ''} {item.ticket or ''}"
+            if item.status in (work.OPEN, work.ACTIVE, work.BLOCKED) and names(text):
                 found.append(f"  {label}: {item.status} {item.id}  {_clip(item.title or '', DETAIL_CHARS)}")
         for record in runs:
-            if record.open and any(key in (record.title or "").upper() for key in wanted):
+            if record.open and names(record.title or ""):
                 found.append(f"  {label}: run open {record.id}  {_clip(record.title or '', DETAIL_CHARS)}  "
                              f"[{work.ago(record.started_at, now)}]")
     return found

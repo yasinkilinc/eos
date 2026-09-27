@@ -91,10 +91,15 @@ def lint(parsed: list[Step], body: str) -> list[str]:
 
 
 def success_tools(root, note) -> list[str]:
-    """The tools a procedure's `## Success` lines run, in order: the first word
-    of each backticked command, kept only when it is a declared capability, a
-    program on PATH (not a shell builtin) or a script in the project -- `#id`
-    or `status:` in backticks are not checks."""
+    return list(dict.fromkeys(tool for tool, _ in success_checks(root, note)))
+
+
+def success_checks(root, note) -> list[tuple[str, str | None]]:
+    """The checks a procedure's `## Success` lines run, in order, as (tool,
+    subcommand): the first word of each backticked command, kept only when it
+    is a declared capability, a program on PATH (not a shell builtin) or a
+    script in the project -- `#id` or `status:` in backticks are not checks --
+    and its second word unless that is a placeholder or a flag."""
     import shutil
     from pathlib import Path
 
@@ -107,19 +112,21 @@ def success_tools(root, note) -> list[str]:
         declared = []
     known = {executions.normalize_tool(c.name) for c in declared}
     known |= {executions.normalize_tool(c.run) for c in declared if c.run}
-    found: list[str] = []
+    found: list[tuple[str, str | None]] = []
     for item in notes.procedure_success(note):
         for command in re.findall(r"`([^`]+)`", item):
             words = command.split()
             if not words:
                 continue
             tool = executions.normalize_tool(words[0])
-            if not tool or tool in found:
+            if not tool:
                 continue
             program = ("/" not in words[0] and words[0] not in procedure_lint.BUILTINS
                        and bool(shutil.which(words[0])))
             if tool in known or program or procedure_lint._script(root, words[0]) is not None:
-                found.append(tool)
+                verb = words[1] if len(words) > 1 and not words[1].startswith(("<", "-", "{", "$")) else None
+                if (tool, verb) not in found:
+                    found.append((tool, verb))
     return found
 
 

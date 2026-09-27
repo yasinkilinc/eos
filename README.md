@@ -44,6 +44,8 @@ executable launcher under `~/.local/bin/eos`. Override the locations with
 - **Operational runs are labelled too:** a run that changed no scoped file is
   `verified` when every tool its procedure's `## Success` lines run ran with exit
   0, `claimed` otherwise -- `run finish` names the check that never ran.
+- **1.15.1:** a check is its tool and subcommand, run after the last change;
+  ELSEWHERE matches ticket keys whole and skips ledgers that never name them.
 
 ## What changed in 1.14
 

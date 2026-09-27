@@ -46,21 +46,38 @@ def test_a_run_that_ran_its_success_check_is_verified_and_one_that_did_not_is_cl
     root, slug = _project(tmp_path, monkeypatch)
     checked = _eos("run", "start", str(root), "--title", "Close FM-1", "--procedure", slug,
                    "--session", "s1").split()[0]
-    _eos("run", "event", str(root), checked, "--kind", "called", "--tool", "tracker", "--exit", "0")
+    _eos("run", "event", str(root), checked, "--kind", "called", "--tool", "tracker", "--ref", "issue FM-1",
+         "--exit", "0")
     _eos("run", "finish", str(root), checked, "--outcome", "ok")
     unchecked = _eos("run", "start", str(root), "--title", "Close FM-2", "--procedure", slug,
                      "--session", "s2").split()[0]
     said = _eos("run", "finish", str(root), unchecked, "--outcome", "ok")
     runs = {r.id: r for r in executions.load(root)}
     assert executions.outcome_source(root, runs[checked]) == ("verified", [])
-    assert executions.outcome_source(root, runs[unchecked]) == ("claimed", ["success: tracker"])
+    assert executions.outcome_source(root, runs[unchecked]) == ("claimed", ["success: tracker issue"])
     assert "Success check" in said and "tracker" in said
 
 
 def test_a_failed_success_check_does_not_verify(tmp_path, monkeypatch):
     root, slug = _project(tmp_path, monkeypatch)
     run = _eos("run", "start", str(root), "--title", "Close FM-3", "--procedure", slug, "--session", "s1").split()[0]
-    _eos("run", "event", str(root), run, "--kind", "called", "--tool", "tracker", "--exit", "1")
+    _eos("run", "event", str(root), run, "--kind", "called", "--tool", "tracker", "--ref", "issue FM-3", "--exit", "1")
     _eos("run", "finish", str(root), run, "--outcome", "ok")
     [record] = executions.load(root)
     assert executions.outcome_source(root, record)[0] == "claimed"
+
+
+def test_the_check_is_its_subcommand_and_comes_after_the_work(tmp_path, monkeypatch):
+    root, slug = _project(tmp_path, monkeypatch)
+    wrong_verb = _eos("run", "start", str(root), "--title", "Close FM-4", "--procedure", slug,
+                      "--session", "s4").split()[0]
+    _eos("run", "event", str(root), wrong_verb, "--kind", "called", "--tool", "tracker", "--ref", "search FM-4",
+         "--exit", "0")
+    _eos("run", "finish", str(root), wrong_verb, "--outcome", "ok")
+    early = _eos("run", "start", str(root), "--title", "Close FM-5", "--procedure", slug, "--session", "s5").split()[0]
+    _eos("run", "event", str(root), early, "--kind", "called", "--tool", "tracker", "--ref", "issue FM-5", "--exit", "0")
+    _eos("run", "event", str(root), early, "--kind", "changed", "--tool", "edit", "--ref", "docs/x.md")
+    _eos("run", "finish", str(root), early, "--outcome", "ok")
+    runs = {r.id: r for r in executions.load(root)}
+    assert executions.outcome_source(root, runs[wrong_verb])[0] == "claimed"
+    assert executions.outcome_source(root, runs[early])[0] == "claimed"

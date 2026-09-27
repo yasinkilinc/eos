@@ -335,14 +335,19 @@ def _success_source(project_root: str | Path, record: Record) -> tuple[str | Non
 
     try:
         note = notes.find_procedure(project_root, record.procedure)
-        wanted = steps.success_tools(project_root, note)
+        wanted = steps.success_checks(project_root, note)
     except (ValueError, OSError):
         return None, []
     if not wanted:
         return None, []
-    passed = {normalize_tool(e.tool) for e in record.events
+    # Only what ran after the run's last change, as the check it names: an early
+    # `git status` is not a later `git log` (review 12).
+    changes = [n for n, e in enumerate(record.events) if e.kind == "changed"]
+    after = record.events[changes[-1] + 1:] if changes else record.events
+    passed = {(normalize_tool(e.tool), ((e.ref or e.body or "").split() or [None])[0]) for e in after
               if e.tool and e.exit_code in (0, None) and e.status not in ("failed", "error")}
-    left = [f"success: {tool}" for tool in wanted if tool not in passed]
+    left = [f"success: {tool} {verb}".rstrip() if verb else f"success: {tool}" for tool, verb in wanted
+            if not any(t == tool and (verb is None or v == verb) for t, v in passed)]
     return ("claimed" if left else "verified"), left
 
 
