@@ -54,5 +54,8 @@ the citation check (with `--plugin-dir`).
   by about a quarter (they are sized at 3.0 today).
 - **Procedure texts:** `admin-toolbox`, `review`, `report` are named as tools by three
   procedures and exist nowhere (`eos procedure lint .`).
+- **L2 graph (ADR-032, proposed):** EOS's graph found 99.4% of the tests affected by a
+  change against Graphify's 83.6% (353 pairs, three services), at 0.16 ms against ~1 s.
+  Stop building Graphify's per-service graph.json once nothing else reads it?
 - **Phase 2 migration (M1, M3, M4):** provenance on every note and moving ~590
   generated notes out of the notes store change the host's corpus.
