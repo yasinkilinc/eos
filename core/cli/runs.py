@@ -104,11 +104,18 @@ def _outside_scope(root, record) -> list[str]:
     cover (2.x roadmap N6); [] when the procedure names no scope, or names
     none at all. Matches a scope entry exactly, as a directory prefix, or as
     an fnmatch glob -- the same three shapes scope entries are written in.
+
+    Reads the procedure note and the changed refs from the run's own project,
+    not necessarily `root`: a workspace `run finish` from its own root for a
+    run routed to a named project's ledger (C5b) has to look there, the same
+    place `executions.finish` itself wrote to -- otherwise the procedure note
+    is never found and the warning silently never fires.
     """
     if not record.procedure:
         return []
-    from core import notes
+    from core import executions, notes
 
+    root = executions.root_for(root, record.id)
     try:
         note = notes.find_procedure(root, record.procedure)
     except ValueError:

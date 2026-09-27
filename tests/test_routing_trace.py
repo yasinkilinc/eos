@@ -236,3 +236,35 @@ def test_advised_vs_used_ignores_a_context_window_suffix(project):
 
     stats = trace.advised_vs_used_outcome_stats(project)
     assert len(stats["same"]) == 1 and len(stats["different"]) == 0
+
+
+def test_advised_vs_used_resolves_a_model_alias_to_the_same_canonical_id(project):
+    # The transcript records the model the harness actually ran under, which
+    # for `sonnet` is `claude-sonnet-5` (a registry alias), never the
+    # canonical id the decision itself carries. Comparing the raw strings
+    # (or only stripping a `[1m]` suffix) makes an exact match count as a
+    # mismatch.
+    run = executions.start(project, "some task", session="s1")
+    decision = routing.route(project, "refactor the auth flow and update tests",
+                             session="s1", model="sonnet")
+    executions.finish(project, run.id, outcome="ok", session="s1")
+    assert decision.model == "sonnet"
+    _write_usage(project, "s1", subagent_models={"claude-sonnet-5": {"messages": 3}})
+
+    stats = trace.advised_vs_used_outcome_stats(project)
+    assert len(stats["same"]) == 1 and len(stats["different"]) == 0
+
+
+def test_advised_vs_used_takes_the_runs_latest_decision(project):
+    # A run can carry several `decided` events (an explicit --model on a
+    # later `route()` call appends rather than replaces). The run's live
+    # decision -- the one `core.routing._decided` reuses, and the one later
+    # calls in the run actually acted on -- is the latest one, not the first.
+    run = executions.start(project, "some task", session="s1")
+    routing.route(project, "fix a small typo", session="s1", model="haiku")
+    decision = routing.route(project, "fix a small typo", session="s1", model="opus", fresh=True)
+    executions.finish(project, run.id, outcome="ok", session="s1")
+    _write_usage(project, "s1", subagent_models={decision.model: {"messages": 4}})
+
+    [row] = trace.advised_vs_used_outcome(project)
+    assert row["advised_model"] == decision.model == "opus"

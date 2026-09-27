@@ -373,6 +373,24 @@ def _root_of(ledger: Path) -> Path | None:
     return None
 
 
+def root_for(project_root: str | Path, execution: str) -> Path:
+    """The project whose ledger actually holds `execution` (2.x roadmap N6).
+
+    `project_root` itself, unless a workspace routed the run to a named
+    project's ledger and `project_root` is the workspace root the caller
+    invoked from rather than that project (C5b) -- `run finish`'s own
+    ledger resolution, reused so a post-finish read (a procedure's scope,
+    its own changed-file refs) looks in the same place `finish` wrote to.
+    """
+    root = Path(project_root).expanduser().resolve()
+    if execution in {r.id for r in load(root)}:
+        return root
+    from core import workspace
+
+    ledger = workspace.ledger_holding(root, execution)
+    return (_root_of(ledger) if ledger else None) or root
+
+
 def finish(project_root: str | Path, execution: str | None = None, *, outcome: str,
            lesson: str | None = None, session: str | None = None,
            next_time: str | None = None) -> Record:

@@ -194,11 +194,6 @@ def advised_vs_used(project_root: str | Path) -> list[dict]:
     return rows
 
 
-def _base_model(model_id: str | None) -> str | None:
-    """A model id with any context-window suffix dropped (`model[1m]` -> `model`)."""
-    return model_id.split("[", 1)[0] if model_id else model_id
-
-
 def advised_vs_used_outcome(project_root: str | Path) -> list[dict]:
     """Per run whose routing decision is recorded (a `decided` event, ADR-022):
     the model advised for it against the model its session actually ran, and
@@ -218,7 +213,12 @@ def advised_vs_used_outcome(project_root: str | Path) -> list[dict]:
     usage_by_session = {line["session"]: line for line in usage.load(project_root) if line.get("session")}
     rows = []
     for record in executions.load(project_root):
-        decided = next((e for e in record.events if e.kind == "decided" and e.tool == "route" and e.body), None)
+        # The run's live decision is the latest one recorded, matching
+        # `core.routing._decided`: a later explicit --model or --fresh call
+        # appends rather than replaces, and is the one later calls in the run
+        # reuse and act on.
+        decided = next((e for e in reversed(record.events)
+                        if e.kind == "decided" and e.tool == "route" and e.body), None)
         if decided is None:
             continue
         parts = decided.body.split()
@@ -245,12 +245,28 @@ def advised_vs_used_outcome(project_root: str | Path) -> list[dict]:
 
 def advised_vs_used_outcome_stats(project_root: str | Path) -> dict:
     """`advised_vs_used_outcome` grouped into advised == used, advised != used
-    and unknown (no used model in the data) -- what `eos route --stats` prints."""
+    and unknown (no used model in the data) -- what `eos route --stats` prints.
+
+    Compared through the registry, not as raw strings: `advised_model` is
+    always the router's canonical id, `used_model` is the harness's own
+    string from the transcript (an alias, e.g. `claude-sonnet-5` for
+    `sonnet`) -- the same resolution `advised_vs_used`'s `family()` applies.
+    """
+    from core.routing import registry
+
+    models = registry.load(project_root)
+
+    def family(model_id: str | None) -> str | None:
+        if not model_id:
+            return model_id
+        spec = models.get(model_id) or models.get(model_id.split("[", 1)[0])
+        return spec.id if spec is not None else model_id
+
     groups: dict[str, list[dict]] = {"same": [], "different": [], "unknown": []}
     for row in advised_vs_used_outcome(project_root):
         if row["used_model"] is None:
             groups["unknown"].append(row)
-        elif _base_model(row["used_model"]) == _base_model(row["advised_model"]):
+        elif family(row["used_model"]) == family(row["advised_model"]):
             groups["same"].append(row)
         else:
             groups["different"].append(row)

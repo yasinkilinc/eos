@@ -61,6 +61,25 @@ def test_events_and_finish_follow_the_run_to_that_ledger(ws):
     assert record.outcome == "ok" and [e.tool for e in record.events] == ["mvn"]
 
 
+def test_finish_from_the_workspace_root_checks_scope_against_the_runs_own_project(ws):
+    # N6's out-of-scope warning (`_outside_scope`) must read the procedure note
+    # and match changed-file refs against the project the run actually lives
+    # in -- order-capture's ledger here -- not the workspace root `run finish`
+    # was invoked from, which has no such note and no such files (C5b).
+    tmp_path, hub = ws
+    from core import notes
+
+    service = tmp_path / "services" / "order-capture"
+    notes.add_note(service, kind="procedure", title="Deploy oc",
+                   body="## Steps\n1. build\n", scope=["src/handler.py"])
+    run = _start(hub, "--title", "oc: deploy", "--procedure", "deploy-oc").stdout.split()[0]
+    executions.event(hub, kind="changed", ref="elsewhere.py", session="s1")
+    finished = subprocess.run(EOS + ["run", "finish", str(hub), run, "--outcome", "ok", "--session", "s1"],
+                              capture_output=True, text=True)
+    assert finished.returncode == 0, finished.stderr
+    assert "elsewhere.py" in finished.stdout
+
+
 def test_here_project_and_ambiguity(ws):
     tmp_path, hub = ws
     here = _start(hub, "--title", "oc refactor", "--here").stdout.split()[0]
