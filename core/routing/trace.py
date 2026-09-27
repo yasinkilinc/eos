@@ -194,6 +194,69 @@ def advised_vs_used(project_root: str | Path) -> list[dict]:
     return rows
 
 
+def _base_model(model_id: str | None) -> str | None:
+    """A model id with any context-window suffix dropped (`model[1m]` -> `model`)."""
+    return model_id.split("[", 1)[0] if model_id else model_id
+
+
+def advised_vs_used_outcome(project_root: str | Path) -> list[dict]:
+    """Per run whose routing decision is recorded (a `decided` event, ADR-022):
+    the model advised for it against the model its session actually ran, and
+    the run's own outcome (2.x roadmap N5).
+
+    'Used' is read from the session's usage fold (`routing-usage.jsonl`),
+    preferring the subagent tally: a routed decision is applied to a subagent
+    call's own `model` field (`core.hooks._route_subagent`), which is where a
+    recommendation is actually followed or not, while the main session's
+    model is chosen by the harness rather than by this decision. A session
+    with no usage line at all leaves `used_model` None ("unknown" -- never
+    guessed as a match or a mismatch).
+    """
+    from core import executions
+    from core.routing import usage
+
+    usage_by_session = {line["session"]: line for line in usage.load(project_root) if line.get("session")}
+    rows = []
+    for record in executions.load(project_root):
+        decided = next((e for e in record.events if e.kind == "decided" and e.tool == "route" and e.body), None)
+        if decided is None:
+            continue
+        parts = decided.body.split()
+        if len(parts) != 7:
+            continue
+        advised_model = parts[2]
+        session = decided.session or record.session
+        fold = usage_by_session.get(session or "")
+        used_model = None
+        if fold:
+            tally = fold.get("subagent_models") or fold.get("models") or {}
+            if tally:
+                used_model = max(tally, key=lambda model_id: tally[model_id].get("messages", 0))
+        outcome_source = None
+        if record.outcome == "ok":
+            outcome_source, _ = executions.outcome_source(project_root, record)
+        rows.append({
+            "execution": record.id, "session": session, "advised_model": advised_model,
+            "used_model": used_model, "outcome": record.outcome or "open",
+            "outcome_source": outcome_source,
+        })
+    return rows
+
+
+def advised_vs_used_outcome_stats(project_root: str | Path) -> dict:
+    """`advised_vs_used_outcome` grouped into advised == used, advised != used
+    and unknown (no used model in the data) -- what `eos route --stats` prints."""
+    groups: dict[str, list[dict]] = {"same": [], "different": [], "unknown": []}
+    for row in advised_vs_used_outcome(project_root):
+        if row["used_model"] is None:
+            groups["unknown"].append(row)
+        elif _base_model(row["used_model"]) == _base_model(row["advised_model"]):
+            groups["same"].append(row)
+        else:
+            groups["different"].append(row)
+    return groups
+
+
 def _trim(target: Path) -> None:
     try:
         lines = target.read_text(encoding="utf-8", errors="replace").splitlines()

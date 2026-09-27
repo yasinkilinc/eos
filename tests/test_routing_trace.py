@@ -10,9 +10,19 @@ import pytest
 
 import core.routing as routing
 from core import executions
-from core.routing import trace
+from core.routing import trace, usage
 
 SENTINEL = "zanzibarquux"
+
+
+def _write_usage(project, session, *, models=None, subagent_models=None):
+    """One routing-usage.jsonl line, in the shape `usage.record` writes."""
+    path = usage.path_for(project)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    entry = {"at": "2026-09-27T00:00:00+00:00", "session": session,
+             "models": models or {}, "subagent_models": subagent_models or {}}
+    with open(path, "a", encoding="utf-8") as handle:
+        handle.write(json.dumps(entry) + "\n")
 
 
 @pytest.fixture
@@ -155,3 +165,74 @@ def test_the_trace_keeps_the_numbers_and_the_effort_in_use(project, monkeypatch)
     monkeypatch.setenv("EOS_EFFORT", "Low")
     routing.route(project, "fix the typo")
     assert trace.load(project)[-1]["effort_in_use"] == "low"
+
+
+# --- advised vs used vs outcome (2.x roadmap N5) --------------------------------------
+
+
+def test_advised_vs_used_matches_when_the_subagent_ran_the_advised_model(project):
+    run = executions.start(project, "some task", session="s1")
+    decision = routing.route(project, "refactor the auth flow and update tests", session="s1")
+    executions.finish(project, run.id, outcome="ok", session="s1")
+    _write_usage(project, "s1", subagent_models={decision.model: {"messages": 3}})
+
+    [row] = trace.advised_vs_used_outcome(project)
+    assert row["execution"] == run.id
+    assert row["advised_model"] == decision.model
+    assert row["used_model"] == decision.model
+    assert row["outcome"] == "ok"
+
+
+def test_advised_vs_used_differs_when_another_model_ran(project):
+    run = executions.start(project, "some task", session="s1")
+    routing.route(project, "refactor the auth flow and update tests", session="s1")
+    executions.finish(project, run.id, outcome="failed", lesson="wrong model used", session="s1")
+    _write_usage(project, "s1", subagent_models={"a-different-model": {"messages": 5}})
+
+    [row] = trace.advised_vs_used_outcome(project)
+    assert row["used_model"] == "a-different-model"
+    assert row["outcome"] == "failed"
+
+
+def test_advised_vs_used_is_unknown_without_a_usage_line(project):
+    run = executions.start(project, "some task", session="s1")
+    routing.route(project, "refactor the auth flow and update tests", session="s1")
+    executions.finish(project, run.id, outcome="ok", session="s1")
+
+    [row] = trace.advised_vs_used_outcome(project)
+    assert row["used_model"] is None
+
+
+def test_advised_vs_used_prefers_the_subagent_tally_over_the_main_one(project):
+    run = executions.start(project, "some task", session="s1")
+    decision = routing.route(project, "refactor the auth flow and update tests", session="s1")
+    executions.finish(project, run.id, outcome="ok", session="s1")
+    _write_usage(project, "s1", models={"main-session-model": {"messages": 9}},
+                 subagent_models={decision.model: {"messages": 1}})
+
+    [row] = trace.advised_vs_used_outcome(project)
+    assert row["used_model"] == decision.model
+
+
+def test_advised_vs_used_stats_groups_same_different_and_unknown(project):
+    for index, (used, outcome) in enumerate(
+            [("haiku", "ok"), ("opus", "ok"), (None, "ok")]):
+        run = executions.start(project, f"task {index}", session=f"s{index}")
+        decision = routing.route(project, "fix a small typo", session=f"s{index}", model="haiku")
+        executions.finish(project, run.id, outcome=outcome, session=f"s{index}")
+        if used is not None:
+            _write_usage(project, f"s{index}", subagent_models={used: {"messages": 1}})
+
+    stats = trace.advised_vs_used_outcome_stats(project)
+    assert len(stats["same"]) == 1 and len(stats["different"]) == 1 and len(stats["unknown"]) == 1
+    assert stats["same"][0]["advised_model"] == decision.model == "haiku"
+
+
+def test_advised_vs_used_ignores_a_context_window_suffix(project):
+    run = executions.start(project, "some task", session="s1")
+    decision = routing.route(project, "refactor the auth flow and update tests", session="s1")
+    executions.finish(project, run.id, outcome="ok", session="s1")
+    _write_usage(project, "s1", subagent_models={f"{decision.model}[1m]": {"messages": 2}})
+
+    stats = trace.advised_vs_used_outcome_stats(project)
+    assert len(stats["same"]) == 1 and len(stats["different"]) == 0

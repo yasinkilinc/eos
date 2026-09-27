@@ -283,6 +283,29 @@ def _print_advised_vs_used(path) -> None:
         print(f"    {r['session'][:8]}  advised {r['advised_model']}/{r['advised_effort']} ({r['level']})  "
               f"model {r['main_on_model']}/{r['main_messages']}  effort {r['main_at_effort']}/{r['main_efforts_known']}  "
               f"subagents {r['subagent_on_model']}/{r['subagent_messages']}")
+    _print_advised_vs_used_outcome(path)
+
+
+def _print_advised_vs_used_outcome(path) -> None:
+    """Advised vs used vs outcome, per run (2.x roadmap N5): whether a run's
+    session ran the model the router advised, and how often each group's runs
+    finished ok."""
+    from core.lib import honest
+    from core.routing import trace
+
+    groups = trace.advised_vs_used_outcome_stats(path)
+    total = sum(len(members) for members in groups.values())
+    if not total:
+        return
+    print(f"\nAdvised vs used vs outcome, {total} run(s) with a recorded decision:")
+    for label, key in (("advised == used", "same"), ("advised != used", "different"), ("unknown", "unknown")):
+        members = groups[key]
+        ok = [m for m in members if m["outcome"] == "ok"]
+        verified = sum(1 for m in ok if m["outcome_source"] == "verified")
+        claimed = sum(1 for m in ok if m["outcome_source"] == "claimed")
+        rate = honest.show(len(ok) / len(members) if members else None, spec=".0%")
+        print(f"  {label:<16} {len(members):>4} run(s)   ok {len(ok)} (verified {verified}, claimed {claimed})   "
+              f"ok rate {rate}")
 
 
 def _hours(value: float) -> str:

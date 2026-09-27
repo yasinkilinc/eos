@@ -120,6 +120,24 @@ def test_stats_counts_a_decision_made_inside_a_finished_run(tmp_path):
     assert "trivial_edit" in done.stdout and "  haiku " in done.stdout and "ok 1" in done.stdout
 
 
+def test_stats_prints_advised_vs_used_vs_outcome(tmp_path):
+    root = _project(tmp_path)
+    assert _run(tmp_path, ["run", "start", str(root), "--title", "a task"], EOS_SESSION="s1").returncode == 0
+    assert _run(tmp_path, ["route", str(root), "fix the typo"], EOS_SESSION="s1").returncode == 0
+    assert _run(tmp_path, ["run", "finish", str(root), "--outcome", "ok"], EOS_SESSION="s1").returncode == 0
+    usage_line = {"at": "2026-09-27T00:00:00+00:00", "session": "s1",
+                  "models": {}, "subagent_models": {"haiku": {"messages": 1}}}
+    usage_path = root / ".eos" / "data" / "routing-usage.jsonl"
+    usage_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(usage_path, "a", encoding="utf-8") as handle:
+        handle.write(json.dumps(usage_line) + "\n")
+
+    done = _run(tmp_path, ["route", str(root), "--stats"])
+    assert "Advised vs used vs outcome" in done.stdout
+    assert "advised == used" in done.stdout and "1 run(s)" in done.stdout
+    assert "ok rate" in done.stdout
+
+
 def test_a_missing_task_exits_2(tmp_path):
     root = _project(tmp_path)
     done = _run(tmp_path, ["route", str(root)])
