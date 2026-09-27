@@ -79,3 +79,6 @@ deletion; the nexus `mac` checkout and the global `eos` CLI are not touched.
 - Host shell tests in nexus-2x on 1.12.0 (26 scripts, two live/install ones skipped): all pass except
   test-release-run-recovery (2 of 8: "retry left it failed", "re-plan lost history"). It reaches no EOS
   code and no file this branch changed; not compared against `mac`, which stays untouched.
+- Hook latency on nexus-2x, 15 runs each, realistic payloads: 1.13 p50 51-65 ms per event (post-tool
+  Bash 62, Edit 56, pre-read 51, stop 65, user-prompt 51) against the global 1.5.1's 79-90 ms -- the
+  verify gate and citation check add no measurable cost; part of the gap is the global launcher.
