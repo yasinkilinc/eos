@@ -573,3 +573,23 @@ def test_a_subagent_does_not_use_up_the_main_sessions_verify_hint(project, monke
     _hook(monkeypatch, capsys, "post-tool", sub)
     main = _payload(project, tool_name="Bash", tool_use_id="m1", tool_input={"command": "make test | tail -3"})
     assert "does not count" in _hook(monkeypatch, capsys, "post-tool", main).out
+
+
+def test_a_pass_of_another_scope_does_not_answer_a_gate(project, monkeypatch, capsys):
+    (project / ".eos" / "knowledge" / "verify.toml").write_text(
+        VERIFY + '\n[[scope]]\nname = "docs"\npaths = ["docs/**"]\npasses = [\'make\\s+docs\\b\']\nrun = "make docs"\n',
+        encoding="utf-8")
+    (project / "src").mkdir(exist_ok=True)
+    (project / "docs").mkdir(exist_ok=True)
+    code, page = project / "src" / "a.py", project / "docs" / "p.md"
+    code.write_text("x = 1\n", encoding="utf-8")
+    page.write_text("x\n", encoding="utf-8")
+    _hooks_config(project, "close = false\n")
+    _hook(monkeypatch, capsys, "post-tool", _payload(project, tool_name="Edit", tool_input={"file_path": str(code)}))
+    _hook(monkeypatch, capsys, "stop", _payload(project))                                   # gated on code
+    _hook(monkeypatch, capsys, "post-tool", _payload(project, tool_name="Edit", tool_input={"file_path": str(page)}))
+    _hook(monkeypatch, capsys, "post-tool", _payload(project, tool_name="Bash", tool_use_id="d1",
+                                                     tool_input={"command": "make docs"}))
+    _hook(monkeypatch, capsys, "session-end", _payload(project, reason="other"))
+    entry = json.loads((project / ".eos" / "data" / "sessions.jsonl").read_text().splitlines()[-1])
+    assert entry["verify_gates"] == 1 and entry["verify_after_gate"] == 0

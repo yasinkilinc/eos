@@ -846,8 +846,11 @@ def _session_end(root: Path, hook: Hook, cfg: dict, agent: str | None) -> str:
                  "compactions": [{"expected": line.get("expected", 0), "missing": line.get("missing", [])}
                                  for line in lines if "compacted" in line],
                  "verify_gates": sum(1 for line in lines if line.get("gated")),
+                 # A gate answered: a later pass of one of the instances it named.
                  "verify_after_gate": sum(1 for index, line in enumerate(lines) if line.get("gated")
-                                          and any(later.get("passed") for later in lines[index + 1:]))}
+                                          and any(later.get("passed") in {part.rsplit("@", 1)[0] for part
+                                                                          in str(line["gated"]).split("|")}
+                                                  for later in lines[index + 1:]))}
         _append_log(root, SESSIONS_FILE, entry)
     for stale in (_state_file(hook.session), _prompted_file(hook.session)) if hook.session else ():
         try:
