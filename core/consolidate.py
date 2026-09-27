@@ -1,7 +1,8 @@
 """What needs a person's attention in this project's memory (2.x roadmap L1).
 
 A fold-only report: it reads the notes, the procedures, the run and work
-ledgers, and prints what the other audits would each say, bounded, with the
+ledgers, and prints what the other audits would each say -- including notes that
+still cite a note another replaced -- bounded, with the
 command that shows more. It never rewrites anything -- a proposal a person
 accepts is how anything here changes (Ruflo's lesson: consolidation that edits
 memory on its own becomes a daemon nobody trusts).
@@ -38,6 +39,13 @@ def report(project_root: str | Path) -> dict:
                 pairs.append((round(share, 2), a.title, b.title))
     pairs.sort(reverse=True)
 
+    from core import note_graph
+
+    replaced = notes.superseded(corpus)
+    titles = {note.path.name: note.title for note in corpus}
+    cites_replaced = sorted({(titles[e.src], titles[e.dst]) for e in note_graph.edges(corpus, None)
+                             if e.kind == "cites" and e.dst in replaced and e.src not in replaced})
+
     stale = notes.stale_notes(root)
     records = executions.load(root)
     silent = _silent_steps(root, records)
@@ -61,6 +69,7 @@ def report(project_root: str | Path) -> dict:
                        "lint": {r["procedure"]: r["problems"] for r in lint},
                        "silent_steps": silent},
         "near_duplicates": pairs,
+        "cites_replaced": cites_replaced,
         "stale_notes": [entry.get("note") for entry in stale],
         "open_runs_older": old_runs,
         "stale_work": [(item.id, item.title) for item in stale_work],
@@ -106,6 +115,8 @@ def render(data: dict) -> str:
                    "their tool records no event, so no run says how they went")
     lines += block("NOTES THAT READ ALIKE", [f"{share:.0%}  {a}  ~  {b}" for share, a, b in data["near_duplicates"]],
                    "keep one, or say what differs")
+    lines += block("NOTES CITING A REPLACED NOTE", [f"{a}  ->  {b}" for a, b in data.get("cites_replaced", [])],
+                   "point them at the replacement: eos note show . \"<replaced title>\"")
     lines += block("NOTES WHOSE FILES CHANGED", data["stale_notes"], "eos note audit .")
     lines += block("RUNS OPEN FOR DAYS", [f"{rid}  {title}  ({days}d)" for rid, title, days in data["open_runs_older"]],
                    "eos run finish . <id> --outcome ok|failed|abandoned")

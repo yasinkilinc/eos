@@ -72,3 +72,16 @@ def test_a_config_of_the_wrong_shape_is_read_as_no_setting(tmp_path):
     (root / ".eos" / "config.toml").write_text('knowledge = "oops"\n', encoding="utf-8")
     done = subprocess.run(EOS + ["consolidate", str(root)], capture_output=True, text=True)
     assert done.returncode == 0 and "Traceback" not in done.stderr
+
+
+def test_a_note_citing_a_replaced_note_is_named(tmp_path):
+    root = tmp_path / "proj"
+    root.mkdir()
+    assert subprocess.run(EOS + ["init", str(root), "--no-ai"], capture_output=True).returncode == 0
+    old = notes.add_note(root, "finding", "Retries use a fixed delay", "The gateway retry waits two seconds.")
+    notes.add_note(root, "finding", "Cancel releases the number", f"Follows from note:{old.stem}.")
+    notes.add_note(root, "finding", "Retries back off", "The gateway retry now doubles its wait.",
+                   supersedes=old.name)
+    data = consolidate.report(root)
+    assert data["cites_replaced"] == [("Cancel releases the number", "Retries use a fixed delay")]
+    assert "NOTES CITING A REPLACED NOTE (1)" in consolidate.render(data)
