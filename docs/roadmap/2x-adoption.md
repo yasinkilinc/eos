@@ -1,8 +1,8 @@
 # EOS 2.x branch — what landed overnight and how to adopt it
 
-Branch `eos-2x` (from `main` 1.5.1), released on the branch as 1.6.0 → 1.9.0.
+Branch `eos-2x` (from `main` 1.5.1), released on the branch as 1.6.0 → 1.9.2.
 Every step: tests first, the full suite green before the commit
-(1,084 passed, 1 skipped at 1.9.0), `tools/check-clean.sh` clean. `main` untouched.
+(1,104 passed, 1 skipped at 1.9.2), `tools/check-clean.sh` clean. `main` untouched.
 The row-by-row ledger with commits is `docs/roadmap/2x-progress.md`.
 
 ## What changed, by the question it answers
@@ -22,6 +22,7 @@ The row-by-row ledger with commits is `docs/roadmap/2x-progress.md`.
 | 1.8.0 | `eos brief --resume` (M7), paraphrase guard (M5) | what a session left; a reworded duplicate note refused |
 | 1.9.0 | `eos consolidate` (L1), `eos procedure lint` (E2), `eos cost --context` (C7), work-run links (E4), note `[kind, age]` (C2), compact artifacts (E6) | maintenance report, procedure checks, context measurement, traceability, smaller files |
 | 1.9.1 | Branch review | a fresh reviewer found eleven defects (verify false clears, citation false blocks, a lock takeover race, placeholder mapping, cross-ledger finish, hook robustness, lint, brief rebuilds); each fixed with a test; locks are now the kernel's `flock` |
+| 1.9.2 | Second review | seven findings in those fixes: the verify gate parses the command as a shell would (quotes, comments, heredocs, `&& echo PASS`); placeholder bounds; lock fallback on a read-only state dir; finish prefers the caller's ledger; container paths |
 
 Live-verified in headless sessions: the verify Stop gate (re-run on 1.9.1: gate
 once, the check re-run so it counts, `verify_after_gate: 1`), the subagent handoff,
@@ -31,7 +32,7 @@ the citation check (with `--plugin-dir`).
 
 1. Review `eos-2x` against `main` (a PR on GitHub from `eos-2x`), then merge.
 2. In nexus: `git subtree pull --prefix tools/eos eos main --squash`, then
-   `bash automation/install-eos-cli.sh` (the global CLI moves to 1.9.1).
+   `bash automation/install-eos-cli.sh` (the global CLI moves to 1.9.2).
 3. The nexus side of this work is on the local branch `eos-2x` in the worktree
    `../nexus-2x` (not pushed: the VPN was off). Its commits: the `verify.toml`
    scopes and their test, the golden-alternates proposal, six read-only scripts

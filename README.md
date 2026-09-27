@@ -59,6 +59,11 @@ executable launcher under `~/.local/bin/eos`. Override the locations with
   gate counts a check only when the command's exit status is its own; the
   citation check leaves `~/`, placeholders and container paths alone; locks are
   the kernel's `flock`, so a killed holder never leaves two writers behind.
+- **1.9.2:** a second review of those fixes, seven findings: the verify gate
+  reads the command as a shell would (quotes, comments, heredoc bodies, the last
+  command; `make test && echo PASS` counts, `make test || true` does not);
+  `test-{name}\.sh` patterns match; a lock falls back beside its file when the
+  state directory is read-only; `run finish` prefers the caller's own ledger.
 
 ## What changed in 1.8
 
