@@ -61,7 +61,7 @@ _FILL_SESSION = frozenset(
 
 
 from core.cli.common import VERSION  # noqa: F401
-from core.cli.intel import cmd_ask, cmd_brief, cmd_consolidate, cmd_cost, cmd_draft_test, cmd_impact, cmd_parent, cmd_parents, cmd_query, cmd_rules, cmd_trace, cmd_verify, cmd_why  # noqa: F401
+from core.cli.intel import cmd_ask, cmd_brief, cmd_cite, cmd_consolidate, cmd_cost, cmd_draft_test, cmd_impact, cmd_parent, cmd_parents, cmd_query, cmd_rules, cmd_trace, cmd_verify, cmd_why  # noqa: F401
 from core.cli.notes import cmd_findings, cmd_note  # noqa: F401
 from core.cli.procedures import cmd_procedure  # noqa: F401
 from core.cli.project import cmd_ai, cmd_bench, cmd_clean, cmd_compose, cmd_context, cmd_doctor, cmd_graph, cmd_hook, cmd_index, cmd_info, cmd_init, cmd_mcp, cmd_scan, cmd_status, cmd_ui, cmd_update  # noqa: F401
@@ -353,6 +353,12 @@ def main(argv: list[str] | None = None) -> int:
     note_audit_p = note_sub.add_parser("audit", help="Report notes whose scoped files changed")
     add_path(note_audit_p)
 
+    cite_p = sub.add_parser(
+        "cite", help="References and quotes in an answer that cannot be right: a missing file, a line "
+                     "past the end, a quote not at the lines it cites")
+    add_path(cite_p)
+    cite_p.add_argument("--output", default="-", help="File holding the answer, or - for stdin")
+    cite_p.add_argument("--format", choices=("text", "json"), default="text")
     consolidate_p = sub.add_parser(
         "consolidate", help="What needs attention in this project's memory: failing and unrun procedures, "
                             "lint, notes that read alike, stale notes and work (changes nothing)")
@@ -654,6 +660,7 @@ def main(argv: list[str] | None = None) -> int:
         "run": cmd_run,
         "procedure": cmd_procedure,
         "brief": cmd_brief,
+        "cite": cmd_cite,
         "consolidate": cmd_consolidate,
         "route": cmd_route,
         "ai": cmd_ai,

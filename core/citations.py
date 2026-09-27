@@ -6,6 +6,10 @@ does not exist, and a line past the end of a file that does. Everything else --
 a relative path found under none of the bases, which may belong to another
 repository, and a path abbreviated with `...` -- is left alone: the reader of this list stops a subagent, and a
 false alarm there costs more than a missed one.
+
+Depth 1 (`misquoted`, `eos cite`): a quote placed right after a reference --
+`` path:12 `code` `` or a fenced block after a line ending in the reference --
+must be found within two lines of the range it cites.
 """
 from __future__ import annotations
 
@@ -67,3 +71,68 @@ def wrong(text: str, bases: list[str | Path]) -> list[str]:
         if count is not None and line > count:
             problems.append(f"{path}:{line} -- the file has {count} lines")
     return problems
+
+
+# --- depth 1: quotes against the lines they cite ------------------------------------------
+
+QUOTE_MIN = 10
+SLACK_LINES = 2
+_INLINE = re.compile(r"[\s:,\u2013\u2014-]{0,4}`([^`\n]{%d,})`" % QUOTE_MIN)
+_FENCE = re.compile(r"[\s:.]*\n```[^\n]*\n(?P<code>.*?)(?:\n```|\Z)", re.S)
+
+
+def _resolve(path: str, bases: list[str | Path]) -> Path | None:
+    candidates = [Path(path)] if os.path.isabs(path) else [Path(base) / path for base in bases]
+    return next((c for c in candidates if c.is_file()), None)
+
+
+def _squash(text: str) -> str:
+    return " ".join(text.split())
+
+
+def _quote(text: str, start: int, end: int) -> str | None:
+    line_start = text.rfind("\n", 0, start) + 1
+    if text.count("`", line_start, start) % 2:
+        # The reference is itself inside a code span: what follows its closing
+        # backtick is prose, and a quote can only start after that.
+        if text[end:end + 1] != "`":
+            return None
+        end += 1
+    inline = _INLINE.match(text, end)
+    if inline:
+        return inline.group(1).strip()
+    fence = _FENCE.match(text, end)
+    if fence:
+        return next((line.strip() for line in fence.group("code").splitlines() if line.strip()), None)
+    return None
+
+
+def misquoted(text: str, bases: list[str | Path]) -> list[str]:
+    """`<reference> -- `<quote>` is not at those lines` for each quote not found
+    within SLACK_LINES of the range it cites."""
+    problems = []
+    for match in sorted(list(_PLAIN.finditer(text)) + list(_LINK.finditer(text)), key=lambda m: m.start()):
+        path, start = match.group(1), int(match.group(2))
+        end = int(match.group(3)) if match.group(3) else start
+        quote = _quote(text, match.start(), match.end())
+        if (not quote or "..." in quote or "\u2026" in quote or references(quote)
+                or ("/" in quote and not any(c.isspace() for c in quote))):
+            continue  # an abbreviation, another reference or a path is not a quote
+        existing = _resolve(path, bases)
+        if existing is None or (_lines(existing) or 0) < start:
+            continue  # a missing file or line is `wrong`'s to report
+        try:
+            lines = existing.read_text(encoding="utf-8", errors="replace").splitlines()
+        except OSError:
+            continue
+        window = _squash("\n".join(lines[max(start - 1 - SLACK_LINES, 0):end + SLACK_LINES]))
+        if _squash(quote) not in window:
+            reference = f"{path}:{start}" + (f"-{end}" if end != start else "")
+            problems.append(f"{reference} -- `{quote}` is not at those lines")
+    return problems
+
+
+def check(text: str, bases: list[str | Path]) -> list[str]:
+    """Everything certainly wrong in an answer: references, then quotes."""
+    found = wrong(text, bases)
+    return found + [p for p in misquoted(text, bases) if p not in found]

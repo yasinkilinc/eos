@@ -473,6 +473,24 @@ def cmd_trace(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_cite(args: argparse.Namespace) -> int:
+    """References and quotes in an answer that cannot be right (2.x roadmap E3, depth 1)."""
+    from core import citations
+
+    try:
+        text = sys.stdin.read() if args.output == "-" else Path(args.output).read_text(encoding="utf-8")
+    except OSError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    problems = citations.check(text, [Path(args.path).expanduser().resolve()])
+    if args.format == "json":
+        print(json.dumps({"references": len(citations.references(text)), "problems": problems}, indent=2))
+    else:
+        print("\n".join(problems) if problems
+              else f"no problem in {len(citations.references(text))} reference(s)")
+    return 1 if problems else 0
+
+
 def cmd_consolidate(args: argparse.Namespace) -> int:
     """What needs a person's attention in this project's memory; changes nothing (2.x roadmap L1)."""
     from core import consolidate

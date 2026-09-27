@@ -45,3 +45,16 @@ the file the subagent just read.
 - The handoff costs up to 400 tokens per subagent call when enabled.
 - A worktree session loads the plugin's hook registration from the main checkout;
   live tests of registration changes need `--plugin-dir`.
+
+## Addendum: depth 1, quotes (1.10.0)
+
+`eos cite [--output file|-]` checks an answer the way the SubagentStop hook does,
+and also its quotes: a quote placed right after a reference (`` path:12 `code` ``,
+or a fenced block after a line ending in the reference) must be found within two
+lines of the range it cites. A reference inside a code span, another reference and a
+bare path are not quotes. Measured on the host's transcripts: the first version read
+the prose after `` `path:12` `` as a quote (131 flags in 6,019 answers); fixed, 45
+remain over all history, where files changed after the answer, and 1 of 69 quotes in
+the last three days. The hook keeps checking references only: a misread quote would
+stop a subagent that did nothing wrong. Not done from the roadmap's E3: changed files
+within the procedure's scope, wrapper exits, depth 2.
