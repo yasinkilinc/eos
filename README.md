@@ -39,6 +39,22 @@ canonical `core/` runtime to `~/.local/share/eos/<version>/` and installs an
 executable launcher under `~/.local/bin/eos`. Override the locations with
 `EOS_INSTALL_PREFIX`, `EOS_DATA_DIR`, `EOS_BIN_DIR`, or `EOS_PYTHON`.
 
+## What changed in 1.8
+
+- **Subagent handoff:** `eos brief --for-subagent --task "…"` is what a
+  subagent should start with -- the parent run, the procedure's rules, the
+  wrappers its task names, the notes whose titles meet it -- in at most 400
+  tokens; `[hooks] handoff_tokens` appends it to every subagent prompt.
+- **Citations checked:** when a subagent's answer cites an absolute path that
+  does not exist or a line past the end of a file, it is asked once to correct
+  it (`[hooks] cite_check`, on).
+- **`eos brief --resume`:** what one session left -- open runs, held work,
+  failed runs and their lessons.
+- **A note that repeats another in other words** (80% of word trigrams) is
+  refused on add, reported on amend.
+- Fixed: the subagent routing hook sent only the model back to the harness,
+  which takes it as the whole input; every field is now kept.
+
 ## What changed in 1.7
 
 Phase 1 of the 2.x roadmap, except the retrieval scorer:
