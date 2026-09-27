@@ -45,6 +45,8 @@ executable launcher under `~/.local/bin/eos`. Override the locations with
   citation, a lesson's procedure, a shared scope file, a shared ticket.
   `eos note related <note>` lists the links with their reason, and the task brief
   names up to three notes linked to its procedure or nearest note.
+- **1.16.1:** a scope file is one file however it is written; a ticket key quoted
+  in a code block links nothing.
 
 ## What changed in 1.15
 

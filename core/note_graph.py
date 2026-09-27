@@ -9,8 +9,10 @@ ticket key with another. So the edges are derived, deterministically:
   ticket   two notes name the same ticket key (the project's pattern)
 
 A key or a file shared by more than MAX_SHARED notes links nothing: shared by
-that many, it says nothing about any two of them. Pure: notes in, edges out;
-the index stores them (`note_edge`) and the brief reads them.
+that many, it says nothing about any two of them. Pure: notes in, edges out.
+The brief and `eos note related` compute them from the notes each time (25 ms on
+238 notes), so they are current even when the index is not; the index keeps a
+copy in `note_edge` for `eos query` joins.
 """
 from __future__ import annotations
 
@@ -40,7 +42,27 @@ def _shared(groups: dict[str, list[str]], kind: str) -> list[Edge]:
     return found
 
 
-def edges(corpus, ticket_pattern: re.Pattern | None) -> list[Edge]:
+def _scope_key(project_root, entry: str) -> str:
+    """One file, however it was written (review 13): relative, `./`, absolute."""
+    if project_root is None:
+        return entry
+    try:
+        from pathlib import Path
+
+        from core import notes
+
+        project = Path(project_root).expanduser().resolve()
+        anchor = notes._scope_anchor(project, entry)
+        if anchor is None:
+            return entry
+        resolved = anchor[1].resolve()
+        # Shown as the reason for a link: relative inside the project.
+        return resolved.relative_to(project).as_posix() if resolved.is_relative_to(project) else str(resolved)
+    except Exception:  # noqa: BLE001 - an entry that cannot be resolved keys by its text
+        return entry
+
+
+def edges(corpus, ticket_pattern: re.Pattern | None, project_root=None) -> list[Edge]:
     by_stem = {note.path.stem: note.path.name for note in corpus}
     by_slug = {note.procedure: note.path.name for note in corpus if note.kind == "procedure" and note.procedure}
     found: list[Edge] = []
@@ -55,9 +77,12 @@ def edges(corpus, ticket_pattern: re.Pattern | None) -> list[Edge]:
         if note.kind == "lesson" and note.procedure in by_slug:
             found.append(Edge(name, by_slug[note.procedure], "lesson", None))
         for entry in dict.fromkeys(note.scope or []):
-            scopes[entry].append(name)
+            scopes[_scope_key(project_root, entry)].append(name)
         if ticket_pattern is not None:
-            text = f"{note.title} {' '.join(note.tags or [])} {note.body or ''}"
+            from core import notes as notes_module
+
+            # Not a key quoted in a code block or a `>` quote (review 13).
+            text = f"{note.title} {' '.join(note.tags or [])} {notes_module._prose(note.body or '')}"
             for key in dict.fromkeys(ticket_pattern.findall(text)):
                 tickets[key].append(name)
     return found + _shared(scopes, "scope") + _shared(tickets, "ticket")
@@ -71,12 +96,13 @@ def _why(edge: Edge, toward_self: bool) -> str:
     return f"{edge.kind} {edge.via}"
 
 
-def related(corpus, file: str, ticket_pattern: re.Pattern | None, limit: int = 5) -> list[tuple]:
+def related(corpus, file: str, ticket_pattern: re.Pattern | None, limit: int = 5,
+            project_root=None) -> list[tuple]:
     """(note, why) for the notes linked to `file`, strongest link first."""
     by_name = {note.path.name: note for note in corpus}
     score: dict[str, int] = collections.Counter()
     reason: dict[str, tuple[int, str]] = {}
-    for edge in edges(corpus, ticket_pattern):
+    for edge in edges(corpus, ticket_pattern, project_root):
         if file not in (edge.src, edge.dst):
             continue
         other = edge.dst if edge.src == file else edge.src
@@ -86,7 +112,7 @@ def related(corpus, file: str, ticket_pattern: re.Pattern | None, limit: int = 5
         if other not in reason or weight > reason[other][0]:
             reason[other] = (weight, why)
     ranked = sorted(score, key=lambda name: (-score[name], by_name[name].title))
-    return [(by_name[name], reason[name][1]) for name in ranked[:limit] if name in by_name]
+    return [(by_name[name], reason[name][1]) for name in ranked[:limit]]
 
 
 def pattern_for(project_root) -> re.Pattern | None:

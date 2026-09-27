@@ -981,7 +981,7 @@ def _load_notes(build: BuildContext) -> Path:
     except IndexBuildError:
         pattern = None
     build.conn.executemany("INSERT INTO note_edge(src, dst, kind, via) VALUES (?, ?, ?, ?)",
-                           [(e.src, e.dst, e.kind, e.via) for e in note_graph.edges(parsed, pattern)])
+                           [(e.src, e.dst, e.kind, e.via) for e in note_graph.edges(parsed, pattern, build.root)])
     return directory
 
 

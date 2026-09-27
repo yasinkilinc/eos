@@ -25,7 +25,12 @@ daily and the brief runs on every prompt, so the graph lives in EOS.
   names the procedure it was learned in), `scope` (two notes watch the same file),
   `ticket` (two notes name the same key, by the project's ticket pattern). A file
   or key shared by more than 8 notes links nothing.
-- The index stores them in `note_edge` (schema 6), rebuilt with the notes.
+- The brief and `eos note related` compute them from the notes on each call (25
+  ms on 238 notes), so they are current when the index is stale; the index keeps
+  a copy in `note_edge` (schema 6) for `eos query` joins. (Review 13: the first
+  text said the brief read the table; it never did.) A scope file is one file
+  however it is written (relative, `./`, absolute); a ticket key quoted in a code
+  block or a `>` quote links nothing.
 - `eos note related <note>` lists a note's links, strongest first (cites and
   lesson 3, scope 2, ticket 1), each with its reason.
 - The task brief adds `LINKED TO <procedure or nearest note>`: up to three notes

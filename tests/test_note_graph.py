@@ -113,3 +113,20 @@ def test_the_task_brief_names_notes_linked_to_what_it_found(tmp_path):
     _seed(root)
     text = brief.build(root, task="payment retries pending", task_only=True)
     assert "LINKED" in text and "Cancelling a pending order releases the number" in text
+
+
+def test_one_file_written_three_ways_is_one_scope(tmp_path):
+    """Review 13: `src/pay.py`, `./src/pay.py` and the absolute path linked nothing."""
+    root = _project(tmp_path)
+    for title, entry in (("The pay module retries", "src/pay.py"), ("The pay module logs", "./src/pay.py"),
+                         ("The pay module times out", str(root / "src" / "pay.py"))):
+        notes.add_note(root, "finding", title, f"About {title.split()[-1]}.", scope=[entry])
+    scoped = [e for e in note_graph.edges(notes.load_notes(root), KEY, root) if e.kind == "scope"]
+    assert len(scoped) == 3
+
+
+def test_a_key_quoted_in_a_code_block_links_nothing(tmp_path):
+    root = _project(tmp_path)
+    notes.add_note(root, "finding", "How ticket keys look in logs", "Example:\n\n```\nticket=FM-500 status=open\n```\n")
+    notes.add_note(root, "finding", "The FM-500 export drops rows", "The export for FM-500 skips the last page.")
+    assert not [e for e in note_graph.edges(notes.load_notes(root), KEY, root) if e.kind == "ticket"]

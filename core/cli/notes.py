@@ -147,7 +147,8 @@ def cmd_note_related(args: argparse.Namespace) -> int:
         for note in matches[:10]:
             print(f"  {note.path.name}\t{note.title}", file=sys.stderr)
         return 1
-    found = note_graph.related(recorded, matches[0].path.name, note_graph.pattern_for(args.path), limit=args.limit)
+    found = note_graph.related(recorded, matches[0].path.name, note_graph.pattern_for(args.path), limit=args.limit,
+                               project_root=args.path)
     if not found:
         print(f"No note is linked to {matches[0].title!r}: no citation, lesson, shared scope file or ticket.")
         return 0

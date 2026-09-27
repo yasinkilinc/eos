@@ -573,7 +573,7 @@ def _task_sections(root: Path, task: str) -> tuple[list[list[str]], bool]:
 
         shown = {n.path.name for n in related} | {anchor.path.name}
         linked = [(n, why) for n, why in note_graph.related(corpus, anchor.path.name, note_graph.pattern_for(root),
-                                                            limit=LINK_LIMIT + len(shown))
+                                                            limit=LINK_LIMIT + len(shown), project_root=root)
                   if n.path.name not in shown and not notes.is_bulk_index(n)][:LINK_LIMIT]
         if linked:
             found = True
