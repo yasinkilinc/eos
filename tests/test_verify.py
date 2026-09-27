@@ -77,6 +77,7 @@ def test_the_reason_names_three_instances_and_stays_short(tmp_path):
     text = verify.reason(scopes, found)
     assert "svc:s0" in text and "tools/mvn.sh test s0" in text and "svc:s3" not in text
     assert "(+3 more)" in text and len(text) <= verify.MAX_REASON
+    assert "no `| tail`" in text           # measured live: a piped check did not count and nobody knew why
     assert verify.signature(found) == verify.signature(list(reversed(found)))
 
 

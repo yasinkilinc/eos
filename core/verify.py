@@ -195,5 +195,7 @@ def reason(scopes: list[Scope], found: list[tuple[str, int]]) -> str:
     lines += [f"- {key}: {run_hint(scopes, key)}" for key, _ in found[:MAX_SHOWN]]
     if len(found) > MAX_SHOWN:
         lines.append(f"- (+{len(found) - MAX_SHOWN} more)")
-    lines.append("Run the check, or say in your answer that this is not verified. Asked once.")
+    lines.append("Run the check so its exit status is the command's -- on its own or after `&&`, with no "
+                 "`| tail`, `;` or `||` (or `set -o pipefail &&` first) -- or say in your answer that this "
+                 "is not verified. Asked once.")
     return "\n".join(lines)[:MAX_REASON]
