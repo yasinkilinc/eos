@@ -568,6 +568,28 @@ def load(project_root: str | Path) -> list[Record]:
     return load_path(path_for(project_root))
 
 
+def fold_events_for_display(events: list[Event]) -> list[tuple[Event, int, str, str]]:
+    """Consecutive events identical in everything `run show` prints except the
+    ordinal and the timestamp, folded into one display group (2.x roadmap N4):
+    ``(the first event, how many, its 'at', the last one's 'at')``.
+
+    Reads the loaded events only -- the ledger file stays append-only (ADR-020)
+    and JSON output (`--format json`) still lists every event.
+    """
+    def key(event: Event) -> tuple:
+        return (event.kind, event.tool, event.target, event.ref, event.exit_code,
+                event.ms, event.status, event.agent)
+
+    groups: list[tuple[Event, int, str, str]] = []
+    for event in events:
+        if groups and key(groups[-1][0]) == key(event):
+            first, count, first_at, _ = groups[-1]
+            groups[-1] = (first, count + 1, first_at, event.at)
+        else:
+            groups.append((event, 1, event.at, event.at))
+    return groups
+
+
 def by_session(project_root: str | Path, session: str) -> list[Record]:
     """Executions this session started or acted in."""
     return [r for r in load(project_root)

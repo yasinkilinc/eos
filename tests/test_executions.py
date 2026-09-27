@@ -57,6 +57,52 @@ def test_an_event_whose_start_line_was_lost_still_shows_the_run(project):
     assert found[0].open
 
 
+def test_identical_consecutive_events_fold_into_one_display_group(project):
+    run = executions.start(project, "Deploy", session="s-1")
+    for _ in range(3):
+        executions.event(project, run.id, kind="ran", tool="build", exit_code=0)
+    executions.event(project, run.id, kind="ran", tool="build", exit_code=1)
+
+    events = executions.load(project)[0].events
+    groups = executions.fold_events_for_display(events)
+
+    assert len(groups) == 2
+    first, count, first_at, last_at = groups[0]
+    assert count == 3 and first.exit_code == 0
+    assert first_at <= last_at
+    second, count2, _, _ = groups[1]
+    assert count2 == 1 and second.exit_code == 1
+
+
+def test_non_consecutive_identical_events_do_not_fold(project):
+    run = executions.start(project, "Deploy", session="s-1")
+    executions.event(project, run.id, kind="ran", tool="build", exit_code=0)
+    executions.event(project, run.id, kind="ran", tool="test", exit_code=0)
+    executions.event(project, run.id, kind="ran", tool="build", exit_code=0)
+
+    groups = executions.fold_events_for_display(executions.load(project)[0].events)
+
+    assert [count for _, count, _, _ in groups] == [1, 1, 1]
+
+
+def test_run_show_folds_identical_consecutive_events_with_an_x_marker(project):
+    env = {**os.environ, "EOS_SESSION": "s-fold"}
+    started = _run(["run", "start", str(project), "--title", "Deploy wallet"], env)
+    run_id = started.stdout.strip()
+    for _ in range(3):
+        assert _run(["run", "event", str(project), "--kind", "ran", "--tool", "build",
+                     "--exit", "0"], env).returncode == 0
+    assert _run(["run", "finish", str(project), "--outcome", "ok"], env).returncode == 0
+
+    shown = _run(["run", "show", str(project), run_id], env)
+    assert "x3" in shown.stdout
+    assert shown.stdout.count("build") == 1  # folded to one display line, not three
+
+    as_json = _run(["run", "show", str(project), run_id, "--format", "json"], env)
+    data = json.loads(as_json.stdout)
+    assert len(data["events"]) == 3  # the ledger's own record stays whole
+
+
 def test_a_bad_line_costs_itself_and_nothing_else(project):
     run = executions.start(project, "Deploy", session="s-1")
     with open(executions.path_for(project), "a", encoding="utf-8") as handle:

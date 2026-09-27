@@ -207,13 +207,17 @@ def cmd_run_show(args: argparse.Namespace) -> int:
     failed = _failed_step(args.path, record)
     if failed:
         print(f"  failed at step {failed}")
-    for e in record.events:
+    for e, count, first_at, last_at in executions.fold_events_for_display(record.events):
         tail = " ".join(part for part in (
             f"exit={e.exit_code}" if e.exit_code is not None else "",
             f"{e.ms}ms" if e.ms is not None else "",
             f"[{e.status}]" if e.status and e.status != "ok" else "",
             f"by {e.agent}" if e.agent else "", e.ref or "") if part)
-        print(f"    {e.ord:>3}  {e.at}  {e.kind:<8} {e.tool or '-':<12} {e.target or '-':<10} {tail}")
+        if count == 1:
+            print(f"    {e.ord:>3}  {e.at}  {e.kind:<8} {e.tool or '-':<12} {e.target or '-':<10} {tail}")
+        else:
+            print(f"    {e.ord:>3}  {first_at} .. {last_at}  x{count}  "
+                  f"{e.kind:<8} {e.tool or '-':<12} {e.target or '-':<10} {tail}")
     return 0
 
 
