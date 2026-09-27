@@ -77,7 +77,12 @@ def cmd_run_finish(args: argparse.Namespace) -> int:
     print(_run_line(record))
     if record.outcome_source == "claimed":
         _, left = executions.outcome_source(args.path, record)
-        print(f"claimed: {', '.join(left)} changed after its last passing check")
+        success = [item.split(": ", 1)[1] for item in left if item.startswith("success: ")]
+        changed = [item for item in left if not item.startswith("success: ")]
+        if changed:
+            print(f"claimed: {', '.join(changed)} changed after its last passing check")
+        if success:
+            print(f"claimed: the procedure's Success check(s) never ran: {', '.join(success)}")
     return 0
 
 

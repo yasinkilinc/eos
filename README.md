@@ -39,6 +39,12 @@ canonical `core/` runtime to `~/.local/share/eos/<version>/` and installs an
 executable launcher under `~/.local/bin/eos`. Override the locations with
 `EOS_INSTALL_PREFIX`, `EOS_DATA_DIR`, `EOS_BIN_DIR`, or `EOS_PYTHON`.
 
+## What changed in 1.15
+
+- **Operational runs are labelled too:** a run that changed no scoped file is
+  `verified` when every tool its procedure's `## Success` lines run ran with exit
+  0, `claimed` otherwise -- `run finish` names the check that never ran.
+
 ## What changed in 1.14
 
 - **ELSEWHERE in the session brief:** a project on a ticket's branch sees that

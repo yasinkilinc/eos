@@ -80,3 +80,16 @@ patterns (language logic in the engine, false alarms); running the procedure's
   when measurement shows false clears.
 - `claimed` is a label, not a failure: it says what the run did not show.
 - Evidence: `sessions.jsonl` `verify_gates`, `verify_after_gate`; `run list --stats`.
+
+## Addendum: operational runs, by their Success checks (1.15.0)
+
+Measured on the host: none of 57 ok runs changed a file in a verify scope -- they
+deliver configs, run scenarios, open PRs -- so none carried a label. A run that
+changed no scoped file is now labelled from its procedure's `## Success` lines:
+the first word of each backticked command, kept when it is a declared capability,
+a program on PATH (not a shell builtin) or a script in the project (`#id` or
+`status:` in backticks are not checks). The run is `verified` when each of those
+tools ran in it with exit 0, `claimed` otherwise, and `run finish` names the
+checks that never ran. On the host all 17 procedure runs are `verified`. The label
+says the checks ran and exited 0, not that their output showed the expected
+result; procedure counters are unchanged (M2 is still a decision).

@@ -311,7 +311,7 @@ def outcome_source(project_root: str | Path, record: Record | None) -> tuple[str
         return None, []
     scopes = verify.load(project_root)
     if not scopes:
-        return None, []
+        return _success_source(project_root, record)
     events = []
     for entry in record.events:
         if entry.kind == "changed" and entry.ref:
@@ -320,8 +320,29 @@ def outcome_source(project_root: str | Path, record: Record | None) -> tuple[str
             events.append(("passed", entry.ref))
     touched = {verify.instance(scopes, project_root, value) for kind, value in events if kind == "changed"}
     if not touched - {None}:
-        return None, []
+        return _success_source(project_root, record)
     left = [key for key, _ in verify.dirty(scopes, project_root, events)]
+    return ("claimed" if left else "verified"), left
+
+
+def _success_source(project_root: str | Path, record: Record) -> tuple[str | None, list[str]]:
+    """A run that changed no scoped file, by its procedure's `## Success` checks:
+    verified when each tool they name ran with exit 0, claimed otherwise
+    (`success: <tool>` for each that did not); None without such checks."""
+    if not record.procedure:
+        return None, []
+    from core import steps
+
+    try:
+        note = notes.find_procedure(project_root, record.procedure)
+        wanted = steps.success_tools(project_root, note)
+    except (ValueError, OSError):
+        return None, []
+    if not wanted:
+        return None, []
+    passed = {normalize_tool(e.tool) for e in record.events
+              if e.tool and e.exit_code in (0, None) and e.status not in ("failed", "error")}
+    left = [f"success: {tool}" for tool in wanted if tool not in passed]
     return ("claimed" if left else "verified"), left
 
 

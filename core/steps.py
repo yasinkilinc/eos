@@ -90,6 +90,39 @@ def lint(parsed: list[Step], body: str) -> list[str]:
     return problems
 
 
+def success_tools(root, note) -> list[str]:
+    """The tools a procedure's `## Success` lines run, in order: the first word
+    of each backticked command, kept only when it is a declared capability, a
+    program on PATH (not a shell builtin) or a script in the project -- `#id`
+    or `status:` in backticks are not checks."""
+    import shutil
+    from pathlib import Path
+
+    from core import capabilities, executions, notes, procedure_lint
+
+    root = Path(root)
+    try:
+        declared = capabilities.load(root)
+    except Exception:  # noqa: BLE001 - a broken registry declares nothing
+        declared = []
+    known = {executions.normalize_tool(c.name) for c in declared}
+    known |= {executions.normalize_tool(c.run) for c in declared if c.run}
+    found: list[str] = []
+    for item in notes.procedure_success(note):
+        for command in re.findall(r"`([^`]+)`", item):
+            words = command.split()
+            if not words:
+                continue
+            tool = executions.normalize_tool(words[0])
+            if not tool or tool in found:
+                continue
+            program = ("/" not in words[0] and words[0] not in procedure_lint.BUILTINS
+                       and bool(shutil.which(words[0])))
+            if tool in known or program or procedure_lint._script(root, words[0]) is not None:
+                found.append(tool)
+    return found
+
+
 def _failed(event) -> bool:
     if event.status == "failed":
         return True
