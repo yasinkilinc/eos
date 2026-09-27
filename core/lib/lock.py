@@ -46,6 +46,13 @@ def lock_path(path: str | Path) -> Path:
     return _state_dir() / "locks" / f"{key}.lock"
 
 
+def ever_locked(path: str | Path) -> bool:
+    """Whether a writer ever took the lock for `path`: its lock file exists, in the
+    state directory or beside the target. Creates nothing."""
+    target = Path(path).expanduser().resolve()
+    return lock_path(target).exists() or (target.parent / f".{target.name}.eos-lock").exists()
+
+
 def _marker(path: str | Path) -> Path:
     """`lock_path`, or a hidden lock file beside the target when the state
     directory cannot be created (read-only home, a sandbox): every writer of the

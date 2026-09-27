@@ -467,9 +467,19 @@ def _read_consistently(parts: list[Path], attempts: int = 8) -> list[str]:
     """The files' texts, read again when a rotation renamed one of them during
     the read -- lock-free, a reader could otherwise find neither the moved file
     nor the new one (whole-branch review)."""
+    from core.lib import lock
+
     texts: list[str] = []
     for attempt in range(attempts):
         before = _identities(parts)
+        if all(identity is None for identity in before):
+            # No file at all. Either there is no ledger, or this look was torn:
+            # `.1` checked before a rotation's rename and the ledger after it,
+            # before the next append recreates it. A ledger that was ever written
+            # has a lock file; read that one under the lock (flaky-test review).
+            if not lock.ever_locked(parts[-1]):
+                return []
+            break
         texts, vanished = [], False
         for part, identity in zip(parts, before):
             try:
@@ -480,8 +490,6 @@ def _read_consistently(parts: list[Path], attempts: int = 8) -> list[str]:
             return texts
         time.sleep(0.002 * (attempt + 1))
     # Still moving: read under the writers' lock, which a rotation holds.
-    from core.lib import lock
-
     try:
         with lock.locked(parts[-1], timeout=2.0):
             return [p.read_text(encoding="utf-8", errors="replace") for p in parts if p.is_file()]

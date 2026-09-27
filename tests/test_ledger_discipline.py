@@ -133,3 +133,44 @@ def test_a_reader_during_a_rotation_still_sees_every_run(tmp_path, monkeypatch):
         stop.set()
         worker.join()
     assert misses == []
+
+
+def test_a_torn_look_at_a_rotating_ledger_is_not_read_as_empty(tmp_path, monkeypatch):
+    """Review of the flaky rotation test (1 in 5 runs): a reader that looked at
+    `.1` before the rename and at the ledger after it saw no file at all, and an
+    absent ledger read as an empty one. A ledger that was ever written is read
+    again under the lock instead."""
+    monkeypatch.setenv("EOS_STATE_DIR", str(tmp_path / "state"))
+    (tmp_path / ".eos").mkdir()
+    run = executions.start(tmp_path, "Kept through a torn look", session="s1")
+    ledger = executions.path_for(tmp_path)
+
+    real_read = type(ledger).read_text
+    torn = {"left": 1}   # the one read that fell between the rename and the next append
+
+    def read_text(self, *args, **kwargs):
+        if torn["left"] > 0 and self.name == "executions.jsonl":
+            torn["left"] -= 1
+            raise FileNotFoundError(self)
+        return real_read(self, *args, **kwargs)
+
+    from core.lib import lock
+    real_locked = lock.locked
+
+    def locked(*args, **kwargs):   # holding the writers' lock, the rotation is over
+        torn["left"] = 0
+        return real_locked(*args, **kwargs)
+
+    monkeypatch.setattr(lock, "locked", locked)
+    monkeypatch.setattr(executions, "_identities", lambda parts: tuple(None for _ in parts))
+    monkeypatch.setattr(type(ledger), "read_text", read_text)
+    assert run.id in {r.id for r in executions.load_path(ledger)}
+
+
+def test_a_ledger_never_written_is_empty_at_once(tmp_path, monkeypatch):
+    monkeypatch.setenv("EOS_STATE_DIR", str(tmp_path / "state"))
+    import time
+    ledger = tmp_path / "nowhere" / "executions.jsonl"
+    started = time.monotonic()
+    assert executions.load_path(ledger) == []
+    assert time.monotonic() - started < 0.05
