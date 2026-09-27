@@ -571,7 +571,7 @@ def _task_sections(root: Path, task: str) -> tuple[list[list[str]], bool]:
     if anchor is not None:
         from core import note_graph
 
-        shown = {n.path.name for n in related} | {anchor.path.name}
+        shown = {n.path.name for n in related} | {anchor.path.name} | set(notes.superseded(corpus))
         linked = [(n, why) for n, why in note_graph.related(corpus, anchor.path.name, note_graph.pattern_for(root),
                                                             limit=LINK_LIMIT + len(shown), project_root=root)
                   if n.path.name not in shown and not notes.is_bulk_index(n)][:LINK_LIMIT]

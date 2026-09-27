@@ -44,3 +44,14 @@ daily and the brief runs on every prompt, so the graph lives in EOS.
   read the same edges; not done here.
 - An export to Graphify's format, for its community and visual views, is possible
   and not done.
+
+## Addendum: supersedes (1.17.0)
+
+`eos note add --supersedes <note>` records that a note replaces an older one --
+the additive part of roadmap M1, with no migration of existing notes. The old
+note stays on disk as the record of what was believed; `note search` and every
+brief stop offering it; `note show` on it names the replacement first; the graph
+links the two (`supersedes`, weight 3). The rewrite is expected to read like the
+note it replaces, so the duplicate and paraphrase guards do not compare the two.
+Validity windows and provenance on every note (the rest of M1) are still a
+decision.

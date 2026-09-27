@@ -308,6 +308,8 @@ def main(argv: list[str] | None = None) -> int:
     note_add_p.add_argument("--execution", help="For a lesson: the run that taught it (eos run list)")
     note_add_p.add_argument("--procedure", help="For a lesson: the procedure it concerns; for a "
                             "procedure: its slug")
+    note_add_p.add_argument("--supersedes", help="The note this one replaces (file name or title): it stays "
+                                                 "on disk, search and briefs stop offering it")
 
     note_list_p = note_sub.add_parser("list", help="List notes")
     add_path(note_list_p)

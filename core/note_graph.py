@@ -3,6 +3,7 @@
 Measured on the host: 1 of 238 notes cites another by name, while 40 share a
 ticket key with another. So the edges are derived, deterministically:
 
+  supersedes  a note replaces another (`eos note add --supersedes`)
   cites    a body names another note: `note:<file stem>` or its file name
   lesson   a lesson note names the procedure it was learned in
   scope    two notes watch the same file
@@ -21,7 +22,7 @@ import dataclasses
 import re
 
 MAX_SHARED = 8
-WEIGHT = {"cites": 3, "lesson": 3, "scope": 2, "ticket": 1}
+WEIGHT = {"supersedes": 3, "cites": 3, "lesson": 3, "scope": 2, "ticket": 1}
 _STEM = re.compile(r"(?:note:)?\b([0-9]{8}-[a-z0-9][a-z0-9-]*)(?:\.md)?\b")
 
 
@@ -74,6 +75,8 @@ def edges(corpus, ticket_pattern: re.Pattern | None, project_root=None) -> list[
             target = by_stem.get(stem)
             if target and target != name:
                 found.append(Edge(name, target, "cites", None))
+        if note.supersedes and note.supersedes in by_stem.values() and note.supersedes != name:
+            found.append(Edge(name, note.supersedes, "supersedes", None))
         if note.kind == "lesson" and note.procedure in by_slug:
             found.append(Edge(name, by_slug[note.procedure], "lesson", None))
         for entry in dict.fromkeys(note.scope or []):
@@ -91,6 +94,8 @@ def edges(corpus, ticket_pattern: re.Pattern | None, project_root=None) -> list[
 def _why(edge: Edge, toward_self: bool) -> str:
     if edge.kind == "cites":
         return "cited by it" if not toward_self else "cites it"
+    if edge.kind == "supersedes":
+        return "replaces this note" if toward_self else "replaced by this note"
     if edge.kind == "lesson":
         return "lesson of this procedure" if toward_self else "the procedure it was learned in"
     return f"{edge.kind} {edge.via}"

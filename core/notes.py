@@ -698,6 +698,7 @@ def add_note(
     session: str | None = None,
     procedure: str | None = None,
     execution: str | None = None,
+    supersedes: str | None = None,
 ) -> Path:
     """Write one note and return its path.
 
@@ -741,6 +742,11 @@ def add_note(
     path = directory / f"{stamp}-{_slug(title)}.md"
 
     existing = load_notes(project_root)
+    replaced = None
+    if supersedes:
+        # A rewrite reads like the note it replaces: that one is not compared.
+        replaced = _one_note(existing, supersedes, "--supersedes")
+        existing = [note for note in existing if note.path.name != replaced.path.name]
     new_digest = body_digest(content)
     for note in existing:
         if body_digest(note.body) == new_digest:
@@ -790,10 +796,28 @@ def add_note(
             **(_procedure_front(procedure or _slug(title), 0, 0, None, None)
                if kind == "procedure" else {"procedure": procedure}),
             "execution": execution,
+            "supersedes": replaced.path.name if replaced else None,
         }
     )
     path.write_text(f"{document}\n\n{content}\n", encoding="utf-8")
     return path
+
+
+def _one_note(corpus: list[Note], needle: str, what: str) -> Note:
+    """The one note a file name or title names; ValueError naming `what` otherwise."""
+    wanted = needle.casefold()
+    exact = [n for n in corpus if n.path.name.casefold() == wanted or n.title.casefold() == wanted]
+    matches = exact or [n for n in corpus if wanted in n.path.name.casefold() or wanted in n.title.casefold()]
+    if len(matches) != 1:
+        names = "; ".join(f"{n.path.name} ({n.title!r})" for n in matches[:5])
+        raise ValueError(f"{what} {needle!r} names {len(matches)} notes{': ' + names if names else ''}; "
+                         "name exactly one by its file name or title")
+    return matches[0]
+
+
+def superseded(corpus: list[Note]) -> dict[str, str]:
+    """{file name of a replaced note: file name of the note replacing it}."""
+    return {note.supersedes: note.path.name for note in corpus if note.supersedes}
 
 
 # `_compose_body` writes these as literal `## Name` lines. A raw substring
@@ -1156,6 +1180,8 @@ class Note:
     last_execution: str | None = None
     # kind: lesson (ADR-024) -- the execution that taught it.
     execution: str | None = None
+    # The file name of the note this one replaces (ADR-033 addendum).
+    supersedes: str | None = None
 
 
 def _unscalar(text: str) -> str:
@@ -1216,6 +1242,7 @@ def parse_note(path: Path) -> Note:
         last_verified=meta.get("last_verified") or None,
         last_execution=meta.get("last_execution") or None,
         execution=meta.get("execution") or None,
+        supersedes=meta.get("supersedes") or None,
     )
 
 
@@ -1373,6 +1400,8 @@ def search_notes(project_root: str | Path, query: str, limit: int | None = None)
     """Notes relevant to `query`, most relevant first."""
     query_words = _words(query)
     corpus = load_notes(project_root)
+    replaced = superseded(corpus)
+    corpus = [note for note in corpus if note.path.name not in replaced]  # the record stays on disk
     weights = word_weights(corpus, query_words)
     # Every word ubiquitous (or the query is one such word): weighting has
     # nothing left to say, and falling through to equal weights answers with

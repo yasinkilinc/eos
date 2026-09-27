@@ -39,6 +39,12 @@ canonical `core/` runtime to `~/.local/share/eos/<version>/` and installs an
 executable launcher under `~/.local/bin/eos`. Override the locations with
 `EOS_INSTALL_PREFIX`, `EOS_DATA_DIR`, `EOS_BIN_DIR`, or `EOS_PYTHON`.
 
+## What changed in 1.17
+
+- **A note can replace another:** `eos note add --supersedes "<note>"`. The old
+  note stays as the record; search and briefs stop offering it, `note show`
+  points to the replacement, and the note graph links the two.
+
 ## What changed in 1.16
 
 - **The note graph (ADR-033):** notes are linked to notes on every build -- a
