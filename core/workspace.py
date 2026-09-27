@@ -142,6 +142,165 @@ def near_in(projects: list[Project], text: str) -> list[tuple[Project, str]]:
     return list(found.values())
 
 
+def worktree_dirs(workspace_root: str | Path) -> list[Path]:
+    """Directories holding extra checkouts of the projects (`worktrees = [...]`
+    at the top of projects.toml): a checkout `<dir>/<project name>-<label>/` is
+    that project's. [] without the file or the key."""
+    import tomllib
+
+    source = path_for(workspace_root)
+    try:
+        data = tomllib.loads(source.read_text(encoding="utf-8"))
+    except (OSError, tomllib.TOMLDecodeError):
+        return []
+    entries = data.get("worktrees", [])
+    if not isinstance(entries, list):
+        return []
+    return [(source.parent.parent / entry).resolve() for entry in entries if isinstance(entry, str) and entry.strip()]
+
+
+def owner(workspace_root: str | Path, projects: list[Project], path: str | Path,
+          worktrees: list[Path] | None = None) -> tuple[str, Path, str] | None:
+    """(project name, project root, path relative to it) for a file, or None.
+
+    The deepest project root holding the file wins, the workspace root itself
+    being one; a file in a worktree checkout belongs to the project whose name
+    the checkout's directory starts with, and is relative to the checkout --
+    a note's scope is project-relative, so a path that kept the checkout's
+    directory would match no note."""
+    import os
+
+    root = Path(workspace_root).expanduser().resolve()
+    try:
+        target = Path(os.path.realpath(Path(path).expanduser()))
+    except (OSError, ValueError):
+        return None
+    for directory in worktrees or []:
+        try:
+            parts = target.relative_to(directory).parts
+        except ValueError:
+            continue
+        if len(parts) < 2:
+            return None
+        for project in sorted(projects, key=lambda p: len(p.root.name), reverse=True):
+            if parts[0] == project.root.name or parts[0].startswith(project.root.name + "-"):
+                return project.name, project.root, "/".join(parts[1:])
+        return None
+    best = None
+    for name, project_root in [(root.name, root)] + [(p.name, p.root) for p in projects]:
+        try:
+            relative = target.relative_to(project_root)
+        except ValueError:
+            continue
+        if relative.parts and (best is None or len(project_root.parts) > len(best[1].parts)):
+            best = (name, project_root, relative.as_posix())
+    return best
+
+
+def load_quiet(workspace_root: str | Path) -> list[Project]:
+    """`load` for a hook: a broken file briefs no project rather than failing a session."""
+    try:
+        return load(workspace_root)
+    except ValueError:
+        return []
+
+
+def where(workspace_root: str | Path, project: Project) -> str:
+    """The project's path as a command typed at the workspace root takes it."""
+    import os
+
+    return os.path.relpath(project.root, Path(workspace_root).expanduser().resolve())
+
+
+# `eos <verb> [<verb>] .` -- a brief names the project it was built for as `.`,
+# which from the workspace root is the wrong store.
+_HERE = re.compile(r"(\beos (?:[a-z][\w-]* ){1,2})\.(?=[\s\"'`)]|$)", re.M)
+
+
+def relocate(text: str, project_name: str, path: str) -> str:
+    """A project's brief, readable from the workspace root: every command names
+    the project's path instead of `.`, and the header names the path too. The
+    fresh-session eval followed a service block's `eos note show .` into the
+    workspace's own store twice before it thought to `cd`."""
+    head, newline, rest = text.partition("\n")
+    head = head.replace(f"— {project_name}", f"— {path}", 1)
+    return _HERE.sub(lambda match: match.group(1) + path, head + newline + rest)
+
+
+def live(project_root: Path) -> bool:
+    """Whether a project has something a session should hear about unasked:
+    an open run or work in flight. Files checked first -- most projects of a
+    workspace have neither ledger, and those cost a stat, not a parse."""
+    from core import executions, work
+
+    try:
+        if executions.path_for(project_root).is_file() and any(r.open for r in executions.load(project_root)):
+            return True
+        return work.path_for(project_root).is_file() and bool(work.items(project_root))
+    except Exception:  # noqa: BLE001 - a ledger that cannot be read is not live
+        return False
+
+
+# NOTES ELSEWHERE: a task note lives in the store of the project it is about,
+# and a prompt like "1588 where are we" names no project, so no brief reaches
+# it. Title and tags only decide; the full text only measures rarity.
+_KEY = re.compile(r"(?<![\w-])([^\W\d_][^\W_]*)-(\d+)(?![\w-])")
+_BARE_NUMBER = re.compile(r"(?<![\w-])(\d{4,})(?![\w-])")
+ELSEWHERE_LIMIT = 3
+# A word is the prompt's subject when at most this share of every store's
+# notes contains it anywhere (and never fewer than SUBJECT_MIN_DOCS). Measured
+# on a 508-note workspace: a subject word in 1-2 notes, task words ("scenario",
+# "push") in 13-17; a fixed count lost the subject when a bulk import doubled
+# the store, a share did not.
+SUBJECT_MAX_SHARE = 0.01
+SUBJECT_MIN_DOCS = 3
+
+
+def notes_elsewhere(workspace_root: str | Path, projects: list[Project], prompt: str,
+                    briefed: set[Path]) -> str:
+    """Notes in the stores no brief covered whose title or tags hold the issue
+    key (or its number) the prompt names, or a word rare enough across every
+    store to be the prompt's subject; '' when there are none."""
+    from core import notes
+
+    root = Path(workspace_root).expanduser().resolve()
+    keys = {f"{m.group(1)}-{m.group(2)}".casefold() for m in _KEY.finditer(prompt)}
+    numbers = {m.group(1) for m in _BARE_NUMBER.finditer(prompt)}
+    prompt_words = notes._words(prompt) - keys - numbers
+    stores = [(root, ".")] + [(p.root, where(root, p)) for p in projects]
+    corpus = []
+    for project_root, path in stores:
+        try:
+            loaded = notes.load_notes(project_root)
+        except Exception:  # noqa: BLE001 - one unreadable store costs its notes
+            continue
+        corpus += [(project_root, path, note) for note in loaded if note.title]
+    if not corpus:
+        return ""
+    texts = [" ".join([note.title, *note.tags, note.body]).casefold() for _, _, note in corpus]
+    most = max(SUBJECT_MIN_DOCS, int(len(corpus) * SUBJECT_MAX_SHARE))
+    subjects = {word for word in prompt_words if 0 < sum(word in text for text in texts) <= most}
+    scored = []
+    for project_root, path, note in corpus:
+        if project_root in briefed or notes.is_bulk_index(note) or note.kind == "procedure":
+            continue
+        head_text = " ".join([note.title, *note.tags])
+        head = notes._words(head_text)
+        if keys & head or any(f"-{number}" in head_text.casefold() for number in numbers):
+            scored.append((2, note.path.name, path, note))
+        elif subjects & head:
+            scored.append((1, note.path.name, path, note))
+    if not scored:
+        return ""
+    # YYYYMMDD-slug file names: newest first among equals.
+    scored.sort(key=lambda item: (item[0], item[1]), reverse=True)
+    lines = ["NOTES ELSEWHERE — named by this prompt, in a store no brief above covered"]
+    lines += [f"  - {note.title}  ({Path(path).name if path != '.' else root.name})"
+              for _, _, path, note in scored[:ELSEWHERE_LIMIT]]
+    lines.append(f'  Read one: eos note show {scored[0][2]} "<title>"')
+    return "\n".join(lines)
+
+
 def ledger_holding(workspace_root: str | Path, execution: str) -> Path | None:
     """The workspace project's run ledger that holds this execution, if any."""
     from core import executions

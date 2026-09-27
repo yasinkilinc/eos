@@ -14,6 +14,9 @@ and, sessions starting one directory up, never ran in any of them.
                          command a capability covers is recorded as a bypass
                          and answered, once per session, with the wrapper
     post-tool-failure    the same, status: error, exit code from the harness
+    post-batch           the notes already known about the files a batch of
+                         calls touched: the bodies of the ones scoped to the
+                         file, titles of the rest (`core.inject`)
     subagent-start/stop  who did the work: the subagent's type and id, and how
                          many references its final answer cited
     instructions-loaded  which instruction file a session loaded, and why
@@ -61,11 +64,36 @@ from pathlib import Path
 # directory (the plugin exports it); otherwise beside the run pointers.
 STATE_ENV = "EOS_HOOK_STATE_DIR"
 SETTINGS = ("brief", "capture", "hints", "subagents", "loaded", "sessions", "close", "usage", "compact",
-            "verify", "cite_check")
+            "verify", "cite_check", "inject")
+# Off unless a project turns them on. `notes`: the Stop gate asks for a note when
+# the session changed this project's source and recorded nothing, and names a
+# hand-written note the change left false (`core.note_gate`). Read from the
+# config of the project that owns the changed file, so a workspace gates its
+# projects and not its own scripts.
+OPT_IN = ("notes",)
 # Numeric settings, 0 = off. outline_lines: a main-session Read of a longer file
 # with no range is answered once with its outline instead; clear_hint_tokens: a
 # finished run in a session holding more context than this gets one /clear hint.
 NUMERIC = {"outline_lines": 0, "clear_hint_tokens": 150_000, "handoff_tokens": 0}
+# A host's own lines, appended to what EOS says (2.x roadmap C5): a command run
+# at the project root with the event on stdin as JSON (`session_id`, `cwd`,
+# `source`, `prompt`, and `projects` -- the workspace projects this brief
+# covered, `{name, root}`); its stdout is added as one more block, and on a
+# prompt it is delivered once per session like every other block. Something
+# only this host knows (a personal-memory budget, a local service manager)
+# stays the host's without the host re-implementing the brief around it.
+COMMANDS = ("start_command", "prompt_command")
+COMMAND_TIMEOUT = 5
+# Text settings: the host commands above, and how an injection names the command
+# that reads the notes it left out (`{path}` the project, `{words}` the query).
+TEXTS = {name: "" for name in COMMANDS} | {"notes_pointer": 'eos note search {path} "{words}"'}
+# Workspace briefs (a root with `.eos/projects.toml`): at start, the projects
+# with an open run or work in flight; on a prompt, the projects it names.
+WORKSPACE_LIVE_LIMIT = 5
+WORKSPACE_PROMPT_LIMIT = 3
+# Across every block delivered for one prompt. Each brief keeps its own budget;
+# this stops the root plus three projects from quadrupling it.
+PROMPT_TOTAL_CHARS = 6000
 MAX_TASK_CHARS = 2000
 MAX_READ_BYTES = 8 * 1024 * 1024
 MAX_WATCHED = 64
@@ -114,6 +142,8 @@ class Hook:
     transcript: str = ""
     stop_active: bool = False
     compact_summary: str = ""
+    # PostToolBatch: every call of the batch, `{tool_name, tool_input}`.
+    tool_calls: list = dataclasses.field(default_factory=list)
 
     @property
     def command(self) -> str:
@@ -166,6 +196,8 @@ def normalize(payload: dict) -> Hook:
         effort=str(effort.get("level") or "") if isinstance(effort, dict) else "",
         transcript=text("transcript_path"), stop_active=bool(payload.get("stop_hook_active")),
         compact_summary=text("compact_summary"),
+        tool_calls=[call for call in payload.get("tool_calls") or [] if isinstance(call, dict)]
+        if isinstance(payload.get("tool_calls"), list) else [],
     )
 
 
@@ -220,21 +252,41 @@ def project_root(start: str | os.PathLike | None) -> Path | None:
 
 
 def settings(root: Path) -> dict:
-    values = {name: True for name in SETTINGS} | dict(NUMERIC)
+    values = {name: True for name in SETTINGS} | {name: False for name in OPT_IN} | dict(NUMERIC) | dict(TEXTS)
     try:
         from core.lib.config_io import ConfigIO
 
         table = ConfigIO.read_toml(root / ".eos" / "config.toml").get("hooks") or {}
     except Exception:  # noqa: BLE001 - a malformed table leaves the defaults
         return values
-    for name in SETTINGS:
+    for name in SETTINGS + OPT_IN:
         if isinstance(table.get(name), bool):
             values[name] = table[name]
     for name in NUMERIC:
         value = table.get(name)
         if isinstance(value, int) and not isinstance(value, bool) and value >= 0:
             values[name] = value
+    for name in TEXTS:
+        if isinstance(table.get(name), str) and table[name].strip():
+            values[name] = table[name].strip()
     return values
+
+
+def _host_lines(root: Path, command: str, hook: Hook, projects: list) -> str:
+    """What the host's own command prints for this event; '' on any failure."""
+    if not command:
+        return ""
+    import shlex
+    import subprocess
+
+    event = {"session_id": hook.session, "cwd": hook.cwd or str(root), "source": hook.source,
+             "prompt": hook.prompt, "projects": [{"name": p.name, "root": str(p.root)} for p in projects]}
+    try:
+        done = subprocess.run(shlex.split(command), cwd=root, input=json.dumps(event), capture_output=True,
+                              text=True, timeout=COMMAND_TIMEOUT)
+    except (OSError, ValueError, subprocess.SubprocessError):
+        return ""
+    return done.stdout.strip() if done.returncode == 0 else ""
 
 
 def _telemetry(root: Path, event: str, started: float, chars: int, session: str) -> None:
@@ -265,9 +317,12 @@ def _state_dir() -> Path:
     return executions._state_dir() / "hooks"
 
 
+def _safe(session: str) -> str:
+    return "".join(ch for ch in session if ch.isalnum() or ch in "-_.")[:64] or "unnamed"
+
+
 def _state_file(session: str) -> Path:
-    safe = "".join(ch for ch in session if ch.isalnum() or ch in "-_.")[:64] or "unnamed"
-    return _state_dir() / f"{safe}.jsonl"
+    return _state_dir() / f"{_safe(session)}.jsonl"
 
 
 def _note_state(session: str, **fields) -> None:
@@ -528,9 +583,21 @@ def _session_start(root: Path, hook: Hook, cfg: dict, agent: str | None) -> str:
             if lines:
                 parts.append("EOS, kept across the compaction:\n" + "\n".join(lines))
     if cfg["brief"]:
-        from core import brief
+        from core import brief, workspace
 
-        parts.append(brief.build(root, session=hook.session or None, agent=agent) or "")
+        parts.append((brief.build(root, session=hook.session or None, agent=agent) or "").rstrip())
+        # A workspace (2.x roadmap C5): sessions start at its root, so the
+        # projects under it are briefed from here -- the ones with something
+        # live; a quiet project every morning is a block nobody reads.
+        projects = workspace.load_quiet(root)
+        live = [project for project in projects if workspace.live(project.root)]
+        for project in live[:WORKSPACE_LIVE_LIMIT]:
+            text = brief.build(project.root, session=hook.session or None, agent=agent) or ""
+            parts.append(workspace.relocate(text, project.root.name, workspace.where(root, project)).rstrip())
+        if len(live) > WORKSPACE_LIVE_LIMIT:
+            parts.append(f"…{len(live) - WORKSPACE_LIVE_LIMIT} more projects have something live: "
+                         f"eos brief <project>")
+        parts.append(_host_lines(root, cfg["start_command"], hook, live[:WORKSPACE_LIVE_LIMIT]))
     return "\n\n".join(part for part in parts if part)
 
 
@@ -607,27 +674,62 @@ def _user_prompt(root: Path, hook: Hook, cfg: dict, agent: str | None) -> str:
     prompt = hook.prompt.strip()[:MAX_TASK_CHARS]
     if not cfg["brief"] or not prompt or any(mark in prompt.lstrip()[:200] for mark in _NOTICE_MARKS):
         return ""
-    from core import brief
+    from core import brief, workspace
 
-    text = (brief.build(root, session=hook.session or None, agent=agent, task=prompt,
-                        task_only=True) or "").strip()
-    if not text:
-        return ""
-    digest = hashlib.sha256(text.encode("utf-8")).hexdigest()
+    def task_brief(project_root: Path) -> str:
+        return (brief.build(project_root, session=hook.session or None, agent=agent, task=prompt,
+                            task_only=True) or "").strip()
+
+    # A workspace root briefs itself and every project the prompt names by a
+    # whole alias (2.x roadmap C5); without projects.toml this is one block.
+    projects = workspace.load_quiet(root)
+    named = [project for project, _ in workspace.named_in(projects, prompt)][:WORKSPACE_PROMPT_LIMIT]
     seen = _prompted_file(hook.session) if hook.session else None
-    if seen is not None:
+    try:
+        already = set(seen.read_text(encoding="utf-8").split()) if seen is not None else set()
+    except OSError:
+        already = set()
+    blocks: list[str] = []
+    digests: list[str] = []
+
+    def offer(text: str, overflow: str = "") -> bool:
+        """Add a block unless this session already has it; False once the total is spent."""
+        if not text:
+            return True
+        digest = hashlib.sha256(text.encode("utf-8")).hexdigest()
+        if digest in already or digest in digests:
+            return True
+        if blocks and sum(map(len, blocks)) + len(text) > PROMPT_TOTAL_CHARS:
+            if overflow:
+                blocks.append(overflow)
+            return False
+        blocks.append(text)
+        digests.append(digest)
+        return True
+
+    offer(task_brief(root))
+    for project in named:
+        path = workspace.where(root, project)
+        text = task_brief(project.root)
+        if not offer(workspace.relocate(text, project.root.name, path) if text else "",
+                     f"…{project.name} also has a brief for this: eos brief {path} --task \"…\""):
+            break
+    if projects:
         try:
-            if digest in {line.strip() for line in seen.read_text(encoding="utf-8").splitlines()}:
-                return ""
-        except OSError:
+            offer(workspace.notes_elsewhere(root, projects, prompt, {root} | {p.root for p in named}))
+        except Exception:  # noqa: BLE001 - hand-edited stores never cost the brief
             pass
+    offer(_host_lines(root, cfg["prompt_command"], hook, named))
+    if not blocks:
+        return ""
+    if seen is not None and digests:
         try:
             seen.parent.mkdir(parents=True, exist_ok=True)
             with open(seen, "a", encoding="utf-8") as handle:
-                handle.write(digest + "\n")
+                handle.write("".join(digest + "\n" for digest in digests))
         except OSError:
             pass
-    return text
+    return "\n\n".join(blocks)
 
 
 def _post_tool(root: Path, hook: Hook, cfg: dict, agent: str | None, failed: bool = False) -> str:
@@ -722,6 +824,41 @@ def _post_tool(root: Path, hook: Hook, cfg: dict, agent: str | None, failed: boo
                 status=status, exit_code=exit_code if index == len(recordable[:MAX_PROGRAMS]) - 1 else None,
                 tool_use_id=key or None, ms=hook.duration_ms if index == 0 else None)
     return output
+
+
+def _post_batch(root: Path, hook: Hook, cfg: dict, agent: str | None) -> str:
+    """The notes already known about the files a batch of calls touched
+    (`core.inject`), within the session's note budget. In a workspace a file
+    belongs to the project whose root holds it (projects.toml, its worktree
+    directories, or the root itself)."""
+    if not cfg["inject"] or not hook.session:
+        return ""
+    from core import inject, workspace
+
+    projects = workspace.load_quiet(root)
+    worktrees = workspace.worktree_dirs(root)
+    targets = []
+    for call in hook.tool_calls or [{"tool_name": hook.tool, "tool_input": hook.tool_input}]:
+        tool_input = call.get("tool_input") if isinstance(call.get("tool_input"), dict) else {}
+        path = str(tool_input.get("file_path") or "")
+        if call.get("tool_name") not in inject.FILE_TOOLS or not path or inject.is_instruction_file(path):
+            continue
+        if not Path(path).is_absolute():
+            path = str(Path(hook.cwd or root) / path)
+        found = workspace.owner(root, projects, path, worktrees)
+        if found is None:
+            continue
+        name, project_root, relative = found
+        label = "." if project_root == root else os.path.relpath(project_root, root)
+        targets.append((name, project_root, label, relative, path))
+    if not targets:
+        return ""
+    state = _state_dir() / f"{_safe(hook.session)}.inject.json"
+    seen, spent, digest_used = inject.load_state(state)
+    text, seen = inject.context_for(list(dict.fromkeys(targets)), seen, pointer=cfg["notes_pointer"])
+    text, spent, digest_used = inject.budgeted(text, spent, digest_used, pointer=cfg["notes_pointer"])
+    inject.save_state(state, seen, spent, digest_used)
+    return _context("PostToolBatch", text) if text else ""
 
 
 def _post_tool_failure(root: Path, hook: Hook, cfg: dict, agent: str | None) -> str:
@@ -853,7 +990,8 @@ def _session_end(root: Path, hook: Hook, cfg: dict, agent: str | None) -> str:
                                                                 str(line["gated"]))
                                                   for later in lines[index + 1:]))}
         _append_log(root, SESSIONS_FILE, entry)
-    for stale in (_state_file(hook.session), _prompted_file(hook.session)) if hook.session else ():
+    for stale in (_state_file(hook.session), _prompted_file(hook.session),
+                  _state_dir() / f"{_safe(hook.session)}.inject.json") if hook.session else ():
         try:
             stale.unlink()
         except OSError:
@@ -968,6 +1106,10 @@ def _stop(root: Path, hook: Hook, cfg: dict, agent: str | None) -> str:
         reasons += _cite_reasons(root, hook, cfg)
     except Exception:  # noqa: BLE001 - cannot tell, do not stop the turn
         pass
+    try:
+        reasons += _note_reasons(root, hook)
+    except Exception:  # noqa: BLE001 - cannot tell, do not stop the turn
+        pass
     if not reasons:
         return ""
     if mark:
@@ -994,6 +1136,37 @@ def _cite_reasons(root: Path, hook: Hook, cfg: dict) -> list[str]:
     return ["EOS: these references in your answer cannot be right:\n"
             + "\n".join(f"- {problem}" for problem in problems[:5])
             + "\nCorrect them, or say in your answer that they are unverified."]
+
+
+def _note_reasons(root: Path, hook: Hook) -> list[str]:
+    """The note gate (`core.note_gate`) over the source files this session
+    changed, grouped by the project that owns each -- only projects that set
+    `[hooks] notes = true`. Asked on every stop until answered: a note or a
+    skip naming this session, or an amended note, is what ends it."""
+    if hook.stop_active or not hook.session or hook.agent_id:
+        return []
+    from core import note_gate, workspace
+
+    changed = list(dict.fromkeys(line["changed"] for line in _state(hook.session)
+                                 if isinstance(line.get("changed"), str)))
+    changed = [path for path in changed if path.endswith(note_gate.SOURCE_SUFFIXES)]
+    if not changed:
+        return []
+    projects = workspace.load_quiet(root)
+    worktrees = workspace.worktree_dirs(root)
+    edited: dict = {}
+    gated: dict[Path, bool] = {}
+    for path in changed:
+        found = workspace.owner(root, projects, path, worktrees)
+        if found is None:
+            continue
+        name, project_root, relative = found
+        if project_root not in gated:
+            gated[project_root] = settings(project_root)["notes"]
+        if gated[project_root]:
+            edited.setdefault(name, (project_root, {}))[1].setdefault(relative, []).append(path)
+    reason = note_gate.decide(edited, hook.session) if edited else ""
+    return [reason] if reason else []
 
 
 def _close_reasons(root: Path, hook: Hook, cfg: dict) -> list[str]:
@@ -1048,6 +1221,7 @@ HANDLERS = {
     "user-prompt": _user_prompt,
     "post-tool": _post_tool,
     "post-tool-failure": _post_tool_failure,
+    "post-batch": _post_batch,
     "subagent-start": _subagent_start,
     "subagent-stop": _subagent_stop,
     "stop": _stop,

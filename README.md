@@ -160,6 +160,18 @@ executable launcher under `~/.local/bin/eos`. Override the locations with
 - **Runs land where they belong:** from a workspace root with
   `.eos/projects.toml`, `eos run start` records a run whose title names one
   project in that project's ledger (`--project`, `--here` to choose).
+- **The workspace root's hooks brief its projects:** with `projects.toml`, the
+  session-start brief adds every project with an open run or work in flight,
+  and a prompt's task brief adds every project it names, with commands that
+  name the project's path; NOTES ELSEWHERE lists notes a prompt names by issue
+  key or a rare word in stores no brief covered. `[hooks] start_command` /
+  `prompt_command` add a host's own lines.
+- **Notes arrive with the file (`post-batch`):** a touched file's scoped notes
+  in full, the rest of its project's as titles, within a session budget
+  (`[hooks] inject`); **the note gate** (`[hooks] notes`, opt-in per project)
+  stops a turn that changed a project's source and recorded nothing, or left a
+  hand-written note false. `worktrees = [...]` in projects.toml maps extra
+  checkouts to their project.
 - **Briefs say how old a note is:** `[finding, 3d]` beside every note named.
 - **Smaller artifacts:** graph and file caches and MCP results are written
   without indentation (a real service: 64.7 MB -> 42.2 MB file cache).
@@ -327,7 +339,8 @@ and the researcher agent. `eos init --claude plugin` / `eos ai update
 --claude plugin` then writes no `.claude/` files and removes the ones `files`
 mode wrote, leaving everything else there alone. `[hooks]` in
 `.eos/config.toml` turns each part off (`brief`, `capture`, `hints`,
-`subagents`, `loaded`, `sessions`, `close`, `usage`). Why wrappers stay the
+`subagents`, `loaded`, `sessions`, `close`, `usage`, `inject`; `notes` is
+opt-in). Why wrappers stay the
 default integration and MCP the exception:
 [ADR-026](docs/decisions/026-wrappers-first-mcp-by-exception.md).
 
@@ -843,7 +856,11 @@ eos run show . <id> | eos run tools . | eos run diff . <id>
   run in the ledger of the one project its title names by a whole alias;
   `--project <name>` picks one, `--here` keeps it at the root. A near miss is
   printed as a suggestion, never followed. Events and `run finish` follow the
-  run there. Without the file nothing changes.
+  run there. The same file makes the root's hooks brief the projects (live
+  ones at start, named ones per prompt), resolve a touched file to the project
+  that owns it (the deepest root, or a `worktrees` checkout named
+  `<project>-<label>`), and gate notes per project. Without the file nothing
+  changes.
 - **Procedures** (ADR-023) — notes of `kind: procedure` with `## Steps`. Their
   run counters and `last_verified` move only when a run naming them finishes;
   `eos procedure audit` recomputes them from the ledger. A step may mark

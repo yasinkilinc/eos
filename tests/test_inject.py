@@ -1,0 +1,139 @@
+"""`post-batch`: what is already known about a touched file, in front of the agent (2.x roadmap C5).
+
+A workspace fixture: a root, two projects under projects.toml, and a worktree
+directory holding a second checkout of one of them.
+"""
+import hashlib
+import io
+import json
+import subprocess
+import sys
+from pathlib import Path
+
+import pytest
+
+from core import hooks, inject
+
+EOS = [sys.executable, str(Path(__file__).resolve().parents[1] / "core" / "eos.py")]
+
+
+def _project(root: Path) -> Path:
+    root.mkdir(parents=True)
+    assert subprocess.run(EOS + ["init", str(root), "--no-ai"], capture_output=True).returncode == 0
+    return root
+
+
+def _note(project: Path, name: str, title: str, scope=(), source="", body="Body text.", hashes=None):
+    store = project / ".eos" / "knowledge"
+    store.mkdir(parents=True, exist_ok=True)
+    lines = ["---", "kind: finding", f"title: {title}", "created: 2026-09-01"]
+    if source:
+        lines.append(f"source: {source}")
+    if scope:
+        lines += ["scope:"] + [f"  - {s}" for s in scope]
+    if hashes:
+        lines += ["scope_hashes:"] + [f"  - {h}" for h in hashes]
+    (store / name).write_text("\n".join(lines + ["---", "", body]) + "\n", encoding="utf-8")
+
+
+@pytest.fixture
+def ws(tmp_path, monkeypatch):
+    monkeypatch.setenv("EOS_STATE_DIR", str(tmp_path / "state"))
+    monkeypatch.delenv("EOS_HOOK_STATE_DIR", raising=False)
+    hub = _project(tmp_path / "hub")
+    svc = _project(tmp_path / "services" / "svc-a")
+    (hub / ".eos" / "projects.toml").write_text(
+        'worktrees = ["../services/.worktrees"]\n\n[[project]]\nroot = "../services/svc-a"\n', encoding="utf-8")
+    _note(svc, "20260901-claude.md", "About the service CLAUDE.md", ["CLAUDE.md"])
+    _note(svc, "20260902-api.md", "svc-a API map, 40 endpoints", ["pom.xml"], source="api-inventory",
+          body="| GET | /a |\n" * 50)
+    _note(svc, "20260903-near.md", "Other class in the same package", ["src/pkg/Other.java"])
+    for n in range(10, 22):
+        _note(svc, f"202609{n}-far-{n}.md", f"Far note {n}", [f"src/other{n}/X.java"])
+    _note(svc, "20260930-guide.md", "svc-a AGENTS.md: Critical Rules", source="agents-md")
+    return tmp_path, hub, svc
+
+
+def _touch(monkeypatch, capsys, hub, session, *paths, tool="Read"):
+    payload = {"session_id": session, "cwd": str(hub), "hook_event_name": "PostToolBatch",
+               "tool_calls": [{"tool_name": tool, "tool_input": {"file_path": str(p)}} for p in paths]}
+    monkeypatch.setattr(sys, "stdin", io.StringIO(json.dumps(payload)))
+    assert hooks.main(["post-batch"]) == 0
+    out = capsys.readouterr().out
+    return json.loads(out)["hookSpecificOutput"]["additionalContext"] if out.strip() else ""
+
+
+def test_an_instruction_file_injects_nothing(ws, monkeypatch, capsys):
+    _, hub, svc = ws
+    assert _touch(monkeypatch, capsys, hub, "s1", svc / "CLAUDE.md") == ""
+    assert _touch(monkeypatch, capsys, hub, "s1", hub / ".claude" / "agents" / "atlas.md") == ""
+
+
+def test_the_digest_is_capped_near_first_then_newest_agents_md_last(ws, monkeypatch, capsys):
+    _, hub, svc = ws
+    text = _touch(monkeypatch, capsys, hub, "s2", svc / "src" / "pkg" / "Foo.java")
+    lines = [line for line in text.splitlines() if line.startswith("- ") and "more on svc-a" not in line]
+    assert text.startswith("### Other notes on svc-a")
+    assert len(lines) == inject.MAX_DIGEST_LINES and "more on svc-a" in text
+    assert lines[0] == "- Other class in the same package" and lines[1] == "- Far note 21"
+    assert "AGENTS.md: Critical Rules" not in text
+    assert 'eos note search ../services/svc-a "<words>"' in text
+
+
+def test_a_bulk_table_takes_no_body_slot_but_is_listed(ws, monkeypatch, capsys):
+    _, hub, svc = ws
+    text = _touch(monkeypatch, capsys, hub, "s3", svc / "pom.xml")
+    assert "### Known about pom.xml" not in text and "svc-a API map, 40 endpoints" in text
+
+
+def test_a_scoped_note_arrives_whole_once_per_session_and_stale_is_marked(ws, monkeypatch, capsys):
+    _, hub, svc = ws
+    source = svc / "src" / "pkg" / "Other.java"
+    source.parent.mkdir(parents=True)
+    source.write_text("class Other {}\n", encoding="utf-8")
+    _note(svc, "20260903-near.md", "Other class in the same package", ["src/pkg/Other.java"],
+          body="Never construct it twice.", hashes=[hashlib.sha256(b"old").hexdigest()])
+    text = _touch(monkeypatch, capsys, hub, "s4", source)
+    assert "### Known about src/pkg/Other.java" in text and "Never construct it twice." in text
+    assert "[STALE: this note was written on 2026-09-01" in text
+    assert "Never construct it twice." not in _touch(monkeypatch, capsys, hub, "s4", source, tool="Edit")
+
+
+def test_a_worktree_checkout_is_its_projects_and_relative_to_the_checkout(ws, monkeypatch, capsys):
+    tmp_path, hub, svc = ws
+    _note(svc, "20260904-foo.md", "Foo is built by the factory only", ["src/pkg/Foo.java"], body="Use the factory.")
+    checkout = tmp_path / "services" / ".worktrees" / "svc-a-PROJ-12" / "src" / "pkg" / "Foo.java"
+    text = _touch(monkeypatch, capsys, hub, "s5", checkout)
+    assert "### Known about src/pkg/Foo.java" in text and "Use the factory." in text
+    assert _touch(monkeypatch, capsys, hub, "s6", tmp_path / "services" / ".worktrees" / "other-1" / "a.txt") == ""
+
+
+def test_the_workspace_roots_own_files_have_its_own_notes(ws, monkeypatch, capsys):
+    _, hub, _ = ws
+    _note(hub, "20260905-script.md", "The deploy script needs a clean tree", ["scripts/deploy.sh"],
+          body="Commit first.")
+    text = _touch(monkeypatch, capsys, hub, "s7", hub / "scripts" / "deploy.sh", tool="Edit")
+    assert "### Known about scripts/deploy.sh" in text and "Commit first." in text
+
+
+def test_inject_off_in_config_says_nothing(ws, monkeypatch, capsys):
+    _, hub, svc = ws
+    config = hub / ".eos" / "config.toml"
+    config.write_text(config.read_text(encoding="utf-8") + "\n[hooks]\ninject = false\n", encoding="utf-8")
+    assert _touch(monkeypatch, capsys, hub, "s8", svc / "src" / "pkg" / "Foo.java") == ""
+
+
+def test_the_session_budget_holds_across_touches():
+    digest = "### Other notes on svc-a\n" + "\n".join(f"- Title {n}" for n in range(8))
+    used, spent, titles = 0, 0, 0
+    pointer = 'eos note search {path} "{words}"'
+    for _ in range(5):
+        out, spent, used = inject.budgeted(digest, spent, used, pointer=pointer)
+        titles += sum(1 for line in out.splitlines() if line.startswith("- Title"))
+    assert titles == inject.SESSION_DIGEST_LINES
+    big = "### Known about src/A.java\nTitle\n\n" + "x" * 4000
+    spent = int(inject.SESSION_MAX_TOKENS * inject.CHARS_PER_TOKEN) - 100
+    out, _, _ = inject.budgeted(big + "\n\n" + big, spent, 0, pointer=pointer)
+    assert out.count("notes withheld") == 1 and "xxxx" not in out
+    assert 'eos note search . "src/A.java"' in out
+    assert inject.budgeted(big, 0, 0, pointer=pointer)[0] == big
