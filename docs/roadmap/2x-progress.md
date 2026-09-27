@@ -71,3 +71,6 @@ deletion; the nexus `mac` checkout and the global `eos` CLI are not touched.
 - Live on 1.12.0: an edit, then the check piped into `tail` -> the PostToolUse hint named the check and
   the form that counts; the model re-ran it on its own; the turn ended with no Stop gate
   (verify_gates 0, hinted verify-form). $0.16.
+- Host shell tests in nexus-2x on 1.12.0 (26 scripts, two live/install ones skipped): all pass except
+  test-release-run-recovery (2 of 8: "retry left it failed", "re-plan lost history"). It reaches no EOS
+  code and no file this branch changed; not compared against `mac`, which stays untouched.
