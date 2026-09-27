@@ -54,6 +54,7 @@ executable launcher under `~/.local/bin/eos`. Override the locations with
 - **1.13.3:** a review of those fixes: fences left unclosed or indented are
   evidence too; a `knowledge` setting that is not a table is ignored, not a crash;
   atomic writes never touch the process umask.
+- **1.13.4:** an unclosed fence is prose, so a stray marker hides no duplicate.
 
 ## What changed in 1.12
 

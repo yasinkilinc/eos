@@ -648,8 +648,9 @@ PARAPHRASE_JACCARD = 0.8
 PARAPHRASE_MIN_TRIGRAMS = 20
 
 
-# A fence may be indented (inside a list) and may never close (a truncated paste).
-_FENCED = re.compile(r"^[ \t]*(`{3,}|~{3,})[^\n]*\n.*?(?:^[ \t]*\1[ \t]*$|\Z)", re.M | re.S)
+# A fence may be indented (inside a list). One that never closes is prose: taking
+# it to the end would hide a real duplicate behind a stray marker (review 11).
+_FENCED = re.compile(r"^[ \t]*(`{3,}|~{3,})[^\n]*\n.*?^[ \t]*\1[ \t]*$", re.M | re.S)
 
 
 def _prose(text: str) -> str:
