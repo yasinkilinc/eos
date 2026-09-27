@@ -55,6 +55,10 @@ executable launcher under `~/.local/bin/eos`. Override the locations with
 - **Briefs say how old a note is:** `[finding, 3d]` beside every note named.
 - **Smaller artifacts:** graph and file caches and MCP results are written
   without indentation (a real service: 64.7 MB -> 42.2 MB file cache).
+- **1.9.1:** a branch review's eleven findings, each with a test -- the verify
+  gate counts a check only when the command's exit status is its own; the
+  citation check leaves `~/`, placeholders and container paths alone; locks are
+  the kernel's `flock`, so a killed holder never leaves two writers behind.
 
 ## What changed in 1.8
 
