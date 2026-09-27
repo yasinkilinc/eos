@@ -249,3 +249,33 @@ def test_fuzz_limit_order_and_whole_blocks():
         for a, b in result.spans:
             for first, last in blocks:
                 assert last < a - 1 or first > b - 1 or (first >= a - 1 and last <= b - 1), (text, result.spans)
+
+
+# --- review of C3b ------------------------------------------------------------------
+
+
+def test_the_rarest_term_decides_which_span_wins():
+    lines = []
+    for i in range(40):
+        lines.append(f"Why does step {i} run after the cache warms? It waits for the queue to drain."
+                     if i % 5 == 0 else f"Step {i} ordinary detail about the pipeline and its settings.")
+    lines[23] = "The refund worker crashes on restart when the ledger is locked."
+    result = narrow.narrow_by_terms("\n".join(lines) + "\n",
+                                    ["why", "does", "the", "refund", "worker", "crash", "after", "restart"])
+    assert "The refund worker crashes on restart" in result.text
+
+
+def test_a_shrunk_span_claims_only_the_terms_it_kept():
+    lines = [f"line {i:02d} " + "padding text " * 9 for i in range(40)]
+    lines[2] += "restart"
+    lines[10] += "refund"
+    result = narrow.narrow_by_terms("\n".join(lines) + "\n", ["refund", "restart"], limit=500)
+    kept = [line for line in result.text.splitlines() if not line.startswith("@@")]
+    for term in result.terms:
+        assert any(term in line for line in kept), (term, result.terms)
+    assert result.omitted >= 1
+
+
+def test_a_cut_line_keeps_the_term_it_was_kept_for():
+    result = narrow.narrow_by_terms("x" * 5000 + " needle " + "y" * 5000 + "\n", ["needle"], limit=300)
+    assert "needle" in result.text and len(result.text) <= 300

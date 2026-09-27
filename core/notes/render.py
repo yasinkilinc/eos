@@ -189,8 +189,9 @@ def _render_note(note: Note, terms: list[str] | None = None) -> str:
         if len(body) > narrow.LIMIT_CHARS:
             found = narrow.narrow_by_terms(body, terms)
             if found is not None:
+                left = f"; {found.omitted} more hit line(s) left out" if found.omitted else ""
                 body = (f"{found.text}\n_Narrowed to the lines the task's terms hit "
-                        f"({', '.join(found.terms)}); `eos note show <project> {note.path.name}` "
+                        f"({', '.join(found.terms)}){left}; `eos note show <project> {note.path.name}` "
                         "reads all of it._")
     return f"{header}\n\n{meta}{body}"
 

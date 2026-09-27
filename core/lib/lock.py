@@ -48,7 +48,8 @@ def lock_path(path: str | Path) -> Path:
 
 def ever_locked(path: str | Path) -> bool:
     """Whether a writer ever took the lock for `path`: its lock file exists, in the
-    state directory or beside the target. Creates nothing."""
+    state directory or beside the target. Creates nothing. Meaningful with fcntl
+    only -- the O_EXCL fallback deletes its marker on release."""
     target = Path(path).expanduser().resolve()
     return lock_path(target).exists() or (target.parent / f".{target.name}.eos-lock").exists()
 

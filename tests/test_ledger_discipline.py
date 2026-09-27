@@ -174,3 +174,18 @@ def test_a_ledger_never_written_is_empty_at_once(tmp_path, monkeypatch):
     started = time.monotonic()
     assert executions.load_path(ledger) == []
     assert time.monotonic() - started < 0.05
+
+
+def test_without_fcntl_a_torn_look_is_read_under_the_lock(tmp_path, monkeypatch):
+    """Review of the race fix: the O_EXCL fallback deletes its marker on release,
+    so "a lock file exists" says nothing there; the all-absent look is read under
+    the lock instead."""
+    from core.lib import lock
+
+    monkeypatch.setattr(lock, "fcntl", None)
+    monkeypatch.setenv("EOS_STATE_DIR", str(tmp_path / "state"))
+    (tmp_path / ".eos").mkdir()
+    run = executions.start(tmp_path, "Kept without fcntl", session="s1")
+    ledger = executions.path_for(tmp_path)
+    monkeypatch.setattr(executions, "_identities", lambda parts: tuple(None for _ in parts))
+    assert run.id in {r.id for r in executions.load_path(ledger)}

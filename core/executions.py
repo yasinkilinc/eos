@@ -477,7 +477,9 @@ def _read_consistently(parts: list[Path], attempts: int = 8) -> list[str]:
             # `.1` checked before a rotation's rename and the ledger after it,
             # before the next append recreates it. A ledger that was ever written
             # has a lock file; read that one under the lock (flaky-test review).
-            if not lock.ever_locked(parts[-1]):
+            # Without fcntl the O_EXCL marker is deleted on release, so its
+            # absence proves nothing there: always read under the lock.
+            if lock.fcntl is not None and not lock.ever_locked(parts[-1]):
                 return []
             break
         texts, vanished = [], False

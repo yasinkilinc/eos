@@ -17,13 +17,15 @@ and with the standard library only (ADR-010): the idea is RAGFlow's
   - A markdown table or a fenced block with a hit comes back whole or not at
     all: a row means nothing without its header, and code cut mid-block reads
     as code that is not there.
-  - When the spans do not all fit, the ones hitting the most distinct terms
-    win; the rest are counted, never dropped silently. Spans come back in file
+  - When the spans do not all fit, the one holding the rarest term wins, then
+    the one holding the most weight; a hit line left out is counted, never
+    dropped silently, and a span claims only the terms on the lines it kept. Spans come back in file
     order, each under an `@@ L<first>-L<last>` line that a citation can use.
 """
 from __future__ import annotations
 
 import dataclasses
+import math
 import re
 
 CONTEXT_CHARS = 600
@@ -45,7 +47,7 @@ class Narrowed:
     spans: list[tuple[int, int]]
     # The terms that decided the spans, in the order they were given.
     terms: list[str]
-    # Spans found and left out for the limit.
+    # Hit lines found and left out for the limit, alone or with the span they were in.
     omitted: int
 
 
@@ -69,11 +71,20 @@ def narrow_by_terms(text: str, terms, *, context: int = CONTEXT_CHARS,
         for row in rows:
             by_line.setdefault(row, set()).add(term)
 
+    # A term's weight is how rare it is here: a span on the one line naming
+    # `refund` beats one on three lines of `why`/`does`/`after` (review of C3b).
+    weight = {term: math.log((nonblank + 1) / len(rows)) for term, rows in chosen.items()}
     blocks = _blocks(lines)
     spans = _merge([(*_span(lines, row, blocks, context), by_line[row], row in blocks, row)
                     for row in sorted(by_line)])
+
+    def rank(span):
+        terms_hit = set().union(*(found for _, found in span[3]))
+        return (-max(weight[t] for t in terms_hit), -sum(weight[t] for t in terms_hit), span[0])
+
     picked, omitted, used = [], 0, 0
-    for first, last, found, whole, anchor in sorted(spans, key=lambda s: (-len(s[2]), s[0])):
+    for first, last, whole, parts in sorted(spans, key=rank):
+        anchor = max(parts, key=lambda part: (max(weight[t] for t in part[1]), -part[0]))[0]
         piece = _render(lines, first, last)
         if used + len(piece) > limit and not whole:
             first, last = _shrink(lines, first, last, anchor, limit - used)
@@ -83,11 +94,18 @@ def narrow_by_terms(text: str, terms, *, context: int = CONTEXT_CHARS,
                 room = limit - used - len(header) - len(CUT)
                 if room > 0:
                     first = last = anchor
-                    piece = header + lines[anchor][:room] + CUT
+                    # The window opens a little before the rarest term, so the
+                    # term the span is kept for is in what is kept.
+                    term = max((t for _, found in parts for t in found), key=lambda t: weight[t])
+                    hit = re.search(re.escape(term), lines[anchor], re.I)
+                    start = max(0, min(hit.start() - room // 4 if hit else 0, len(lines[anchor]) - room))
+                    piece = header + lines[anchor][start:start + room] + CUT
         if not piece or used + len(piece) > limit:
-            omitted += 1
+            omitted += len(parts)
             continue
-        picked.append((first, last, piece, found))
+        kept = [part for part in parts if first <= part[0] <= last]
+        omitted += len(parts) - len(kept)
+        picked.append((first, last, piece, set().union(*(found for _, found in kept))))
         used += len(piece)
     if not picked:
         return None
@@ -165,15 +183,16 @@ def _span(lines: list[str], row: int, blocks: dict, context: int) -> tuple[int, 
 
 
 def _merge(spans: list[tuple]) -> list[tuple]:
-    """Spans that overlap or touch become one, anchored at its first hit."""
+    """Spans that overlap or touch become one, keeping the hit lines it is made
+    of -- (row, terms) each -- so a shrunk span can say which ones it kept."""
     merged: list[list] = []
     for first, last, found, whole, row in spans:
         if merged and first <= merged[-1][1] + 1:
             merged[-1][1] = max(merged[-1][1], last)
-            merged[-1][2] = merged[-1][2] | found
-            merged[-1][3] = merged[-1][3] or whole
+            merged[-1][2] = merged[-1][2] or whole
+            merged[-1][3].append((row, found))
         else:
-            merged.append([first, last, set(found), whole, row])
+            merged.append([first, last, whole, [(row, found)]])
     return [tuple(span) for span in merged]
 
 
