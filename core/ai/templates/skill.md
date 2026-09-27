@@ -56,7 +56,7 @@ command, which costs nothing until it is run.
 |---|---|---|---|
 | `get_project` | Project name, detected stack, entry points | low | reading `.eos/config.toml` yourself |
 | `get_structure` | Bounded list of project files | low–medium | **Glob** — same information, no round trip |
-| `get_file` | Contents of one project-relative file | same as the file | **Read** — identical bytes, nothing gained by going through EOS |
+| `get_file` | Contents of one project-relative file; with `terms`, its outline and only the line spans those words hit | same as the file; with `terms` about 1,200 characters | **Read** — identical bytes without `terms`; with an `offset` when you already know the lines |
 | `find_symbol` | Where a name is defined, across the whole index | low–medium | **Grep** — usually just as fast, and exact when you know the string |
 | `impact_analysis` | What a file reaches and what reaches it, to `depth` hops; `include` adds provenance, detector coverage and the file's commits | medium | **Grep** for the import string, if the project is small enough that this is quick by hand |
 | `get_context` | Project context; pass `task` to rank notes against it and `target` to anchor on a file; add `route: true` for the model and effort this project's policy picks for the task. Over MCP it returns; the CLI `eos context` **writes** `.eos/data/brain/llm_context.md` unless you pass `--stdout` | medium | **Read** the files it summarizes, when you only need one or two of them |

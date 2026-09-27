@@ -89,17 +89,17 @@ has barely started. "Absent" below means the name the report gives does not occu
 | 2 | gate | not met | provenance >= 95%, notes store <= 300 files, recall@1 >= 0.85, injection p95 <= 4,000 |
 | 3 | C1 | not started | `core/context/budget.py`; the estimator is a decision (2.22 measured vs 3.5 in the report) |
 | 3 | C2 | part | kind and age shipped; stable ids left out on purpose; the lessons' `evidence:` flag |
-| 3 | C3 | part | `core/outline.py` predates 2.x; `narrow_by_terms` absent |
+| 3 | C3 | part | C3a below: `narrow_by_terms`, `get_file terms`, the target file in `get_context`; note bodies in the brief and injection (C3b) not yet |
 | 3 | C4 | unclear | the context diet on `main` (ADR-027) may cover part; not measured against the item |
 | 3 | C5 | part | read-only ELSEWHERE and `work --across`; `projects.toml`, the alias blocker, hooks once at the root, run routing to the named ledger, host hooks as engine templates |
-| 3 | C6 | part | subagent events carry neither `agent` nor the parent run |
+| 3 | C6 | done | corrected: hook events carry `agent` (the subagent's type) and land in the session's open run, which is the parent's |
 | 3 | C7 | part | `cost --context` shipped; `cost --sessions` (telemetry + routing-usage + deliveries) absent |
 | 4 | A1 | not started | routing corpus (>= 200 labelled prompts, ~2 days of human work), `route --bench` absent |
 | 4 | A2, A3 | not started | the envelope (`verify_depth` absent); advised-vs-used-vs-outcome report; only `hook_dry_run` exists |
 | 4 | A4 | part | `capabilities.toml` predates 2.x; the six-state truth model and `verifyBeforeUse` |
 | 4 | A5 | part | `route --eval` suggestions, not the report's `route --learn` from outcomes |
 | 5 | E1 | part | hook events and change records exist; the >= 95% capture acceptance is unmeasured |
-| 5 | E2 | mostly | lint does not check step tools against the capability table |
+| 5 | E2 | done | corrected: `procedure lint` already checks step tools against `capabilities.toml` |
 | 5 | E3 | part | `eos cite` and the hook checks; `eos verify --output`, changed files within the procedure scope, depth 2 (running `## Success`) |
 | 5 | E4 | mostly | `eos-close` asking about both |
 | 5 | E5 | not needed | measured on a copy without git history; `index --shadow` absent |
@@ -109,13 +109,15 @@ has barely started. "Absent" below means the name the report gives does not occu
 | 6 | L3, L4, L5 | not started | symbol `parent_id`/`breadcrumb`; `measured/derived/unmeasured` on printed numbers (only in agent templates today); recalibration receipts (need A1) |
 | host | cross-phase | open | M3/M4 moves, `projects.toml` and `capability.toml`, the routing corpus, hook scripts to templates, the service-directory resume eval, generators that rewrite always-loaded files |
 
-Next without a decision: F5b (event collapsing with count-aware consumers). Everything after that waits on
+Next without a decision: C3b (narrowed note bodies). Everything after that waits on
 F3's labels, C1's estimator, M1/M3's migration or A1's corpus.
 
 | Step | What | Status | Commits / notes |
 |---|---|---|---|
 | F4b | `core/notes.py` → `core/notes/` package, zero behaviour change | DONE | 1,889 lines moved verbatim by an AST splitter (0 definitions or comments lost) into store, guards, procedures, validate, render and write -- the report's five plus `write` for add/amend, which need all the others; layered so each imports only earlier ones; `__init__` re-exports all 105 names. All 73 help screens byte-identical; 1,192 passed, 2 skipped (both environmental, same before); a deployed runtime copy adds and finds a note as before. `memory_audit` found `core/` through `notes.__file__` -- now its own |
-| F5b | `count` on identical consecutive events, consumers read it | TODO | |
+| F5b | `count` on identical consecutive events, consumers read it | NEEDS DECISION | collapsing at write means rewriting the ledger's last line: against ADR-020's append-only rule, racing `bin/eos-event` (which appends without the lock), and losing the later `at` the verify gate reads (a check that passed again after a change). Collapsing on read, for display, is safe and is what `run show` would need |
+| C3a | `core/context/narrow.py`: `narrow_by_terms`; `get_file terms`; a long `get_context` target narrowed to the task | DONE | release 1.19.0; 15 tests. Words match whole (`_` separates, so `refund` finds `refund_payment`), a stem of 4+ characters when no word does; a term on over a quarter of the lines is set aside while another is more selective; tables and fenced blocks whole or not at all; best spans by distinct terms, the rest counted. Measured here at a 16,000 limit: the research report 220,613 -> 15,669 characters (7 ms), core/hooks.py 47,784 -> 3,573, README 62,830 -> 1,452. Without `terms` `get_file` returns exactly what it did |
+| C3b | Note bodies narrowed by the task's terms in the task brief and `render_context_section` (1,200 per body, 16,000 total) | TODO | |
 
 ## Found along the way
 

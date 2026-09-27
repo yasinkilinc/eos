@@ -1,6 +1,6 @@
 # EOS 2.x branch — what landed overnight and how to adopt it
 
-Branch `eos-2x` (from `main` 1.5.1), released on the branch as 1.6.0 → 1.18.0.
+Branch `eos-2x` (from `main` 1.5.1), released on the branch as 1.6.0 → 1.19.0.
 Every step: tests first, the full suite green before the commit
 (1,169 passed, 1 skipped at 1.13.4), `tools/check-clean.sh` clean. `main` untouched.
 The row-by-row ledger with commits is `docs/roadmap/2x-progress.md`.
@@ -30,6 +30,7 @@ The row-by-row ledger with commits is `docs/roadmap/2x-progress.md`.
 | 1.12.1 | Fifth review | `set -e` read as bash reads it: not in conditions or function bodies, `set +o errexit`, subshells |
 | 1.12.2 | Sixth review | a check inside an if/loop/case/function block never counts; deep nesting refused, not a crash |
 | 1.12.3 | Seventh review | block words read at every command start, not only a fragment's first word |
+| 1.19.0 | Narrowing (C3a), `core/notes/` package (F4b) | `get_file` with `terms` returns the file's outline and only the line spans the terms hit (whole tables and fenced blocks, ~600 characters each side); `get_context` narrows a target longer than 12,000 characters to the task's terms instead of cutting its head; `core/notes.py` split with no behaviour change |
 | 1.18.0 | Note graph export (G2), replaced-note citations (M1b) | `eos note graph --output` for Graphify's community and visual views; `consolidate` names notes citing a replaced note |
 | 1.17.0 | `supersedes` (M1a) | a note replaces another without migrating anything; search and briefs stop offering the old one |
 | 1.16.0 | Note graph (ADR-033) | notes linked by citation, lesson, shared scope and ticket; `eos note related`; the brief's `LINKED TO` |
@@ -52,7 +53,7 @@ finding is fixed with a test (ledger rows RV-RV14).
 
 1. Review `eos-2x` against `main` (a PR on GitHub from `eos-2x`), then merge.
 2. In nexus: `git subtree pull --prefix tools/eos eos main --squash`, then
-   `bash automation/install-eos-cli.sh` (the global CLI moves to 1.18.0).
+   `bash automation/install-eos-cli.sh` (the global CLI moves to 1.19.0).
 3. The nexus side of this work is on the local branch `eos-2x` in the worktree
    `../nexus-2x` (not pushed: the VPN was off). Its own commits: the `verify.toml`
    scopes and their test (4ebb01c), the verified-completion design as built

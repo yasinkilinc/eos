@@ -121,7 +121,10 @@ def structure(root: str | Path, max_entries: int = 500) -> list[str]:
     return entries
 
 
-def read_file(root: str | Path, relative_path: str, max_chars: int = 20000) -> dict[str, Any]:
+def read_file(root: str | Path, relative_path: str, max_chars: int = 20000,
+              terms: str | list[str] | None = None) -> dict[str, Any]:
+    """The file, or with `terms` its outline and the spans those terms hit (2.x
+    roadmap C3). Terms that hit nothing read the file as without them, and say so."""
     project = require_project(root)
     if _is_sensitive(relative_path):
         raise ValueError("Sensitive files are not exposed through EOS inspection")
@@ -133,14 +136,37 @@ def read_file(root: str | Path, relative_path: str, max_chars: int = 20000) -> d
     if not candidate.is_file():
         raise ValueError(f"File not found: {relative_path}")
     content = candidate.read_text(encoding="utf-8", errors="replace")
+    path = candidate.relative_to(project).as_posix()
+    if terms:
+        from core import outline
+        from core.context import narrow
+
+        wanted = terms.replace(",", " ").split() if isinstance(terms, str) else list(terms)
+        shape = outline.outline(content, outline.kind_of(candidate))
+        found = narrow.narrow_by_terms(content, wanted, limit=max_chars)
+        if found is not None:
+            return {
+                "path": path,
+                "outline": shape,
+                "content": found.text,
+                "narrowed": True,
+                "spans": [list(span) for span in found.spans],
+                "terms": found.terms,
+                "omitted_spans": found.omitted,
+                "lines": len(content.splitlines()),
+                "truncated": False,
+            }
     truncated = len(content) > max_chars
     if truncated:
         content = content[:max_chars]
-    return {
-        "path": candidate.relative_to(project).as_posix(),
+    data = {
+        "path": path,
         "content": content,
         "truncated": truncated,
     }
+    if terms:
+        data["narrowed"] = False
+    return data
 
 
 def find_symbols(root: str | Path, query: str, max_results: int = 100) -> list[dict[str, Any]]:
@@ -479,7 +505,29 @@ def build_context(root: str | Path, budget: int = 12000, task: str | None = None
 
     if task:
         sections.append(f"## Task\n\n{task}")
-    if target:
+    embedded = False
+    if target and task:
+        # A target longer than the section holds is narrowed to the task's terms
+        # (2.x roadmap C3) before it is cut at the head.
+        whole = read_file(project, target, max_chars=12000)
+        if whole["truncated"]:
+            from core import notes
+
+            file_data = read_file(project, target, max_chars=12000, terms=sorted(notes._words(task)))
+            if file_data.get("narrowed"):
+                shape = "\n".join(file_data["outline"])
+                outline_block = f"Outline:\n\n```\n{shape}\n```\n\n" if shape else ""
+                sections.append(
+                    f"## Target File\n\n`{file_data['path']}` ({file_data['lines']} lines), "
+                    f"narrowed to the lines the task's terms hit ({', '.join(file_data['terms'])})"
+                    f" -- `get_file` without `terms` reads all of it.\n\n"
+                    f"{outline_block}```\n{file_data['content']}```"
+                )
+                embedded = True
+                target_section = _target_facts(project, target)
+                if target_section:
+                    sections.append(target_section)
+    if target and not embedded:
         file_data = read_file(project, target, max_chars=12000)
         # read_file reports whether it cut the file short; dropping that flag
         # hands the agent a half-read file that looks whole, and it will reason

@@ -147,16 +147,20 @@ class McpServer:
                 "handler": self._context,
             },
             "get_file": {
-                "description": "Read a project-relative source file.",
+                "description": "Read a project-relative source file. With `terms`, its outline "
+                               "and only the line spans those words hit (whole tables and "
+                               "fenced blocks); terms that hit nothing read the file as without them.",
                 "inputSchema": {
                     "type": "object",
                     "required": ["path"],
                     "properties": {
                         "path": {"type": "string"},
                         "max_chars": {"type": "integer", "minimum": 1, "maximum": 100000},
+                        "terms": {"type": "array", "items": {"type": "string"}},
                     },
                 },
-                "handler": lambda args: inspector.read_file(project_root, args["path"], int(args.get("max_chars", 20000))),
+                "handler": lambda args: inspector.read_file(project_root, args["path"], int(args.get("max_chars", 20000)),
+                                                            terms=args.get("terms") or None),
             },
             "find_symbol": {
                 "description": "Find parsed symbols by name.",
