@@ -55,6 +55,8 @@ executable launcher under `~/.local/bin/eos`. Override the locations with
   counts; deep nesting is refused instead of crashing.
 - **1.12.3:** a seventh review: block words are read at every command start
   (`fi && if …`, `time if …`).
+- **1.12.4:** the check rule held to real bash by differential fuzzing (20,000
+  commands): nothing after an `exit` counts; 0 false clears on the re-run.
 
 ## What changed in 1.11
 

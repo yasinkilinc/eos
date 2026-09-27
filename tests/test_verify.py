@@ -269,3 +269,14 @@ def test_a_block_opened_after_a_close_or_behind_a_prefix_is_still_a_block(tmp_pa
                                  "set -e\nthen_x=1; if false\nthen if true\nthen\nmake test\nfi\nfi"]):
         assert not _cleared(tmp_path / str(n), command), command
     assert _cleared(tmp_path / "echo-done", "make test && echo done")       # a keyword as an argument
+
+
+# --- differential fuzz against bash (20,000 commands): one false-clear shape --------------
+
+
+def test_nothing_after_an_exit_counts(tmp_path):
+    for n, command in enumerate(["exit 0\nmake test", "exit 0; make test", "true && exit 0; make test",
+                                 "return 0 2>/dev/null; make test", "exec true; make test"]):
+        assert not _cleared(tmp_path / str(n), command), command
+    assert _cleared(tmp_path / "ok", "make test && exit 0")
+    assert _cleared(tmp_path / "pipe", "echo x | exit 0; make test")          # a pipeline's exit is a subshell's

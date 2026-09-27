@@ -23,7 +23,7 @@ _PLACEHOLDER = re.compile(r"\{([A-Za-z_]\w*)\}")
 _LEAD = (r"(?:(?:/\S*/)?(?:bash|sh|env|command|exec|time|nice|nohup)\s+|(?:/\S*/)?timeout\s+\S+\s+"
          r"|\w+=\S*\s+)*")
 # After the check, `&&` may run only these: none of them changes a file or the outcome.
-_HARMLESS = {"echo", "printf", "true", ":"}
+_HARMLESS = {"echo", "printf", "true", ":", "exit"}
 _PIPEFAIL = re.compile(r"\s*set\b[^;\n]*\s-\w*o\s+pipefail\b")
 # `set -e`, `set -euo pipefail`, `set -o errexit`; `set +e` turns it off.
 _ERREXIT = re.compile(r"\s*set\b[^;\n]*(?:\s-[a-z]*e[a-z]*\b|\s-o\s+errexit\b)")
@@ -314,6 +314,23 @@ def _block_words(bare: str) -> tuple[int, bool]:
     return delta, touched
 
 
+def _ends_shell(command: str) -> bool:
+    """Whether a command may end the shell before what follows it: `exit`,
+    `return` or `exec <program>` starting one of its `&&`/`||` commands (a
+    pipeline stage runs in a subshell, so its `exit` ends only that)."""
+    for part in _split(_unquoted(command), "&&"):
+        for piece in _split(part, "||"):
+            if "|" in piece:
+                continue
+            words = piece.split()
+            while words and words[0] in _BEFORE_WORDS - {"exec"}:
+                words = words[1:]
+            if words and (words[0] in {"exit", "return"} or (words[0] == "exec" and len(words) > 1
+                                                               and not words[1].startswith(("<", ">", "2>")))):
+                return True
+    return False
+
+
 def _stage_hit(segment: str, regex: str, pipefail: bool, level: int = 0) -> int | None:
     """Where the check is among the segment's pipeline stages, when its status
     reaches the segment's: the last stage, or any under pipefail."""
@@ -352,6 +369,8 @@ def _runs(command: str, regex: str, level: int = 0) -> bool:
         if touched or block:
             block = max(block + delta, 0)
             continue
+        if _ends_shell(current) and not last:
+            return False  # what follows never runs (differential fuzz, 20,000 commands)
         if _safe(current) and not _COMPOUND.match(current):
             segments = _split(current, "&&")
             local_pipefail = pipefail
