@@ -121,6 +121,19 @@ def build(project_root: str | Path, *, session: str | None = None,
     return _branch_brief(root, session=session, agent=agent)
 
 
+def note_label(note) -> str:
+    """`[kind, age]` for a note a brief names (2.x roadmap C2): a two-day-old
+    lesson and a quarter-old finding weigh differently."""
+    import datetime
+
+    try:
+        days = (datetime.date.today() - datetime.date.fromisoformat(str(note.created)[:10])).days
+        age = "today" if days <= 0 else f"{days}d"
+    except ValueError:
+        age = "undated"
+    return f"[{note.kind}, {age}]"
+
+
 HANDOFF_BUDGET = 400
 
 
@@ -161,7 +174,7 @@ def for_subagent(project_root: str | Path, task: str, *, session: str | None = N
                if n.kind != "procedure" and not notes.is_bulk_index(n)
                and (notes._words(n.title) | notes._words(" ".join(n.tags))) & words][:RELATED_LIMIT]
     if related:
-        lines.append("- known here: " + "; ".join(n.title for n in related)
+        lines.append("- known here: " + "; ".join(f"{n.title} {note_label(n)}" for n in related)
                      + ' (eos note show . "<title>")')
     if not lines:
         return ""
@@ -249,7 +262,7 @@ def _branch_text(root: Path, *, session: str | None, work_limit: int) -> str:
     if matched:
         lines.append(f"KNOWN HERE ({len(matched)} of {recorded} notes match this branch)")
         for note in matched:
-            lines.append(f"  - {note.title}")
+            lines.append(f"  - {note.title}  {note_label(note)}")
         lines.append('  Read one: eos note show . "<title>"')
     elif recorded:
         # "Nothing matched" and "nothing was written" send a session to
@@ -468,7 +481,7 @@ def _task_sections(root: Path, task: str) -> tuple[list[list[str]], bool]:
                ][:RELATED_LIMIT]
     if related:
         found = True
-        sections.append(["RELATED NOTES"] + [f"  - {n.title}" for n in related]
+        sections.append(["RELATED NOTES"] + [f"  - {n.title}  {note_label(n)}" for n in related]
                         + ['  Read one: eos note show . "<title>"'])
 
     slug = procedure.procedure if procedure is not None else "<slug>"
