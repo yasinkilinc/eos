@@ -205,6 +205,11 @@ def main(argv: list[str] | None = None) -> int:
     cost_p = sub.add_parser("cost", help="What EOS has cost this project, per command")
     add_path(cost_p)
     cost_p.add_argument("--format", choices=("text", "json"), default="text")
+    cost_p.add_argument("--context", action="store_true",
+                        help="What this project's agent sessions keep re-reading, by source, from the "
+                             "harness's transcripts (tokens x calls kept), checked against their cache reads")
+    cost_p.add_argument("--since", help="With --context: sessions started on or after this date (YYYY-MM-DD)")
+    cost_p.add_argument("--transcripts", help="With --context: the transcript folder (default: the harness's)")
 
     findings_p = sub.add_parser("findings", help="Recorded runs and what they were judged to be")
     add_path(findings_p)
