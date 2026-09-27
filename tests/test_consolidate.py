@@ -33,3 +33,24 @@ def test_the_report_names_what_needs_attention_and_changes_nothing(tmp_path):
 
     done = subprocess.run(EOS + ["consolidate", str(root)], capture_output=True, text=True)
     assert done.returncode == 0 and "Nothing here was changed" in done.stdout
+
+
+def test_a_step_tool_no_run_ever_recorded_is_named(tmp_path, monkeypatch):
+    """Seen on the host: three steps' scripts recorded nothing, so no run could say
+    whether they passed -- and nothing said so."""
+    monkeypatch.setenv("EOS_STATE_DIR", str(tmp_path / "state"))
+    root = tmp_path / "proj"
+    root.mkdir()
+    assert subprocess.run(EOS + ["init", str(root), "--no-ai"], capture_output=True).returncode == 0
+    made = subprocess.run(EOS + ["procedure", "new", str(root), "--title", "Ship it", "--steps", "-",
+                                 "--success", "it runs"],
+                          input="Build (tool: mvn)\nCheck grants (tool: grants)\n", capture_output=True, text=True)
+    slug = made.stdout.split("\t")[0]
+    run = subprocess.run(EOS + ["run", "start", str(root), "--title", "Ship once", "--procedure", slug,
+                                "--session", "s1"], capture_output=True, text=True).stdout.split()[0]
+    subprocess.run(EOS + ["run", "event", str(root), run, "--kind", "ran", "--tool", "automation/mvn.sh",
+                          "--exit", "0"], capture_output=True)
+    subprocess.run(EOS + ["run", "finish", str(root), run, "--outcome", "ok"], capture_output=True)
+    data = consolidate.report(root)
+    assert data["procedures"]["silent_steps"] == {slug: ["step 2 (tool: grants)"]}
+    assert f"STEPS NO RUN RECORDED (1)" in consolidate.render(data)

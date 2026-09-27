@@ -40,6 +40,7 @@ def report(project_root: str | Path) -> dict:
 
     stale = notes.stale_notes(root)
     records = executions.load(root)
+    silent = _silent_steps(root, records)
     old_runs = []
     for record in records:
         if record.open and record.started_at:
@@ -57,13 +58,32 @@ def report(project_root: str | Path) -> dict:
         "notes": len(corpus),
         "procedures": {"total": len(procedures), "failing": [p["procedure"] for p in failing],
                        "never_run": [p["procedure"] for p in unrun],
-                       "lint": {r["procedure"]: r["problems"] for r in lint}},
+                       "lint": {r["procedure"]: r["problems"] for r in lint},
+                       "silent_steps": silent},
         "near_duplicates": pairs,
         "stale_notes": [entry.get("note") for entry in stale],
         "open_runs_older": old_runs,
         "stale_work": [(item.id, item.title) for item in stale_work],
         "verified_rate": {"verified": verified, "claimed": claimed},
     }
+
+
+def _silent_steps(root: Path, records) -> dict:
+    """For each procedure that has run, the steps whose tool no run of it ever
+    recorded: their outcome cannot be placed (ADR-031), however often it runs."""
+    from core import executions, notes, steps
+
+    silent = {}
+    for note in notes.procedures(root):
+        runs = [r for r in records if r.procedure == note.procedure and r.outcome]
+        if not runs:
+            continue
+        seen = {executions.normalize_tool(e.tool) for r in runs for e in r.events if e.tool}
+        missing = [f"step {s.number} (tool: {s.tool})" for s in steps.parse(note.body)
+                   if s.tool and executions.normalize_tool(s.tool) not in seen]
+        if missing:
+            silent[note.procedure] = missing
+    return silent
 
 
 def render(data: dict) -> str:
@@ -81,6 +101,9 @@ def render(data: dict) -> str:
     lines += block("PROCEDURE LINT", [f"{slug}: {len(problems)} problem(s)"
                                       for slug, problems in data["procedures"]["lint"].items()],
                    "eos procedure lint .")
+    lines += block("STEPS NO RUN RECORDED", [f"{slug}: {', '.join(found)}"
+                                             for slug, found in data["procedures"].get("silent_steps", {}).items()],
+                   "their tool records no event, so no run says how they went")
     lines += block("NOTES THAT READ ALIKE", [f"{share:.0%}  {a}  ~  {b}" for share, a, b in data["near_duplicates"]],
                    "keep one, or say what differs")
     lines += block("NOTES WHOSE FILES CHANGED", data["stale_notes"], "eos note audit .")
