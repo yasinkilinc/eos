@@ -48,3 +48,20 @@ def test_an_unreadable_line_or_file_does_not_stop_the_report(tmp_path):
     (folder / "bad.jsonl").write_text('[1, 2]\n"a string"\nnot json\n', encoding="utf-8")
     _session(folder / "good.jsonl", [_assistant("m1", 10), _assistant("m2", 10)])
     assert context_cost.report(tmp_path, transcripts=folder)["sessions"] == 1
+
+
+def test_an_image_is_charged_what_the_model_pays_not_its_base64_length(tmp_path):
+    """Measured on the host: one screenshot's 592k base64 characters made a session
+    'explain' 182% of its cache reads."""
+    folder = tmp_path / "t"
+    folder.mkdir()
+    image = {"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": "A" * 500_000}}
+    _session(folder / "s.jsonl", [
+        _assistant("m1", 1000, [{"type": "tool_use", "id": "t1", "name": "Read", "input": {"file_path": "a.png"}}]),
+        {"type": "user", "timestamp": "2026-09-20T10:00:01Z",
+         "message": {"content": [{"type": "tool_result", "tool_use_id": "t1",
+                                  "content": [image, {"type": "text", "text": "x" * 222}]}]}},
+        _assistant("m2", 2700),
+    ])
+    [row] = [r for r in context_cost.report(tmp_path, transcripts=folder)["sources"] if r["source"] == "tool: Read"]
+    assert row["entered_tokens"] == context_cost.IMAGE_TOKENS + 100

@@ -8,7 +8,9 @@ stays in the context for, until the next compaction or the end of the session.
 That total plus the first call's context is checked against the cache reads the
 transcript recorded, so the table says how much of the real cost it explains.
 
-tokens = characters / 2.22, the ratio calibrated on the host's transcripts.
+tokens = characters / 2.22, the ratio calibrated on the host's transcripts; an
+image is charged IMAGE_TOKENS, the most a resized image costs, never the length
+of its base64 text.
 """
 from __future__ import annotations
 
@@ -18,6 +20,7 @@ import re
 from pathlib import Path
 
 CHARS_PER_TOKEN = 2.22
+IMAGE_TOKENS = 1600
 _SKIPPED_ATTACHMENTS = {"prompt_snapshot", "environment", "model", "date", "session_context",
                         "command_permissions", "remote_session_change", "thinking_drop"}
 
@@ -37,6 +40,17 @@ def _bash_source(command: str, declared) -> str:
 def _hook_source(attachment: dict) -> str:
     event = attachment.get("hookEvent") or attachment.get("hookName") or "hook"
     return f"hook: {str(event).split(':')[0]}"
+
+
+def _size(body) -> float:
+    """Characters an item costs: text as written, an image as IMAGE_TOKENS."""
+    if isinstance(body, str):
+        return len(body)
+    if isinstance(body, list):
+        return sum(IMAGE_TOKENS * CHARS_PER_TOKEN if isinstance(part, dict) and part.get("type") == "image"
+                   else len(part.get("text") or "") if isinstance(part, dict) and part.get("type") == "text"
+                   else len(json.dumps(part, ensure_ascii=False)) for part in body)
+    return len(json.dumps(body, ensure_ascii=False))
 
 
 def _session(path: Path, declared) -> tuple[list, list, int, int, int, str]:
@@ -88,14 +102,15 @@ def _session(path: Path, declared) -> tuple[list, list, int, int, int, str]:
                         if not isinstance(part, dict):
                             continue
                         if part.get("type") == "tool_result":
-                            body = part.get("content")
-                            size = len(body if isinstance(body, str) else json.dumps(body, ensure_ascii=False))
+                            size = _size(part.get("content"))
                             name, command = names.get(part.get("tool_use_id"), ("?", ""))
                             source = (_bash_source(command, declared) if name == "Bash"
                                       else "tool: MCP" if name.startswith("mcp__") else f"tool: {name}")
                             items.append((source, size, calls))
                         elif part.get("type") == "text":
                             items.append(("user prompt", len(part.get("text") or ""), calls))
+                        elif part.get("type") == "image":
+                            items.append(("user prompt", IMAGE_TOKENS * CHARS_PER_TOKEN, calls))
             elif kind == "attachment":
                 attachment = entry.get("attachment") or {}
                 kind_of = attachment.get("type")
