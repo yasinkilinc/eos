@@ -553,3 +553,13 @@ def test_the_main_session_citation_check_follows_cite_check(project, monkeypatch
     config.write_text(config.read_text(encoding="utf-8") + "\n[hooks]\ncite_check = false\n", encoding="utf-8")
     stop = _payload(project, last_assistant_message=f"Fixed at {source}:120.")
     assert _hook(monkeypatch, capsys, "stop", stop).out == ""
+
+
+def test_a_check_run_so_it_cannot_count_gets_one_hint_at_once(project, monkeypatch, capsys):
+    source = _verify_project(project)
+    _hook(monkeypatch, capsys, "post-tool", _payload(project, tool_name="Edit", tool_input={"file_path": str(source)}))
+    piped = _payload(project, tool_name="Bash", tool_use_id="b1", tool_input={"command": "make test | tail -3"})
+    out = _hook(monkeypatch, capsys, "post-tool", piped).out
+    assert "does not count" in out and "make test" in out
+    again = _payload(project, tool_name="Bash", tool_use_id="b2", tool_input={"command": "make test; echo x"})
+    assert "does not count" not in _hook(monkeypatch, capsys, "post-tool", again).out   # once

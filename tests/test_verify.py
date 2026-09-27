@@ -189,3 +189,33 @@ def test_a_check_run_through_a_shell_dash_c_counts(tmp_path):
     for n, command in enumerate(['bash -c "make test"', "sh -c 'make test'", 'bash -lc "cd x && make test"']):
         assert _cleared(tmp_path / str(n), command), command
     assert not _cleared(tmp_path / "x", 'bash -c "make test || true"')
+
+
+# --- measured on the host's sessions: 24 of 47 unchecked instances had run the check -----
+
+
+def test_a_shell_named_by_its_path_passes_the_check_through(tmp_path):
+    for n, command in enumerate(["/bin/bash make test", "/usr/bin/env make test", "/usr/bin/time make test"]):
+        assert _cleared(tmp_path / str(n), command), command
+
+
+def test_under_errexit_a_check_ending_its_own_command_counts_wherever_it_is(tmp_path):
+    for n, command in enumerate(["set -e\nmake test\necho done", "set -euo pipefail; cd x; make test; git status",
+                                 "set -o errexit -o pipefail\nmake test 2>&1 | tail -3\necho done",
+                                 "set -e; cd x && make test; echo done"]):
+        assert _cleared(tmp_path / str(n), command), command
+    for n, command in enumerate(["set -e; make test && echo ok; echo done",      # a failing && head does not exit
+                                 "set -e; make test || true; echo done",
+                                 "set -e; make test | tail -3; echo done",      # no pipefail: tail's status
+                                 "set -e; set +e; make test; echo done",
+                                 "make test; set -e; echo done"]):
+        assert not _cleared(tmp_path / f"x{n}", command), command
+
+
+def test_a_check_run_so_it_cannot_count_is_told_apart_from_no_check(tmp_path):
+    scopes = verify.load(_project(tmp_path, SECOND))
+    keys = ["unit:billing"]
+    assert verify.attempted(scopes, "make test 2>&1 | tail -4; git status", keys) == keys
+    assert verify.attempted(scopes, "cd x && make test; echo done", keys) == keys
+    assert verify.attempted(scopes, "make test", keys) == []                 # it counted
+    assert verify.attempted(scopes, "git add Makefile && echo make test", keys) == []

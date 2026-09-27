@@ -393,17 +393,20 @@ def _verify_events(session: str) -> list[tuple[str, str]]:
     return events
 
 
-def _record_passes(root: Path, hook: Hook, run, command: str) -> None:
+def _record_passes(root: Path, hook: Hook, run, command: str) -> str:
+    """Records the checks this command passed; returns a hint, once per session,
+    when it ran a waiting check in a form whose exit status cannot count."""
     from core import verify
 
     try:
         scopes = verify.load(root)
         if not scopes:
-            return
+            return ""
         waiting = [key for key, _ in verify.dirty(scopes, root, _verify_events(hook.session))]
         passed = verify.cleared(scopes, command, waiting)
+        uncounted = verify.attempted(scopes, command, waiting)
     except Exception:  # noqa: BLE001 - a check never fails the session
-        return
+        return ""
     for key in passed:
         _note_state(hook.session, passed=key)
         if run is not None:
@@ -411,6 +414,15 @@ def _record_passes(root: Path, hook: Hook, run, command: str) -> None:
             # ledger's dedup would drop a second event carrying it.
             _record(root, hook, run, kind="verified", tool="verify", ref=key, status="ok",
                     tool_use_id=f"verify:{hook.tool_use_id}:{key}" if hook.tool_use_id else None)
+    if not uncounted or any(line.get("hint") == "verify-form" for line in _state(hook.session)):
+        return ""
+    # Measured on the host: half the changes a Stop gate would ask about had
+    # their check run, piped or followed by `;` -- said now, it costs nothing.
+    _note_state(hook.session, hint="verify-form", actor=hook.actor)
+    named = ", ".join(f"{key} (`{verify.run_hint(scopes, key)}`)" for key in uncounted[:3])
+    return (f"EOS: this ran the check for {named}, but its exit status is not this "
+            "command's (`| tail`, `;`, `||`), so it does not count as verified. Run it as the last command, "
+            "on its own or after `&&` (`set -o pipefail` first to keep a pipe).")
 
 
 def _rewritten(session: str) -> list[str]:
@@ -690,7 +702,9 @@ def _post_tool(root: Path, hook: Hook, cfg: dict, agent: str | None, failed: boo
                          "brings back what applies. Tell the user.")
     if hook.session and not failed and cfg["verify"] and not hook.tool_input.get("run_in_background"):
         # A background command reports success when it starts, not when it passes.
-        _record_passes(root, hook, run, command)
+        form = _record_passes(root, hook, run, command)
+        if form and main_session and cfg["hints"]:
+            hints.append(form)
     output = _context(event_name, "\n".join(hints)) if hints else ""
     if run is None or capabilities.wrapper_in(command, declared) is not None:
         # A registered wrapper records its own call (eos-event); counting it

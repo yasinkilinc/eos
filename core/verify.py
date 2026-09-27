@@ -20,10 +20,14 @@ MAX_SHOWN = 3
 MAX_REASON = 600
 _PLACEHOLDER = re.compile(r"\{([A-Za-z_]\w*)\}")
 # Words that run the next word as the command and pass its exit status through.
-_LEAD = r"(?:(?:bash|sh|env|command|exec|time|nice|nohup)\s+|timeout\s+\S+\s+|\w+=\S*\s+)*"
+_LEAD = (r"(?:(?:/\S*/)?(?:bash|sh|env|command|exec|time|nice|nohup)\s+|(?:/\S*/)?timeout\s+\S+\s+"
+         r"|\w+=\S*\s+)*")
 # After the check, `&&` may run only these: none of them changes a file or the outcome.
 _HARMLESS = {"echo", "printf", "true", ":"}
-_PIPEFAIL = re.compile(r"\s*set\s+(?:-\w+\s+)*-\w*o\s+pipefail\b")
+_PIPEFAIL = re.compile(r"\s*set\b[^;\n]*\s-\w*o\s+pipefail\b")
+# `set -e`, `set -euo pipefail`, `set -o errexit`; `set +e` turns it off.
+_ERREXIT = re.compile(r"\s*set\b[^;\n]*(?:\s-[a-z]*e[a-z]*\b|\s-o\s+errexit\b)")
+_NO_ERREXIT = re.compile(r"\s*set\s+\+[a-z]*e")
 
 
 @dataclasses.dataclass(frozen=True)
@@ -269,32 +273,52 @@ def _unquoted(command: str) -> str:
     return re.sub(r"'[^']*'|\"(?:\\.|[^\"\\])*\"", "\"\"", command)
 
 
+def _stage_hit(segment: str, regex: str, pipefail: bool) -> int | None:
+    """Where the check is among the segment's pipeline stages, when its status
+    reaches the segment's: the last stage, or any under pipefail."""
+    stages = _split(segment, "|")
+    for n, stage in enumerate(stages):
+        if re.match(_LEAD + regex, stage) or ((inner := _DASH_C.match(stage)) and _runs(inner.group("inner"), regex)):
+            return n if n == len(stages) - 1 or pipefail else None
+    return None
+
+
+def _safe(command: str) -> bool:
+    bare = _unquoted(command)
+    return "||" not in bare and not re.search(r"(?<![&>|<])&(?![&>])", bare)
+
+
 def _runs(command: str, regex: str) -> bool:
-    """Whether the command exits 0 only if the check passed: the check is in the
-    last top-level command, which has no `||` and runs nothing in the background;
-    after the check, `&&` runs only harmless commands (`echo PASS`); a pipe after
-    the check counts only under an earlier `set -o pipefail`."""
+    """Whether the command exits 0 only if the check passed.
+
+    In the last top-level command: no `||` or background `&`; after the check
+    `&&` runs only harmless commands (`echo PASS`). Under an earlier `set -e`,
+    also any top-level command whose last `&&` segment is the check: a failure
+    there ends the shell (a failing `&&` head does not). A pipe after the check
+    counts only under `set -o pipefail`."""
     commands = _commands(_masked(command))
-    if not commands:
-        return False
-    last = commands[-1]
-    bare = _unquoted(last)
-    if "||" in bare or re.search(r"(?<![&>|<])&(?![&>])", bare):
-        return False
-    segments = _split(last, "&&")
-    pipefail = any(_PIPEFAIL.match(c) for c in commands[:-1])
-    for position, segment in enumerate(segments):
-        if _PIPEFAIL.match(segment):
+    errexit = pipefail = False
+    for index, current in enumerate(commands):
+        last = index == len(commands) - 1
+        if _safe(current):
+            segments = _split(current, "&&")
+            local_pipefail = pipefail
+            for position, segment in enumerate(segments):
+                if _PIPEFAIL.match(segment):
+                    local_pipefail = True
+                if _stage_hit(segment, regex, local_pipefail) is None:
+                    continue
+                after = [s.split(maxsplit=1)[0] if s.split() else "" for s in segments[position + 1:]]
+                if last and all(word in _HARMLESS for word in after):
+                    return True
+                if errexit and not after:
+                    return True
+        if _NO_ERREXIT.match(current):
+            errexit = False
+        elif _ERREXIT.match(current):
+            errexit = True
+        if _PIPEFAIL.match(current):
             pipefail = True
-        stages = _split(segment, "|")
-        hit = next((n for n, stage in enumerate(stages) if re.match(_LEAD + regex, stage)
-                    or ((inner := _DASH_C.match(stage)) and _runs(inner.group("inner"), regex))), None)
-        if hit is None:
-            continue
-        after = [s.split(maxsplit=1)[0] if s.split() else "" for s in segments[position + 1:]]
-        if any(word not in _HARMLESS for word in after):
-            return False
-        return hit == len(stages) - 1 or pipefail
     return False
 
 
@@ -310,6 +334,25 @@ def cleared(scopes: list[Scope], command: str, keys: list[str]) -> list[str]:
         if any(_runs(command, _fill(p, values)) for p in scope.passes):
             done.append(key)
     return done
+
+
+_COMMAND_START = r"(?:^|[;&|(]\s*|\n\s*)" + _LEAD
+
+
+def attempted(scopes: list[Scope], command: str, keys: list[str]) -> list[str]:
+    """The instances among `keys` whose check this command runs -- it starts a
+    command somewhere in it -- without the exit status counting (`| tail`, `;`)."""
+    by_name = {scope.name: scope for scope in scopes}
+    masked, counted = _masked(command), set(cleared(scopes, command, keys))
+    found = []
+    for key in keys:
+        scope = by_name.get(key.split(":", 1)[0])
+        if scope is None or key in counted:
+            continue
+        values = _values(scope, key)
+        if any(re.search(_COMMAND_START + _fill(p, values), masked) for p in scope.passes):
+            found.append(key)
+    return found
 
 
 def dirty(scopes: list[Scope], root: str | Path, events: list[tuple[str, str]]) -> list[tuple[str, int]]:

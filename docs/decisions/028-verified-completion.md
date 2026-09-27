@@ -29,7 +29,15 @@ section as text only.
   `||` or background `&` in it; after the check `&&` may run only `echo`, `printf`,
   `true`, `:`; a piped check counts only under an earlier `set -o pipefail`. A
   check inside `$(...)` or backticks never counts (`echo $(false; make test)`
-  exits 0); `bash -c "<check>"` is read as the check it runs. A `grep`
+  exits 0); `bash -c "<check>"` is read as the check it runs. Under an earlier
+  `set -e`, a check ending its own `&&` chain counts wherever it is; a shell named
+  by its path (`/bin/bash`) passes through like `bash`.
+- **Said at once, not only at Stop.** Replaying the host's 61 sessions since
+  2026-09-15 through the rule: 36 of the 37 that changed a scoped file would be
+  stopped, for 47 unchecked instances -- 24 of them had run their check, piped into
+  `tail` or followed by `;`. So when a command runs a waiting check in a form whose
+  status cannot count, the PostToolUse hook says so once per session, naming the
+  check and how to run it; the Stop gate stays for what was never run. A `grep`
   or `echo` that mentions the check does not count. A placeholder is bounded only
   where nothing in the pattern follows it (`test-{name}\.sh` bounds itself).
 - **The turn stops once.** The plugin's Stop handler blocks the main session when an
