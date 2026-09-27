@@ -78,3 +78,36 @@ def test_the_index_holds_symbols_linked_to_their_parent(tmp_path):
     assert rows["helper"][1] is None
     path, = db.execute("SELECT n.path FROM symbol s JOIN node n ON n.nid = s.nid WHERE s.short = 'total'").fetchone()
     assert path == "app/billing.py"
+
+
+# --- review of L3 -------------------------------------------------------------------
+
+
+def test_a_java_constructor_is_never_a_parent():
+    rows = symbols.rows("src/com/acme/Line.java", [
+        {"name": "com.acme.Line", "kind": "class", "line": 2},
+        {"name": "Line", "kind": "method", "line": 4, "parent": "com.acme.Line"},
+        {"name": "price", "kind": "method", "line": 5, "parent": "com.acme.Line"},
+    ])
+    assert rows[1]["parent_index"] == 0 and rows[2]["parent_index"] == 0
+    assert rows[2]["breadcrumb"] == "src/com/acme/Line.java > com.acme.Line > price"
+
+
+def test_two_classes_under_one_name_leave_the_parent_unresolved():
+    rows = symbols.rows("A.java", [
+        {"name": "com.acme.B", "kind": "class", "line": 3},
+        {"name": "com.acme.B", "kind": "class", "line": 4},
+        {"name": "m", "kind": "method", "line": 5, "parent": "com.acme.B"},
+    ])
+    assert rows[2]["parent_index"] is None
+    assert rows[2]["breadcrumb"] == "A.java > com.acme.B > m"
+
+
+def test_parent_resolution_is_linear():
+    import time
+    found = [{"name": "Big", "kind": "class", "line": 1}] + [
+        {"name": f"Big.m{i}", "kind": "method", "line": i + 2, "parent": "Big"} for i in range(20000)]
+    started = time.monotonic()
+    rows = symbols.rows("big.py", found)
+    assert time.monotonic() - started < 1.0
+    assert all(row["parent_index"] == 0 for row in rows[1:])

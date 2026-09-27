@@ -97,9 +97,10 @@ def report(project_root: str | Path, *, since: str = "") -> dict:
         "totals": {
             "sessions": len(sessions),
             "both_measured": len(both),
-            "eos_tokens": sum(entry["eos"]["tokens"] for entry in sessions if entry["eos"]),
-            "new_tokens": sum(entry["model"]["new_tokens"] for entry in sessions if entry["model"]),
-            "read_tokens": sum(entry["model"]["read_tokens"] for entry in sessions if entry["model"]),
+            # None when no session was measured by that source: a sum over nothing is not 0 (L4).
+            "eos_tokens": _total(entry["eos"]["tokens"] for entry in sessions if entry["eos"]),
+            "new_tokens": _total(entry["model"]["new_tokens"] for entry in sessions if entry["model"]),
+            "read_tokens": _total(entry["model"]["read_tokens"] for entry in sessions if entry["model"]),
             "eos_share": round(eos_both / new_both, 4) if new_both else None,
         },
         "provenance": {"sessions[].eos.calls": honest.MEASURED, "sessions[].eos.chars": honest.MEASURED,
@@ -111,6 +112,11 @@ def report(project_root: str | Path, *, since: str = "") -> dict:
                        "totals.new_tokens": honest.MEASURED, "totals.read_tokens": honest.MEASURED,
                        "totals.eos_share": honest.DERIVED},
     }
+
+
+def _total(values) -> int | None:
+    values = list(values)
+    return sum(values) if values else None
 
 
 def _share(entry: dict) -> float | None:
@@ -165,15 +171,15 @@ def render(data: dict, limit: int = 20) -> str:
              "~ marks a derived number (EOS tokens are telemetry's chars/4); model tokens are measured by the harness; "
              f"{dash} is not measured, not zero.",
              "",
-             f"{'session':<14} {'last seen':<17} {'EOS calls':>9} {'EOS tok':>9} {'new tok':>10} "
-             f"{'read tok':>11} {'EOS share':>9} {'hints':>5} {'gates':>5}"]
+             f"{'session':<14} {'last seen':<17} {'EOS calls':>9} {'EOS tok':>11} {'new tok':>12} "
+             f"{'read tok':>13} {'EOS share':>9} {'hints':>5} {'gates':>5}"]
     for entry in data["sessions"][:limit]:
         eos, model, hooks = entry["eos"] or {}, entry["model"] or {}, entry["hooks"] or {}
         share = _cell(entry["eos_share"], derived=True, spec=".1%")
         lines.append(
             f"{entry['session'][:14]:<14} {(entry['last_at'] or dash)[:16]:<17} "
-            f"{_cell(eos.get('calls')):>9} {_cell(eos.get('tokens'), derived=True):>9} {_cell(model.get('new_tokens')):>10} "
-            f"{_cell(model.get('read_tokens')):>11} {share:>9} {_cell(hooks.get('hints')):>5} "
+            f"{_cell(eos.get('calls')):>9} {_cell(eos.get('tokens'), derived=True):>11} {_cell(model.get('new_tokens')):>12} "
+            f"{_cell(model.get('read_tokens')):>13} {share:>9} {_cell(hooks.get('hints')):>5} "
             f"{_cell(hooks.get('verify_gates')):>5}")
     if len(data["sessions"]) > limit:
         lines.append(f"… {len(data['sessions']) - limit} older session(s); --format json lists all of them.")

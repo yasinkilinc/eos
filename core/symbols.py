@@ -10,11 +10,16 @@ the same way and gives every symbol
   breadcrumb   `path > Class > method`, the small-to-big chain a reader or a
                ranking can climb from a method to its class to its file
 
-A parent that is not among the file's symbols (a parser that saw the method
-but not the class) still appears in the breadcrumb by name; a cycle is cut
-where it repeats.
+The parent is a container (a class, not a method or a constructor) with the
+parent's exact name, else its short name, and only when exactly one matches.
+A parent that is not among the file's symbols, or is ambiguous, still appears
+in the breadcrumb by name; a cycle is cut where it repeats.
 """
 from __future__ import annotations
+
+# What a symbol of these kinds is never the parent of: a Java constructor shares
+# its class's short name and would otherwise take every method after it.
+NOT_CONTAINERS = frozenset({"method", "function", "constructor", "variable", "field", "property"})
 
 
 def rows(path: str, found: list[dict]) -> list[dict]:
@@ -23,17 +28,25 @@ def rows(path: str, found: list[dict]) -> list[dict]:
         name, parent = str(symbol.get("name") or ""), symbol.get("parent")
         short.append(name[len(parent) + 1:] if parent and name.startswith(f"{parent}.") else name)
 
+    # Candidates by exact name and by short name, built once: O(n) per file.
+    by_name: dict[str, list[int]] = {}
+    by_short: dict[str, list[int]] = {}
+    for index, symbol in enumerate(found):
+        if str(symbol.get("kind") or "") in NOT_CONTAINERS:
+            continue
+        by_name.setdefault(str(symbol.get("name") or ""), []).append(index)
+        by_short.setdefault(short[index], []).append(index)
+
     def parent_of(index: int) -> int | None:
         parent = found[index].get("parent")
         if not parent:
             return None
-        last = str(parent).rsplit(".", 1)[-1]
-        line = _int(found[index].get("line"))
-        candidates = [i for i, symbol in enumerate(found)
-                      if i != index and (symbol.get("name") == parent or short[i] == last)]
-        before = [i for i in candidates if _int(found[i].get("line")) <= line]
-        pool = before or candidates
-        return max(pool, key=lambda i: _int(found[i].get("line"))) if pool else None
+        exact = [i for i in by_name.get(str(parent), []) if i != index]
+        pool = exact or [i for i in by_short.get(str(parent).rsplit(".", 1)[-1], []) if i != index]
+        # Two containers under one name (a nested class the parser qualified
+        # like the outer one) cannot be told apart from here: no link beats a
+        # wrong one, and the breadcrumb still names the parent.
+        return pool[0] if len(pool) == 1 else None
 
     parents = [parent_of(index) for index in range(len(found))]
     out = []
@@ -44,7 +57,7 @@ def rows(path: str, found: list[dict]) -> list[dict]:
             if up is None:
                 named = found[at].get("parent")
                 if named:
-                    chain[:0] = str(named).split(".")
+                    chain.insert(0, str(named))
                 break
             if up in seen:
                 break

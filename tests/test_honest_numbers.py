@@ -92,3 +92,20 @@ def test_the_json_the_cli_prints_carries_the_provenance(tmp_path):
                                "--format", "json"], capture_output=True, text=True)
         assert done.returncode == 0, done.stderr
         assert "provenance" in json.loads(done.stdout)
+
+
+def test_totals_nobody_measured_are_none(tmp_path):
+    """Review of L4: model totals were 0 when no session had a model line."""
+    proj = _telemetry_project(tmp_path)
+    totals = session_cost.report(proj)["totals"]
+    assert totals["new_tokens"] is None and totals["read_tokens"] is None
+    assert totals["eos_tokens"] == 400
+
+
+def test_a_large_derived_count_keeps_its_column():
+    data = {"since": None, "unattributed_calls": 0, "sources": {},
+            "totals": {"sessions": 1, "both_measured": 0, "eos_share": None},
+            "sessions": [{"session": "s1", "last_at": "2026-09-27T10:00", "eos_share": None, "model": None,
+                          "hooks": None, "eos": {"calls": 3, "tokens": 1234567}}]}
+    header, row = session_cost.render(data).splitlines()[2:4]
+    assert row.index("~1,234,567") + len("~1,234,567") <= header.index("EOS tok") + len("EOS tok")
