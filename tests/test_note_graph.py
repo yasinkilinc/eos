@@ -130,3 +130,20 @@ def test_a_key_quoted_in_a_code_block_links_nothing(tmp_path):
     notes.add_note(root, "finding", "How ticket keys look in logs", "Example:\n\n```\nticket=FM-500 status=open\n```\n")
     notes.add_note(root, "finding", "The FM-500 export drops rows", "The export for FM-500 skips the last page.")
     assert not [e for e in note_graph.edges(notes.load_notes(root), KEY, root) if e.kind == "ticket"]
+
+
+def test_the_graph_exports_in_node_link_form(tmp_path):
+    """For Graphify's community and visual views (`graphify cluster-only`)."""
+    import json
+
+    root = _project(tmp_path)
+    _seed(root)
+    out = tmp_path / "notes-graph.json"
+    done = subprocess.run(EOS + ["note", "graph", str(root), "--output", str(out)], capture_output=True, text=True)
+    assert done.returncode == 0, done.stderr
+    data = json.loads(out.read_text(encoding="utf-8"))
+    assert data["directed"] is False and data["multigraph"] is False
+    ids = {node["id"] for node in data["nodes"]}
+    assert len(ids) == 5 and all(node["file_type"] == "note" for node in data["nodes"])
+    assert all(link["source"] in ids and link["target"] in ids and link["relation"] for link in data["links"])
+    assert "5 notes" in done.stdout and "edge" in done.stdout

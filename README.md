@@ -39,6 +39,13 @@ canonical `core/` runtime to `~/.local/share/eos/<version>/` and installs an
 executable launcher under `~/.local/bin/eos`. Override the locations with
 `EOS_INSTALL_PREFIX`, `EOS_DATA_DIR`, `EOS_BIN_DIR`, or `EOS_PYTHON`.
 
+## What changed in 1.18
+
+- **`eos note graph`:** the note graph's size by kind; `--output <file>` writes
+  it as node-link JSON, so `graphify cluster-only <dir> --graph <file>
+  --no-label` finds its communities and draws it, with no model call.
+- `eos consolidate` names notes that still cite a replaced note.
+
 ## What changed in 1.17
 
 - **A note can replace another:** `eos note add --supersedes "<note>"`. The old

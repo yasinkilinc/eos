@@ -162,6 +162,26 @@ def cmd_note_related(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_note_graph(args: argparse.Namespace) -> int:
+    """The note graph: its size by kind, or the whole graph as node-link JSON."""
+    import collections
+
+    from core import note_graph
+
+    recorded = notes.load_notes(args.path)
+    found = note_graph.edges(recorded, note_graph.pattern_for(args.path), args.path)
+    kinds = collections.Counter(edge.kind for edge in found)
+    linked = {name for edge in found for name in (edge.src, edge.dst)}
+    print(f"{len(recorded)} notes, {len(found)} edge(s) ({', '.join(f'{k} {n}' for k, n in kinds.most_common())}); "
+          f"{len(linked)} notes linked")
+    if args.output:
+        from core.lib import atomic
+
+        atomic.write_text(args.output, json.dumps(note_graph.node_link(recorded, found), ensure_ascii=False))
+        print(f"wrote {args.output}: graphify cluster-only <dir> --graph {args.output} --no-label draws it")
+    return 0
+
+
 def cmd_note_search(args: argparse.Namespace) -> int:
     matches = notes.search_notes(args.path, args.query, limit=args.limit)
     for note in matches:
@@ -353,6 +373,7 @@ def cmd_note(args: argparse.Namespace) -> int:
         "search": cmd_note_search,
         "show": cmd_note_show,
         "related": cmd_note_related,
+        "graph": cmd_note_graph,
         "eval": cmd_note_eval,
         "skip": cmd_note_skip,
         "amend": cmd_note_amend,

@@ -64,3 +64,13 @@ earlier runs still finish against it); two notes replacing one are both named;
 a pair replacing each other (a hand edit, a merge) hides neither; the index's
 `note` table records `supersedes` (schema 7); `eos context` without a task
 leaves replaced notes out too.
+
+## Addendum: export for Graphify's views (1.18.0)
+
+`eos note graph --output <file>` writes the note graph as networkx node-link JSON,
+the shape Graphify reads: one node per note, one link per linked pair (the
+strongest kind, weights summed). `graphify cluster-only <dir> --graph <file>
+--no-label` clusters it and draws `graph.html` with no model call. On the host:
+238 notes, 155 linked pairs, 157 communities of which 11 are more than a pair --
+the owner's original proposal (Graphify for note-to-note links) served by EOS's
+own, current edges.

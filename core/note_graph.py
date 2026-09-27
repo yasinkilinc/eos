@@ -129,3 +129,22 @@ def pattern_for(project_root) -> re.Pattern | None:
         return _ticket_pattern(Path(project_root).expanduser().resolve())
     except Exception:  # noqa: BLE001 - a bad pattern costs the ticket edges, not the graph
         return None
+
+
+def node_link(corpus, found: list[Edge]) -> dict:
+    """The graph as networkx node-link JSON -- the shape Graphify reads, so
+    `graphify cluster-only <dir> --graph <file> --no-label` finds communities and
+    draws it. One link per note pair: the strongest kind, weights summed."""
+    nodes = [{"id": note.path.stem, "label": note.title, "file_type": "note", "kind": note.kind,
+              "source_file": note.path.name, "norm_label": note.title.casefold()} for note in corpus]
+    pairs: dict[tuple[str, str], dict] = {}
+    for edge in found:
+        key = tuple(sorted((edge.src, edge.dst)))
+        link = pairs.setdefault(key, {"source": key[0][:-3], "target": key[1][:-3], "relation": edge.kind,
+                                      "weight": 0.0, "via": edge.via, "confidence": "EXTRACTED",
+                                      "confidence_score": 1.0, "source_file": key[0]})
+        link["weight"] += WEIGHT[edge.kind]
+        if WEIGHT[edge.kind] > WEIGHT[link["relation"]]:
+            link["relation"], link["via"] = edge.kind, edge.via
+    return {"directed": False, "multigraph": False, "graph": {"source": "eos notes"}, "nodes": nodes,
+            "links": list(pairs.values())}

@@ -323,6 +323,10 @@ def main(argv: list[str] | None = None) -> int:
     add_path(note_related_p)
     note_related_p.add_argument("name", help="Note file name, or part of its title")
     note_related_p.add_argument("--limit", type=int, default=10)
+    note_graph_p = note_sub.add_parser("graph", help="The note graph's size; --output writes it as node-link "
+                                                     "JSON (Graphify's shape)")
+    add_path(note_graph_p)
+    note_graph_p.add_argument("--output", help="File to write the graph to")
 
     note_search_p = note_sub.add_parser("search", help="Search notes by relevance")
     add_path(note_search_p)
