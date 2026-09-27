@@ -86,6 +86,14 @@ def test_a_failed_status_counts_as_a_failure_without_an_exit_code():
     assert rows[0]["status"] == "failed"
 
 
+def test_a_step_that_failed_and_then_passed_is_not_the_failed_step():
+    """Seen on the host: an ok run printed `failed at step 6` for a retried call."""
+    body = "## Steps\n\n1. Build (tool: mvn)\n2. Push (tool: git)\n"
+    parsed = steps.parse(body)
+    assert steps.failed_step(parsed, [_event(1, "mvn"), _event(2, "git", 1), _event(3, "git")]) is None
+    assert steps.failed_step(parsed, [_event(1, "mvn", 1), _event(2, "git", 1), _event(3, "git")]) == 1
+
+
 def test_no_failed_step_when_no_step_event_failed():
     assert steps.failed_step(steps.parse(BODY), [_event(1, "ids"), _event(2, "argo", 1)]) is None
 

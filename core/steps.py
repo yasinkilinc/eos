@@ -133,6 +133,10 @@ def attribute(parsed: list[Step], events) -> list[dict]:
 
 
 def failed_step(parsed: list[Step], events) -> int | None:
-    """The step of the last placed event that failed, None when none did."""
-    failed = [number for number, event in _placed(parsed, events) if _failed(event)]
-    return failed[-1] if failed else None
+    """The step reached last among those whose last event failed; None when
+    every step that failed passed again later."""
+    rows = {row["step"]: row["status"] for row in attribute(parsed, events)}
+    for number, _ in reversed(_placed(parsed, events)):
+        if rows[number] == "failed":
+            return number
+    return None

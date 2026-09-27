@@ -34,5 +34,7 @@ produced, or that two steps sent failures back and forth to each other.
   procedure, three of seven steps name scripts that record nothing -- the gap is
   now visible where it was invisible.
 - Two steps naming the same tool are told apart only by order.
+- A step that failed and passed again later is not the failed step; `run show`
+  names one only for a failed run (an ok run printed one on the host, 1.10.1).
 - Not done: never-scheduled steps (needs a schedule), typed outputs checked
   against what a run produced, per-step outcomes in the brief.

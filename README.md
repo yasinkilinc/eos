@@ -49,6 +49,8 @@ executable launcher under `~/.local/bin/eos`. Override the locations with
 - **`eos cite`:** references and quotes in an answer that cannot be right -- a
   missing file, a line past the end, a quote not within two lines of the range
   it cites. Exit 1 when it finds one.
+- **1.10.1:** `run show` names a failed step only for a failed run, and only a
+  step whose last event failed (an ok run with a retried call printed one).
 
 ## What changed in 1.9
 

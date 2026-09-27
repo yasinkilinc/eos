@@ -121,7 +121,7 @@ def cmd_run_list(args: argparse.Namespace) -> int:
 
 def _failed_step(root, record) -> str | None:
     """`<n>: <step as written>` for a run of a procedure whose steps name tools."""
-    if not record.procedure:
+    if not record.procedure or record.outcome != "failed":
         return None
     from core import notes, steps
 
