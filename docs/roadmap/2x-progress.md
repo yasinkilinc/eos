@@ -130,6 +130,41 @@ Next without a decision (engine only): none left after F3b. F3's `synonyms` wait
 | RV19 | Review of 35831a0 (F2b) and b3eedf5 (RV18) | DONE | F2b: nothing found (encodings incl. CRLF/UTF-16, every caller's except clause, quick_check with journal off, IndexBuildError reaching no hook). RV18: 1 finding, release 1.23.3 -- "link only a unique name" dropped every method of `Req.Builder`/`Resp.Builder` (both `p.Builder` to the Java parser), the protobuf shape. The cause was upstream: the parser closed a scope by the first open symbol of its name, so a nested class named like its outer one swapped their `end_line`s -- it closes the latest-declared one now, and of several same-named containers the innermost whose lines hold the symbol wins, else the nearest before it. Both review shapes are tested through the real parser |
 | F3b | BM25F and RRF against the coverage scorer, on the host's 119 labelled queries (7 golden sets), both paths | REJECTED (measured) | no code change. Host path (all stores, 652 notes): coverage r@1 0.748 r@3 0.916 MRR 0.837; BM25F (k1 1.2, field weights 3/2/1 .. 8/3/1, b 0.3/0.75) best r@1 0.739 -- lower; BM25-style idf alone changes nothing; re-weighting the coverage fields trades one set for another (0.4/0.3/0.3: nexus +0.06, ordercapture -0.15). RRF of coverage and BM25F (k 60, weight 0.5) is the only gain: r@1 0.765 r@3 0.933 MRR 0.851, no set lower -- 2 queries of 119. On the per-store path (`eos note search`) the same RRF gives r@1 0.815 -> 0.824 and r@3 0.958 -> 0.950: nexus r@3 1.00 -> 0.97, which the gate ("recall@3 not lower") refuses. The misses left are near-duplicate notes (a section note and the procedure written from it) and vocabulary gaps (wiki/Confluence, SMS/notification) that no weighting reaches. Host record: nexus docs/eos-evals/f3b-bm25-rrf.md |
 
+## Night 2 -- branch `eos-2x-0928` (2026-09-27 21:15 -> 2026-09-28 08:30 local)
+
+Branches: EOS `eos-2x-0928` from main 9b46cff, pushed to origin; nexus `eos-2x-0928`
+from mac 7b24c6f in the worktree `../nexus-2x-0928`, pushed to origin (user, 21:10: push
+both, merge to main/mac in the morning after the report). `main`, `mac`, the old `eos-2x`
+branch and the global `eos` CLI are not touched. Nexus host parts go to the worktree,
+EOS reaches it by `git subtree pull --prefix tools/eos eos eos-2x-0928 --squash`.
+
+Rules: tests first; full suite and `tools/check-clean.sh` green before every commit,
+exit code kept (no `| tail` hiding it); push after every commit; a fresh-agent review
+after every two or three items, its findings fixed with a test. Decide, do not ask:
+the most conservative option, written under "Decided without asking" with the reason.
+Stop only for deletion, env2/prod, credentials. Stop at 08:30 and write the morning report.
+
+Defaults the user accepted (21:10): synonyms engine-only and off, no host list;
+L2 status quo; M1 forward-only, no migration of existing notes; C1 estimator = the
+measured 2.22 chars/token; A1 candidates proposed into a file, used by nothing until approved.
+
+| Step | What | Status | Commits / notes |
+|---|---|---|---|
+| N1 | F3 `synonyms`: `[notes] synonyms` in a project's config expands query words (group -> every member), weight = the rarest member's; off without the table; `rank(..., synonyms=)` for hosts | TODO | |
+| N2 | M1 forward-only: `note add` records `provenance` (human/agent/generated), `agent`, `valid_from`; `--valid-until`; `consolidate` lists expired notes; search leaves an expired note out; old notes untouched | TODO | |
+| N3 | C1 `core/context/budget.py`: one estimator (2.22 chars/token, measured), every chars/3 and chars/4 site through it, L4 provenance kept | TODO | |
+| RVa | Review of N1-N3 | TODO | |
+| N4 | F5b collapse on read: `run show` folds identical consecutive events into one line with `xN`; the ledger stays append-only | TODO | |
+| N5 | A2/A3 advised-vs-used: `eos route --stats` joins the route decision with the model the subagent really ran and the run outcome | TODO | |
+| N6 | E3 rest: `run finish` names changed files outside the procedure's declared scope | TODO | |
+| RVb | Review of N4-N6 | TODO | |
+| N7 | A1 candidates (host, nexus worktree): real prompts from transcripts with a proposed label into `docs/eos-evals/golden/routing-candidates.tsv`, used by nothing | TODO | |
+| MR | Morning report `docs/roadmap/2x-night2-report.md`: what landed, measured numbers, decisions taken, how to merge | TODO | |
+
+### Decided without asking
+
+(none yet)
+
 ## Found along the way
 
 - `eos run finish <unknown id>` succeeded and wrote a finish line for a run never started
