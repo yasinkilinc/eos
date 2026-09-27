@@ -41,6 +41,38 @@ def _golden(tmp_path, *lines):
     return path
 
 
+# --- one scorer (2.x roadmap F3) --------------------------------------------------
+
+
+def test_search_notes_is_the_scorer_over_the_projects_notes(tmp_path):
+    project, paid, chain = _corpus(tmp_path)
+    for query in ("what was paid", "command chain order", "Java rows"):
+        expected = [n.path.name for n in notes.search_notes(project, query)]
+        assert [n.path.name for n in notes.rank(notes.load_notes(project), query)] == expected
+
+
+def test_several_stores_are_ranked_as_one_corpus(tmp_path):
+    first, paid, _ = _corpus(tmp_path)
+    second = tmp_path / "other"
+    _write_note(second, "2026-refund.md", "Refund reverses the wallet line", "Refund body.")
+    corpus = notes.load_dir(notes.notes_dir(first)) + notes.load_dir(notes.notes_dir(second))
+
+    ranked = [n.path.name for n in notes.rank(corpus, "refund wallet", limit=3)]
+
+    assert ranked[0] == "2026-refund.md"
+    assert [n.path.name for n in notes.rank(corpus, "what was paid", limit=1)] == [paid]
+
+
+def test_load_dir_reads_the_notes_of_one_directory_only(tmp_path):
+    project, paid, chain = _corpus(tmp_path)
+    archive = notes.notes_dir(project) / "archive"
+    archive.mkdir()
+    (archive / "old.md").write_text("---\nkind: finding\ntitle: Old\ncreated: 2026-01-01\n---\n\nx\n",
+                                    encoding="utf-8")
+    assert sorted(n.path.name for n in notes.load_dir(notes.notes_dir(project))) == sorted([paid, chain])
+    assert notes.load_dir(tmp_path / "absent") == []
+
+
 # --- the file ------------------------------------------------------------------
 
 

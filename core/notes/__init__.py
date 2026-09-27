@@ -17,7 +17,7 @@ from core.notes.store import (
     DEFAULT_NOTES_DIR, notes_dir, _slug, _front_matter, _SAFE_SCALAR, _scalar, KINDS,
     GENERATOR_SOURCES, BULK_INDEX_SOURCES, is_generated, is_bulk_index, _is_sensitive,
     _scope_anchor, _resolve_scope_entry, _hash_file, _one_note, superseded, Note,
-    _unscalar, parse_note, _count, load_notes, _WORD, stale_notes,
+    _unscalar, parse_note, _count, load_notes, load_dir, _WORD, stale_notes,
     is_notes_dir_gitignored, _gitignore_pattern_matches, _HEADING, _LIST_ITEM,
     section_in, _items, steps_in, _set_front, append_bullet, append_to_note_section,
 )  # noqa: F401
@@ -41,7 +41,7 @@ from core.notes.validate import (
 )  # noqa: F401
 from core.notes.render import (
     _RELEVANCE_THRESHOLD, SCORE_FLOOR, _KEY, _words, word_weights, relevance, NARROWED_KINDS,
-    search_notes, _OMITTED_TITLE_LIMIT, _render_note, render_context_section,
+    search_notes, rank, _OMITTED_TITLE_LIMIT, _render_note, render_context_section,
 )  # noqa: F401
 from core.notes.write import (
     SKIPS_FILE, skips_path, record_skip, was_skipped, add_note, amend_note,

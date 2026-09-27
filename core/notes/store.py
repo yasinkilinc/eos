@@ -350,7 +350,14 @@ def _count(value) -> int | None:
 
 def load_notes(project_root: str | Path) -> list[Note]:
     """Every note for this project, oldest first (filenames start with a date)."""
-    directory = notes_dir(project_root)
+    return load_dir(notes_dir(project_root))
+
+
+def load_dir(directory: str | Path) -> list[Note]:
+    """The notes directly in one store directory, oldest first; subdirectories
+    (an `archive/`) are not read. A host searching several stores as one corpus
+    loads each with this and ranks the union (2.x roadmap F3)."""
+    directory = Path(directory)
     if not directory.is_dir():
         return []
     return [parse_note(path) for path in sorted(directory.glob("*.md"))]

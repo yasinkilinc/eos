@@ -142,8 +142,16 @@ def relevance(note: Note, query_words: set[str],
 
 def search_notes(project_root: str | Path, query: str, limit: int | None = None) -> list[Note]:
     """Notes relevant to `query`, most relevant first."""
+    return rank(load_notes(project_root), query, limit)
+
+
+def rank(corpus: list[Note], query: str, limit: int | None = None) -> list[Note]:
+    """The one note scorer (2.x roadmap F3): `corpus` ranked against `query`.
+
+    `search_notes` passes one project's notes; a host searching several stores
+    passes their union, so word weights are computed over what is searched.
+    """
     query_words = _words(query)
-    corpus = load_notes(project_root)
     replaced = superseded(corpus)
     corpus = [note for note in corpus if note.path.name not in replaced]  # the record stays on disk
     weights = word_weights(corpus, query_words)
