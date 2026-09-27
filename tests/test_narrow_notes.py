@@ -43,3 +43,18 @@ def test_without_a_query_bodies_are_whole(tmp_path):
     section = notes.render_context_section(tmp_path, None, max_chars=100000)
     assert "Observation 3:" in section
     assert "narrowed" not in section.lower()
+
+
+# --- review RVa ---------------------------------------------------------------------------
+
+
+def test_a_finding_matched_only_through_a_synonym_is_still_narrowed(tmp_path):
+    (tmp_path / ".eos").mkdir()
+    (tmp_path / ".eos" / "config.toml").write_text(
+        '[notes]\nsynonyms = [["wiki", "confluence"]]\n', encoding="utf-8")
+    body = _long_finding("Observation X: the confluence export job drops attachments over 10MB.")
+    notes.add_note(tmp_path, kind="finding", title="Confluence export behaviour", body=body)
+    section = notes.render_context_section(tmp_path, "wiki", max_chars=16000)
+    assert "confluence export job drops attachments" in section
+    assert "Observation 3:" not in section
+    assert "narrowed" in section.lower()

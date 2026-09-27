@@ -167,10 +167,15 @@ def for_subagent(project_root: str | Path, task: str, *, session: str | None = N
     if wanted:
         lines.append("- use: " + "; ".join(f"{c.run} ({c.does})" if c.does else c.run for c in wanted)
                      + " -- not the raw command")
-    words = notes._words(task)
+    # Canonicalized the same way `search_notes` scored them (N1's synonym
+    # groups), or a note it ranked relevant through a synonym alone is found
+    # by search and then silently dropped again by this literal-word check.
+    canon = notes.synonym_groups(notes.note_synonyms(root))
+    words = notes.canonical_words(notes._words(task), canon)
     related = [n for n in notes.search_notes(root, task, limit=RELATED_LIMIT + 3)
                if n.kind != "procedure" and not notes.is_bulk_index(n)
-               and (notes._words(n.title) | notes._words(" ".join(n.tags))) & words][:RELATED_LIMIT]
+               and notes.canonical_words(notes._words(n.title) | notes._words(" ".join(n.tags)), canon)
+               & words][:RELATED_LIMIT]
     if related:
         lines.append("- known here: " + "; ".join(f"{n.title} {note_label(n)}" for n in related)
                      + ' (eos note show . "<title>")')

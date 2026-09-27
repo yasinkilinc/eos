@@ -107,6 +107,19 @@ def test_consolidate_lists_the_expired_notes(tmp_path):
     assert "EXPIRED NOTES (1)" in consolidate.render(data)
 
 
+# --- review RVa ---------------------------------------------------------------------------
+
+
+def test_an_amend_keeps_provenance_agent_and_valid_until(tmp_path):
+    project = _project(tmp_path)
+    until = (datetime.date.today() + datetime.timedelta(days=30)).isoformat()
+    path = _add(project, "Wallet cache warms on boot", provenance="agent", agent="claude",
+               valid_until=until)
+    notes.amend_note(path, project, reaffirm="checked again today")
+    note = notes.parse_note(path)
+    assert (note.provenance, note.agent, note.valid_until) == ("agent", "claude", until)
+
+
 def test_the_cli_writes_provenance_and_validity(tmp_path):
     project = tmp_path / "demo"
     project.mkdir()

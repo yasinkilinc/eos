@@ -563,6 +563,11 @@ def amend_note(
             # A lesson keeps the run that taught it through any rewrite.
             "execution": note.execution,
             "supersedes": note.supersedes,
+            # Provenance and validity are recorded once, at `add`; amend has no
+            # flags for them and must not erase what is already there.
+            "provenance": note.provenance,
+            "agent": note.agent,
+            "valid_until": note.valid_until,
         }
     )
     path.write_text(f"{document}\n\n{content}\n", encoding="utf-8")

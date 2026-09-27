@@ -94,6 +94,29 @@ def canonical_words(words: set[str], canon: dict[str, str] | None) -> set[str]:
     return {canon.get(word, word) for word in words}
 
 
+def _synonym_terms(words: set[str], canon: dict[str, str] | None) -> set[str]:
+    """`words` plus every other spelling in the same synonym group.
+
+    A note ranked relevant through a synonym alone (a query naming "wiki",
+    a note saying only "confluence") has none of the query's literal words
+    in its body, so narrowing by `words` finds no hit line and falls back to
+    the whole body. Narrowing needs the sibling spellings actually written,
+    not the group's synthetic key -- `canonical_words` is for scoring, this
+    is for finding the line.
+    """
+    if not canon:
+        return words
+    groups: dict[str, set[str]] = {}
+    for word, key in canon.items():
+        groups.setdefault(key, set()).add(word)
+    expanded = set(words)
+    for word in words:
+        key = canon.get(word)
+        if key:
+            expanded |= groups[key]
+    return expanded
+
+
 def word_weights(corpus: list[Note], query_words: set[str],
                  *, canon: dict[str, str] | None = None) -> dict[str, float]:
     """How much each query word is worth here: `log(notes / notes using it)`.
@@ -290,7 +313,8 @@ def render_context_section(
 
     lines = ["## Accumulated Knowledge"]
     included = 0
-    terms = sorted(_words(query)) if query else None
+    terms = (sorted(_synonym_terms(_words(query), synonym_groups(note_synonyms(project_root))))
+             if query else None)
     for note in candidates:
         entry = _render_note(note, terms)
         projected = len("\n\n".join(lines + [entry]))

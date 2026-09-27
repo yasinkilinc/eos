@@ -95,3 +95,15 @@ def test_a_member_of_several_words_is_dropped_and_the_rest_of_its_group_kept():
     groups = notes.synonym_groups([["pull request", "merge", "integrate"]])
     assert "pull request" not in groups and "pull" not in groups
     assert groups["merge"] == groups["integrate"]
+
+
+# --- review RVa ---------------------------------------------------------------------------
+
+
+def test_the_subagent_handoff_offers_a_note_matched_only_through_a_synonym(tmp_path):
+    from core import brief
+
+    project = _project(tmp_path, '[notes]\nsynonyms = [["wiki", "confluence"]]\n')
+    assert "a-confluence.md" in _names(notes.search_notes(project, "update the wiki"))
+    text = brief.for_subagent(project, "update the wiki", session=None)
+    assert "Confluence" in text
