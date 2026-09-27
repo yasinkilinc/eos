@@ -32,7 +32,7 @@ deletion; the nexus `mac` checkout and the global `eos` CLI are not touched.
 | E4 | Work and runs linked: `run start` joins the one open item whose ticket the branch names; `work show` lists its runs with verified/claimed | DONE | the Stop-hook "ask about both" part is the host gate's |
 | L1a | `eos consolidate`: fold-only report -- failing/unrun procedures, lint, notes that read alike (>= 0.6), stale notes, runs open for days, stale work, verified rate | DONE | host: 1 failing, 11 never run, 5 lint, 38 stale notes, 8 stale work, < 1 s; priors, keyword proposals and advised-vs-used not included |
 | C7a | `eos cost --context [--since]`: resident context by source from the harness transcripts, checked against cache reads | DONE | host since 09-17: 88 sessions, 14,342 calls, explains 99% of 4.2B cache reads; Bash split into wrapper/raw by the project's own registry. Joining telemetry deliveries per session not done |
-| RV | Review of the whole branch by a fresh agent (background); fix what it finds | IN PROGRESS | started 03:42 |
+| RV | Review of the whole branch by a fresh agent (background); fix what it finds | IN PROGRESS | 11 findings (03:48): verify false clears, citation false blocks, lock takeover race, placeholder mapping, finish across ledgers, hook robustness, mtime attribution, lint which(), brief rebuilds, alternates spacing, context_cost robustness |
 | M1/M3/M4/M6 | Provenance on every note, generated store, journey fan-out, priors | BLOCKED | M1/M3/M4 migrate the host's notes (~590 files) -- a person decides; M6 needs F3 |
 | M2 | Counters moved only by verified outcomes | NEEDS DECISION | 1.6 labels ok runs verified/claimed from evidence; whether procedure counters move only on verified is a policy call |
 

@@ -671,8 +671,8 @@ def _post_tool(root: Path, hook: Hook, cfg: dict, agent: str | None, failed: boo
                              + " (`eos capabilities .` lists every wrapper here.)")
     if main_session and cfg["hints"]:
         rewritten = _rewritten(hook.session)
-        for path in rewritten:
-            _note_state(hook.session, changed=path)
+        # Not recorded as the session's changes: a pull, an editor or another
+        # session moves an mtime too, and an unsure gate must not stop anyone.
         if rewritten and not any(line.get("hint") == "shell-rewrite" for line in _state(hook.session)):
             _note_state(hook.session, hint="shell-rewrite", actor=hook.actor)
             hints.append(f"EOS: this command rewrote {', '.join(rewritten[:3])}, which this session read; the "
@@ -686,7 +686,8 @@ def _post_tool(root: Path, hook: Hook, cfg: dict, agent: str | None, failed: boo
                          "that every further call re-reads. What the run found is in EOS (ledger, notes, "
                          "changed files), so /clear before the next task is safe: the next prompt's brief "
                          "brings back what applies. Tell the user.")
-    if hook.session and not failed and cfg["verify"]:
+    if hook.session and not failed and cfg["verify"] and not hook.tool_input.get("run_in_background"):
+        # A background command reports success when it starts, not when it passes.
         _record_passes(root, hook, run, command)
     output = _context(event_name, "\n".join(hints)) if hints else ""
     if run is None or capabilities.wrapper_in(command, declared) is not None:
@@ -852,16 +853,18 @@ def _pre_agent(root: Path, hook: Hook, cfg: dict, agent: str | None) -> str:
     model = _route_subagent(root, hook)
     if model:
         updated["model"] = model
-    if cfg["handoff_tokens"]:
-        prompt = str(hook.tool_input.get("prompt") or "")
-        task = (prompt or str(hook.tool_input.get("description") or "")).strip()[:MAX_TASK_CHARS]
-        if task:
-            from core import brief
+    prompt = str(hook.tool_input.get("prompt") or "")
+    if cfg["handoff_tokens"] and prompt.strip():
+        from core import brief
 
-            text = brief.for_subagent(root, task, session=hook.session or None, budget=cfg["handoff_tokens"])
-            if text:
-                updated["prompt"] = f"{prompt}\n\n{text}" if prompt else text
-                _note_state(hook.session, handoff=len(text))
+        try:
+            text = brief.for_subagent(root, prompt.strip()[:MAX_TASK_CHARS], session=hook.session or None,
+                                      budget=cfg["handoff_tokens"])
+        except Exception:  # noqa: BLE001 - a missing handoff never costs the routed model
+            text = ""
+        if text:
+            updated["prompt"] = f"{prompt}\n\n{text}"
+            _note_state(hook.session, handoff=len(text))
     if not updated:
         return ""
     return json.dumps({"hookSpecificOutput": {"hookEventName": "PreToolUse",
@@ -911,30 +914,46 @@ def _route_subagent(root: Path, hook: Hook) -> str | None:
     return decision.model if reason is None else None
 
 
-def _verify_gate(root: Path, hook: Hook, cfg: dict) -> str:
-    """Once per set: the scopes this session changed after their last passing check."""
+def _verify_gate(root: Path, hook: Hook, cfg: dict) -> tuple[str, str]:
+    """(reason, set mark): the scopes this session changed after their last passing check,
+    once per set; the caller writes the mark once the answer is built."""
     if not cfg["verify"] or hook.stop_active or not hook.session or hook.agent_id:
-        return ""
+        return "", ""
     from core import verify
 
     try:
         scopes = verify.load(root)
         found = verify.dirty(scopes, root, _verify_events(hook.session)) if scopes else []
     except Exception:  # noqa: BLE001 - cannot tell, do not block
-        return ""
+        return "", ""
     if not found:
-        return ""
+        return "", ""
     mark = verify.signature(found)
     if any(line.get("gated") == mark for line in _state(hook.session)):
-        return ""
-    _note_state(hook.session, gated=mark)
-    return verify.reason(scopes, found)
+        return "", ""
+    return verify.reason(scopes, found), mark
 
 
 def _stop(root: Path, hook: Hook, cfg: dict, agent: str | None) -> str:
     if cfg["usage"] and hook.transcript and hook.session:
         _fold_usage(root, hook)
-    reasons = [gate] if (gate := _verify_gate(root, hook, cfg)) else []
+    gate, mark = _verify_gate(root, hook, cfg)
+    reasons = [gate] if gate else []
+    try:
+        reasons += _close_reasons(root, hook, cfg)
+    except Exception:  # noqa: BLE001 - the open-run check failing costs its lines, not the gate
+        pass
+    if not reasons:
+        return ""
+    if mark:
+        _note_state(hook.session, gated=mark)
+    # A Stop hook blocks through its JSON answer, so this one still exits 0;
+    # the harness sets stop_hook_active on the next stop and it lets go.
+    return json.dumps({"decision": "block", "reason": "\n\n".join(reasons)}, ensure_ascii=False)
+
+
+def _close_reasons(root: Path, hook: Hook, cfg: dict) -> list[str]:
+    reasons = []
     if cfg["close"] and not hook.stop_active and hook.session and not hook.agent_id:
         from core import executions, work
 
@@ -955,11 +974,7 @@ def _stop(root: Path, hook: Hook, cfg: dict, agent: str | None) -> str:
                          '(failed needs --lesson "…")')
         if lines:
             reasons.append("\n".join(lines))
-    if not reasons:
-        return ""
-    # A Stop hook blocks through its JSON answer, so this one still exits 0;
-    # the harness sets stop_hook_active on the next stop and it lets go.
-    return json.dumps({"decision": "block", "reason": "\n\n".join(reasons)}, ensure_ascii=False)
+    return reasons
 
 
 def _fold_usage(root: Path, hook: Hook) -> None:

@@ -501,3 +501,36 @@ def test_a_subagent_citing_a_line_that_is_not_there_is_asked_once(project, monke
     assert _hook(monkeypatch, capsys, "subagent-stop", stop).out == ""                   # once
     fine = _payload(project, agent_id="a2", agent_type="Explore", last_assistant_message=f"See {source}:1.")
     assert _hook(monkeypatch, capsys, "subagent-stop", fine).out == ""
+
+
+# --- review findings (branch review, 2026-09-27) ---------------------------------------
+
+
+def test_a_check_started_in_the_background_is_not_a_pass(project, monkeypatch, capsys):
+    source = _verify_project(project)
+    _hook(monkeypatch, capsys, "post-tool", _payload(project, tool_name="Edit", tool_input={"file_path": str(source)}))
+    _hook(monkeypatch, capsys, "post-tool", _payload(project, tool_name="Bash", tool_use_id="bg1",
+                                                     tool_input={"command": "make test", "run_in_background": True}))
+    assert ("passed", "code") not in hooks._verify_events("s1")
+
+
+def test_a_file_that_changed_under_the_session_does_not_stop_it(project, monkeypatch, capsys):
+    """A pull, an editor or another session moves an mtime as well; only the
+    session's own edits are its work (the hint about shell rewrites stays)."""
+    import os
+
+    source = _verify_project(project)
+    _hook(monkeypatch, capsys, "post-tool", _payload(project, tool_name="Read", tool_input={"file_path": str(source)}))
+    os.utime(source, (source.stat().st_atime, source.stat().st_mtime + 5))
+    _hook(monkeypatch, capsys, "post-tool", _payload(project, tool_name="Bash", tool_use_id="g1",
+                                                     tool_input={"command": "git pull --ff-only"}))
+    _hooks_config(project, "close = false\n")
+    assert _hook(monkeypatch, capsys, "stop", _payload(project)).out == ""
+
+
+def test_a_handoff_is_not_made_into_a_whole_prompt(project, monkeypatch, capsys):
+    _hooks_config(project, "handoff_tokens = 400\n")
+    _open_run(project)
+    call = _payload(project, tool_name="Agent", tool_input={"description": "check the tracker ticket",
+                                                            "subagent_type": "Explore"})
+    assert _hook(monkeypatch, capsys, "pre-agent", call).out == ""

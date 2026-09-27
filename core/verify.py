@@ -19,8 +19,10 @@ FILENAME = "verify.toml"
 MAX_SHOWN = 3
 MAX_REASON = 600
 _PLACEHOLDER = re.compile(r"\{([A-Za-z_]\w*)\}")
-_SEGMENTS = re.compile(r"&&|\|\||;|\n")
 _LEAD = r"\s*(?:\w+=\S*\s+)*(?:(?:bash|sh|env)\s+)?"
+# After `&&` is split away, any of these means the command's exit status may not
+# be the check's: `a || true`, `a; b`, `a &`, two lines.
+_UNSAFE = re.compile(r"\|\||;|(?<![&>])&(?![&>])|\n")
 
 
 @dataclasses.dataclass(frozen=True)
@@ -53,6 +55,8 @@ def load(project_root: str | Path) -> list[Scope]:
                 continue
             for pattern in passes:
                 re.compile(_fill(pattern, {key: "x" for key in _PLACEHOLDER.findall(pattern)}))
+            for pattern in paths:
+                _glob(Path(project_root), pattern)
             scopes.append(Scope(name, paths, passes, run))
         return scopes
     except Exception:  # noqa: BLE001 - a broken file declares nothing
@@ -60,7 +64,9 @@ def load(project_root: str | Path) -> list[Scope]:
 
 
 def _fill(pattern: str, values: dict, escape: bool = True) -> str:
-    return _PLACEHOLDER.sub(lambda m: re.escape(values.get(m.group(1), "")) if escape
+    """Placeholders filled; in a regex the value is escaped and bounded, so
+    `billing` does not match the start of `billing-batch`."""
+    return _PLACEHOLDER.sub(lambda m: re.escape(values.get(m.group(1), "")) + r"(?![\w.-])" if escape
                             else values.get(m.group(1), m.group(0)), pattern)
 
 
@@ -87,7 +93,8 @@ def _glob(root: Path, pattern: str) -> re.Pattern:
             out.append("[^/]*")
             index += 1
         elif (found := _PLACEHOLDER.match(full, index)) is not None:
-            out.append(f"(?P<{found.group(1)}>[^/]+)")
+            name = found.group(1)
+            out.append(f"(?P={name})" if f"(?P<{name}>" in "".join(out) else f"(?P<{name}>[^/]+)")
             index = found.end()
         else:
             out.append(re.escape(full[index]))
@@ -99,8 +106,18 @@ def _names(scope: Scope) -> list[str]:
     return sorted({name for pattern in scope.paths for name in _PLACEHOLDER.findall(pattern)})
 
 
+def _key(scope: Scope, values: dict) -> str:
+    """`scope`, `scope:value` when the scope has one placeholder name, else
+    `scope:name=value,…` -- a value always travels with its name."""
+    if not values:
+        return scope.name
+    if len(_names(scope)) == 1:
+        return f"{scope.name}:{next(iter(values.values()))}"
+    return scope.name + ":" + ",".join(f"{name}={values[name]}" for name in sorted(values))
+
+
 def instance(scopes: list[Scope], root: str | Path, path: str) -> str | None:
-    """`<scope>` or `<scope>:<value>…` for the first scope whose paths match."""
+    """The instance key (`_key`) for the first scope whose paths match."""
     if not path:
         return None
     full = _real(Path(root), path)
@@ -108,21 +125,30 @@ def instance(scopes: list[Scope], root: str | Path, path: str) -> str | None:
         for pattern in scope.paths:
             found = _glob(Path(root), pattern).fullmatch(full)
             if found is not None:
-                values = found.groupdict()
-                return scope.name + "".join(f":{values[name]}" for name in sorted(values))
+                return _key(scope, found.groupdict())
     return None
 
 
 def _values(scope: Scope, key: str) -> dict:
-    return dict(zip(_names(scope), key.split(":")[1:]))
+    rest = key.split(":", 1)[1] if ":" in key else ""
+    if not rest:
+        return {}
+    names = _names(scope)
+    if len(names) == 1:
+        return {names[0]: rest}
+    return dict(part.split("=", 1) for part in rest.split(",") if "=" in part)
 
 
 def _runs(command: str, regex: str) -> bool:
-    for segment in _SEGMENTS.split(command):
-        head, piped = segment.split("|", 1)[0], "|" in segment
-        if re.match(_LEAD + regex, head) and (not piped or "pipefail" in command):
-            return True
-    return False
+    """Whether the command's own exit status is the check's: the check is the
+    last `&&` segment, before any heredoc, with no `||`, `;`, `&` or second line."""
+    text = command.replace("\\\n", " ").split("<<", 1)[0]
+    segments = text.split("&&")
+    if any(_UNSAFE.search(segment) for segment in segments):
+        return False
+    last = segments[-1]
+    head, piped = last.split("|", 1)[0], "|" in last
+    return bool(re.match(_LEAD + regex, head)) and (not piped or "pipefail" in command)
 
 
 def cleared(scopes: list[Scope], command: str, keys: list[str]) -> list[str]:
@@ -131,7 +157,12 @@ def cleared(scopes: list[Scope], command: str, keys: list[str]) -> list[str]:
     done = []
     for key in keys:
         scope = by_name.get(key.split(":", 1)[0])
-        if scope is not None and any(_runs(command, _fill(p, _values(scope, key))) for p in scope.passes):
+        if scope is None:
+            continue
+        values = _values(scope, key)
+        # A pattern naming a placeholder this instance has no value for cannot be its check.
+        usable = [p for p in scope.passes if set(_PLACEHOLDER.findall(p)) <= set(values)]
+        if any(_runs(command, _fill(p, values)) for p in usable):
             done.append(key)
     return done
 
