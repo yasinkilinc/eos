@@ -65,3 +65,11 @@ def test_an_image_is_charged_what_the_model_pays_not_its_base64_length(tmp_path)
     ])
     [row] = [r for r in context_cost.report(tmp_path, transcripts=folder)["sources"] if r["source"] == "tool: Read"]
     assert row["entered_tokens"] == context_cost.IMAGE_TOKENS + 100
+
+
+def test_a_table_that_explains_more_than_the_reads_says_it_over_counts():
+    data = {"sessions": 1, "calls": 2, "since": None, "cache_reads": 1000, "base_tokens": 600,
+            "explained": 1.2, "transcripts": "t", "sources": [
+                {"source": "tool: Read", "resident_tokens": 600, "entered_tokens": 300, "share": 0.5}]}
+    assert "over-counts" in context_cost.render(data)
+    assert "over-counts" not in context_cost.render({**data, "explained": 0.97})

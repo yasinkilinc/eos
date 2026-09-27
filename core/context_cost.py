@@ -170,4 +170,9 @@ def render(data: dict, limit: int = 15) -> str:
     for row in data["sources"][:limit]:
         lines.append(f"  {row['source'][:40]:<40}{row['share']:7.1%}{row['resident_tokens'] / 1e6:11.1f}M"
                      f"{row['entered_tokens'] / 1e3:10.0f}k")
+    if data["explained"] is not None and data["explained"] > 1.05:
+        # More than the model actually read: an item's size or residency is wrong
+        # somewhere (a block the harness shrank, a context edit it did not record).
+        lines.append(f"  The table over-counts: it explains {data['explained']:.0%} of the cache reads, so its "
+                     "shares are upper bounds.")
     return "\n".join(line for line in lines if line)

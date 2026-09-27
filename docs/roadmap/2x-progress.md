@@ -44,6 +44,7 @@ deletion; the nexus `mac` checkout and the global `eos` CLI are not touched.
 | L2 | Graph decision: EOS `impact` vs Graphify `affected` on test/subject pairs, three services | NEEDS DECISION | ADR-032 (proposed): 353 pairs, recall@2 EOS 99.4% vs Graphify 83.6% (49 subjects missing from its snapshot), 0.16 ms vs ~1 s per query. Keep EOS's graph; whether the host stops building graph.json is the user's call. Full report: nexus-2x docs/eos-evals/l2-graph-comparison.md |
 | E2c | The task brief says where a failed run failed (`failed at step N` on its LAST RUNS line) | DONE | host: the three config scripts now record events (nexus-2x ed42e16), so deliver-config-sql-script's steps 1, 3, 4 can be placed |
 | E3c | The main session's answer checked at Stop like a subagent's: a missing absolute path or a line past the end stops the turn once (`cite_check`) | DONE | the Stop input carries `last_assistant_message` (checked in the 2.1.283 bundle's schema) |
+| RV4 | Fourth review, of 5a5774b and aa34917 (brief step line, main-session citation check) | IN PROGRESS | background reviewer started 05:16 |
 | M1/M3/M4/M6 | Provenance on every note, generated store, journey fan-out, priors | BLOCKED | M1/M3/M4 migrate the host's notes (~590 files) -- a person decides; M6 needs F3 |
 | M2 | Counters moved only by verified outcomes | NEEDS DECISION | 1.6 labels ok runs verified/claimed from evidence; whether procedure counters move only on verified is a policy call |
 
