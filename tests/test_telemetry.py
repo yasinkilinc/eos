@@ -16,6 +16,7 @@ import sys
 from pathlib import Path
 
 from core import telemetry
+from core.context import budget
 
 REPO = Path(__file__).resolve().parents[1]
 EOS = [sys.executable, str(REPO / "core" / "eos.py")]
@@ -56,7 +57,7 @@ def test_a_call_records_its_command_duration_and_answer_size(tmp_path):
     entries = [entry for entry in telemetry.load(root) if entry["command"] == "rules"]
     assert entries, telemetry.load(root)
     entry = entries[-1]
-    assert entry["chars"] > 0 and entry["tokens"] == entry["chars"] // 4, entry
+    assert entry["chars"] > 0 and entry["tokens"] == budget.tokens(entry["chars"]), entry
     assert entry["ms"] >= 0 and entry["ok"] is True, entry
 
 
@@ -261,7 +262,8 @@ def test_the_token_median_is_a_median_not_a_mean(tmp_path):
     for chars in (4, 8, 400):
         telemetry.record(root, "probe", chars=chars)
     [row] = [r for r in telemetry.summary(root)["commands"] if r["command"] == "probe"]
-    assert row["median_tokens"] == 2, row
+    # At 2.22 chars/token (core/context/budget.py): 4, 8, 400 chars -> 1, 3, 180 tokens, median 3.
+    assert row["median_tokens"] == 3, row
 
 
 def test_a_command_that_fails_by_its_exit_code_is_recorded_as_failed(tmp_path):

@@ -3,8 +3,8 @@
 Three files already hold the halves, keyed by the harness's session id:
 
   telemetry.jsonl       every EOS answer -- the hooks' injections and the CLI/MCP
-                        calls -- with its size (`chars`, and `tokens` at the
-                        telemetry's own chars/4)
+                        calls -- with its size (`chars`, and `tokens` at
+                        core/context/budget.py's rate)
   routing-usage.jsonl   per session, the model's token counts, folded from the
                         harness transcript at Stop (ADR-025)
   sessions.jsonl        per session, the hooks' counters at SessionEnd
@@ -168,7 +168,7 @@ def render(data: dict, limit: int = 20) -> str:
                 + ". Telemetry needs [telemetry] enabled = true; routing-usage is written by the Stop hook.")
     dash = "—"
     lines = [f"{data['totals']['sessions']} session(s) since {data['since'] or 'the start'}, newest first. "
-             "~ marks a derived number (EOS tokens are telemetry's chars/4); model tokens are measured by the harness; "
+             "~ marks a derived number (EOS tokens are chars at 2.22/token); model tokens are measured by the harness; "
              f"{dash} is not measured, not zero.",
              "",
              f"{'session':<14} {'last seen':<17} {'EOS calls':>9} {'EOS tok':>11} {'new tok':>12} "

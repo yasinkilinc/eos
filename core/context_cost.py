@@ -19,7 +19,7 @@ import json
 import re
 from pathlib import Path
 
-CHARS_PER_TOKEN = 2.22
+from core.context.budget import CHARS_PER_TOKEN  # noqa: F401 -- re-exported for importers
 IMAGE_TOKENS = 1600
 _SKIPPED_ATTACHMENTS = {"prompt_snapshot", "environment", "model", "date", "session_context",
                         "command_permissions", "remote_session_change", "thinking_drop"}

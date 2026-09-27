@@ -25,17 +25,15 @@ from pathlib import Path
 
 from core import notes
 from core import work
+from core.context.budget import CHARS_PER_TOKEN  # noqa: F401 -- re-exported for importers
 
-# The task brief's budget, in tokens, and the rate it is converted at. The
-# conversion is conservative on purpose: markdown with identifiers and paths
-# tokenizes denser than prose (measured 2.7-4.4 chars/token on a real note
-# store), and a budget that is exceeded by exactly the dense cases is not one.
+# The task brief's budget, in tokens, at the engine's one measured rate
+# (core/context/budget.py, 2.22 chars/token).
 TASK_BUDGET = 1500
 # The session-start brief is read once per session and re-read by every call
 # after it; measured on a host at ~1,045 tokens before it had a budget.
 BRANCH_BUDGET = 800
 DETAIL_CHARS = 140
-CHARS_PER_TOKEN = 3.0
 
 RUN_LIMIT = 3
 RELATED_LIMIT = 3

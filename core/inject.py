@@ -29,12 +29,9 @@ import hashlib
 import json
 from pathlib import Path
 
+from core.context.budget import CHARS_PER_TOKEN  # noqa: F401 -- re-exported for importers
+
 MAX_TOKENS = 3000
-# Chars per token at the floor of the measured range (2.72 for the densest
-# note, endpoint tables; 3.20-4.44 for a rendered injection): a budget is a
-# concatenation of bodies and is no better than the densest part it carries.
-# At 4 the declared 3,000-token cap delivered 3,736.
-CHARS_PER_TOKEN = 2.7
 MAX_BODY_NOTES = 3
 # The digest tier names notes the touched file does not own; a title list is
 # useful only while it is short enough to read.

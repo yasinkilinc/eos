@@ -64,7 +64,7 @@ def test_eos_cost_says_its_tokens_are_derived(tmp_path):
     assert report["provenance"]["tokens"] == honest.DERIVED
     text = subprocess.run([sys.executable, str(REPO / "core" / "eos.py"), "cost", str(proj)],
                           capture_output=True, text=True).stdout
-    assert "~300" in text        # the brief's median, 1,200 chars at 4 per token
+    assert "~540" in text        # the brief's median, 1,200 chars at 2.22 per token (core/context/budget.py)
 
 
 def test_cost_context_is_covered_and_never_zero_for_unmeasured(tmp_path):
@@ -99,7 +99,7 @@ def test_totals_nobody_measured_are_none(tmp_path):
     proj = _telemetry_project(tmp_path)
     totals = session_cost.report(proj)["totals"]
     assert totals["new_tokens"] is None and totals["read_tokens"] is None
-    assert totals["eos_tokens"] == 400
+    assert totals["eos_tokens"] == 720  # 1,200 + 400 chars at 2.22/token (core/context/budget.py)
 
 
 def test_a_large_derived_count_keeps_its_column():

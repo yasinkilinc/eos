@@ -41,12 +41,10 @@ import time
 from pathlib import Path
 from typing import Any
 
+from core.context import budget
 from core.lib.config_io import ConfigIO
 
 FILENAME = "telemetry.jsonl"
-# Chars per token, the same rough estimate core/bench.py uses and labels as
-# one. A real tokenizer is a dependency this runtime does not take.
-_TOKEN_DIVISOR = 4
 # Enough to see a habit, small enough that nobody has to prune it. At roughly
 # 150 bytes a line this is under 1.5 MB.
 MAX_LINES = 10000
@@ -195,7 +193,7 @@ def record(project_root: str | Path, command: str, flags: list[str] | None = Non
         "session_from": session_from,
         "ms": round(float(milliseconds), 1),
         "chars": int(chars),
-        "tokens": int(chars) // _TOKEN_DIVISOR,
+        "tokens": budget.tokens(chars),
         "rebuilt": bool(rebuilt),
         "ok": bool(ok),
     }
@@ -289,7 +287,7 @@ def summary(project_root: str | Path) -> dict[str, Any]:
         "commands": rows,
         "since": entries[0]["at"] if entries else None,
         "sessions": session_summary(entries),
-        # Tokens are the answer's characters over _TOKEN_DIVISOR: an estimate (L4).
+        # Tokens are the answer's characters at core/context/budget.py's rate: an estimate (L4).
         "provenance": {"calls": honest.MEASURED, "tokens": honest.DERIVED,
                        "commands[].calls": honest.MEASURED, "commands[].tokens": honest.DERIVED,
                        "commands[].median_tokens": honest.DERIVED, "commands[].median_ms": honest.MEASURED,

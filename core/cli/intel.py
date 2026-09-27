@@ -310,8 +310,10 @@ def cmd_cost(args: argparse.Namespace) -> int:
         print("Telemetry is on, and nothing has been recorded yet.")
         return 0
 
+    from core.context import budget as _budget
+
     print(f"{report['calls']} call(s) since {report['since']}, "
-          f"~{report['tokens']} token(s) returned in total (estimated at 4 chars each)")
+          f"~{report['tokens']} token(s) returned in total (estimated at {_budget.CHARS_PER_TOKEN} chars each)")
     from core.lib import honest
 
     print(f"{'command':<16}{'calls':>7}{'median ms':>11}{'median tok':>12}{'rebuilds':>10}{'failed':>8}")

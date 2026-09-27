@@ -24,6 +24,7 @@ from pathlib import Path
 
 from core import index
 from core import inspector
+from core.context.budget import CHARS_PER_TOKEN
 from core.generators.json.evidence import EvidenceGenerator
 from core.generators.json.graph_index import GraphIndexGenerator
 from core.generators.markdown.brain import BrainGenerator
@@ -33,7 +34,6 @@ from core.plugins.registry import PluginRegistry
 from core.scanner import Scanner
 
 _SEED = 0
-_TOKEN_DIVISOR = 4  # chars/4: a rough estimate, not a real tokenizer.
 
 
 @dataclass
@@ -62,11 +62,11 @@ class ProbeMetric:
 
     @property
     def tool_avg_tokens(self) -> float:
-        return self.tool_avg_chars / _TOKEN_DIVISOR
+        return self.tool_avg_chars / CHARS_PER_TOKEN
 
     @property
     def baseline_avg_tokens(self) -> float:
-        return self.baseline_avg_chars / _TOKEN_DIVISOR
+        return self.baseline_avg_chars / CHARS_PER_TOKEN
 
 
 @dataclass
@@ -123,7 +123,7 @@ class BenchReport:
         if self.scan_note:
             lines += [self.scan_note, ""]
         lines += [
-            "Token counts below are an ESTIMATE (characters / 4), not an exact "
+            "Token counts below are an ESTIMATE (characters / 2.22), not an exact "
             "tokenizer count.",
             "",
             "## Objective: find_symbol recall against known symbol locations",
