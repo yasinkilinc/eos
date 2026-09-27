@@ -708,6 +708,12 @@ def _user_prompt(root: Path, hook: Hook, cfg: dict, agent: str | None) -> str:
         return True
 
     offer(task_brief(root))
+    home = workspace.of(root) if not projects else None
+    if home is not None:
+        # A session started in a project of a workspace: the workspace's own
+        # procedures and runs for this task, with commands naming its path.
+        text = task_brief(home)
+        offer(workspace.relocate(text, home.name, os.path.relpath(home, root)) if text else "")
     for project in named:
         path = workspace.where(root, project)
         text = task_brief(project.root)

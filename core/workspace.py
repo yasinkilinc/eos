@@ -197,6 +197,28 @@ def owner(workspace_root: str | Path, projects: list[Project], path: str | Path,
     return best
 
 
+def of(project_root: str | Path) -> Path | None:
+    """The workspace a project belongs to (`[workspace] root` in the project's
+    config, relative to the project), when that workspace's projects.toml
+    lists it. A session can start in the project as well as at the root; what
+    the workspace recorded -- its procedures above all -- must reach it there
+    too."""
+    from core.lib.config_io import ConfigIO
+
+    project = Path(project_root).expanduser().resolve()
+    try:
+        table = ConfigIO.read_toml(project / ".eos" / "config.toml").get("workspace")
+        value = table.get("root") if isinstance(table, dict) else None
+        if not isinstance(value, str) or not value.strip():
+            return None
+        root = (project / value).resolve()
+        if root != project and any(p.root == project for p in load(root)):
+            return root
+    except Exception:  # noqa: BLE001 - a broken link briefs the project alone
+        return None
+    return None
+
+
 def load_quiet(workspace_root: str | Path) -> list[Project]:
     """`load` for a hook: a broken file briefs no project rather than failing a session."""
     try:

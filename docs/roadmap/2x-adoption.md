@@ -30,6 +30,7 @@ The row-by-row ledger with commits is `docs/roadmap/2x-progress.md`.
 | 1.12.1 | Fifth review | `set -e` read as bash reads it: not in conditions or function bodies, `set +o errexit`, subshells |
 | 1.12.2 | Sixth review | a check inside an if/loop/case/function block never counts; deep nesting refused, not a crash |
 | 1.12.3 | Seventh review | block words read at every command start, not only a fragment's first word |
+| 1.28.0 | Project to workspace (C5c) | `[workspace] root` in a project's config, confirmed by the workspace's projects.toml: a session started in the project gets the workspace's task brief (its procedures and runs) beside its own |
 | 1.27.0 | Workspace hooks (C5c) | the root's briefs cover its live and named projects; notes injected on a touch (`post-batch`) and the opt-in note gate (`[hooks] notes`) moved from host scripts into the engine; `worktrees` in projects.toml; `[hooks] start_command`/`prompt_command` for a host's own lines |
 | 1.26.0 | Workspace run routing (C5b) | from a root with `.eos/projects.toml`, a run whose title names one project is recorded in that project's ledger; `--project`, `--here`; events, finish and the Stop close follow it |
 | 1.23.3 | Java nested scopes | a nested Java class named like its outer one no longer swaps end lines with it; same-named containers (`Req.Builder`, `Resp.Builder`) each keep their methods |

@@ -165,7 +165,10 @@ executable launcher under `~/.local/bin/eos`. Override the locations with
   and a prompt's task brief adds every project it names, with commands that
   name the project's path; NOTES ELSEWHERE lists notes a prompt names by issue
   key or a rare word in stores no brief covered. `[hooks] start_command` /
-  `prompt_command` add a host's own lines.
+  `prompt_command` add a host's own lines. A project whose config names its
+  workspace (`[workspace] root`, confirmed by the workspace's projects.toml)
+  gets the workspace's task brief too, so a session started in the project
+  still finds the workspace's procedures.
 - **Notes arrive with the file (`post-batch`):** a touched file's scoped notes
   in full, the rest of its project's as titles, within a session budget
   (`[hooks] inject`); **the note gate** (`[hooks] notes`, opt-in per project)

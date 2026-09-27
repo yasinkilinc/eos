@@ -142,6 +142,23 @@ def test_without_projects_toml_the_brief_is_what_it_was(ws, monkeypatch, capsys)
     assert "order-capture" in with_file
 
 
+def test_a_session_started_in_a_project_gets_its_workspaces_procedure(ws, monkeypatch, capsys):
+    tmp_path, hub = ws
+    service = tmp_path / "services" / "order-capture"
+    assert subprocess.run(EOS + ["procedure", "new", str(hub), "--title", "Deploy a service to env1",
+                                 "--step", "Build it (tool: jenkins)"], capture_output=True).returncode == 0
+    ask = {"session_id": "w1", "cwd": str(service), "prompt": "deploy order-capture to env1"}
+    assert _hook(monkeypatch, capsys, "user-prompt", ask) == ""
+    config = service / ".eos" / "config.toml"
+    config.write_text(config.read_text(encoding="utf-8") + '\n[workspace]\nroot = "../../hub"\n', encoding="utf-8")
+    out = _hook(monkeypatch, capsys, "user-prompt", {**ask, "session_id": "w2"})
+    assert "EOS brief for this task — ../../hub" in out and "PROCEDURE  Deploy a service to env1" in out
+    assert "eos run start ../../hub --title" in out
+    # A link the workspace does not confirm is no link.
+    (hub / ".eos" / "projects.toml").write_text('[[project]]\nroot = "../services/crm-asset"\n', encoding="utf-8")
+    assert _hook(monkeypatch, capsys, "user-prompt", {**ask, "session_id": "w3"}) == ""
+
+
 def test_relocate_rewrites_commands_not_prose():
     text = ('EOS brief — svc @ main\n  Read one: eos note show . "<title>"\n  …2 more: eos work list .\n'
             "  eos run finish . <id> --outcome ok\nA sentence ending with eos.")
