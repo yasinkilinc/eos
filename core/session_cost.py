@@ -29,6 +29,7 @@ HOOK_COUNTERS = ("hints", "outlined", "verify_gates", "verify_after_gate", "suba
 
 def report(project_root: str | Path, *, since: str = "") -> dict:
     from core import telemetry
+    from core.lib import honest
     from core.routing import usage
 
     root = Path(project_root).expanduser().resolve()
@@ -101,6 +102,14 @@ def report(project_root: str | Path, *, since: str = "") -> dict:
             "read_tokens": sum(entry["model"]["read_tokens"] for entry in sessions if entry["model"]),
             "eos_share": round(eos_both / new_both, 4) if new_both else None,
         },
+        "provenance": {"sessions[].eos.calls": honest.MEASURED, "sessions[].eos.chars": honest.MEASURED,
+                       "sessions[].eos.tokens": honest.DERIVED, "sessions[].eos.by_command": honest.DERIVED,
+                       "sessions[].model": honest.MEASURED, "sessions[].subagents": honest.MEASURED,
+                       "sessions[].hooks": honest.MEASURED, "sessions[].eos_share": honest.DERIVED,
+                       "unattributed_calls": honest.MEASURED, "totals.sessions": honest.MEASURED,
+                       "totals.both_measured": honest.MEASURED, "totals.eos_tokens": honest.DERIVED,
+                       "totals.new_tokens": honest.MEASURED, "totals.read_tokens": honest.MEASURED,
+                       "totals.eos_share": honest.DERIVED},
     }
 
 
@@ -153,28 +162,30 @@ def render(data: dict, limit: int = 20) -> str:
                 + ". Telemetry needs [telemetry] enabled = true; routing-usage is written by the Stop hook.")
     dash = "—"
     lines = [f"{data['totals']['sessions']} session(s) since {data['since'] or 'the start'}, newest first. "
-             "EOS tokens are derived (telemetry's chars/4); model tokens are measured by the harness; "
+             "~ marks a derived number (EOS tokens are telemetry's chars/4); model tokens are measured by the harness; "
              f"{dash} is not measured, not zero.",
              "",
              f"{'session':<14} {'last seen':<17} {'EOS calls':>9} {'EOS tok':>9} {'new tok':>10} "
              f"{'read tok':>11} {'EOS share':>9} {'hints':>5} {'gates':>5}"]
     for entry in data["sessions"][:limit]:
         eos, model, hooks = entry["eos"] or {}, entry["model"] or {}, entry["hooks"] or {}
-        share = f"{entry['eos_share'] * 100:.1f}%" if entry["eos_share"] is not None else dash
+        share = _cell(entry["eos_share"], derived=True, spec=".1%")
         lines.append(
             f"{entry['session'][:14]:<14} {(entry['last_at'] or dash)[:16]:<17} "
-            f"{_cell(eos.get('calls')):>9} {_cell(eos.get('tokens')):>9} {_cell(model.get('new_tokens')):>10} "
+            f"{_cell(eos.get('calls')):>9} {_cell(eos.get('tokens'), derived=True):>9} {_cell(model.get('new_tokens')):>10} "
             f"{_cell(model.get('read_tokens')):>11} {share:>9} {_cell(hooks.get('hints')):>5} "
             f"{_cell(hooks.get('verify_gates')):>5}")
     if len(data["sessions"]) > limit:
         lines.append(f"… {len(data['sessions']) - limit} older session(s); --format json lists all of them.")
     totals = data["totals"]
-    overall = f"{totals['eos_share'] * 100:.1f}%" if totals["eos_share"] is not None else dash
+    overall = _cell(totals["eos_share"], derived=True, spec=".1%")
     lines += ["", f"EOS share of new context over the {totals['both_measured']} session(s) both sides measured: {overall}."]
     if data["unattributed_calls"]:
         lines.append(f"{data['unattributed_calls']} EOS call(s) carried no session id and are in no row.")
     return "\n".join(lines)
 
 
-def _cell(value) -> str:
-    return "—" if value is None else f"{value:,}"
+def _cell(value, *, derived: bool = False, spec: str = ",") -> str:
+    from core.lib import honest
+
+    return honest.show(value, honest.DERIVED if derived else honest.MEASURED, spec=spec)

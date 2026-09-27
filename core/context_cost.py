@@ -151,25 +151,36 @@ def report(project_root: str | Path, *, transcripts: str | Path | None = None, s
             entered[source] += tokens
     explained = sum(resident.values()) + base_total
     rows = [{"source": source, "resident_tokens": round(value), "entered_tokens": round(entered[source]),
-             "share": round(value / explained, 4) if explained else 0.0}
+             "share": round(value / explained, 4) if explained else None}
             for source, value in resident.most_common()]
+    from core.lib import honest
+
     return {"transcripts": str(folder), "since": since or None, "sessions": sessions, "calls": calls_total,
             "cache_reads": reads_total, "base_tokens": base_total,
-            "explained": round(explained / reads_total, 3) if reads_total else None, "sources": rows}
+            "explained": round(explained / reads_total, 3) if reads_total else None, "sources": rows,
+            # Residency is attributed from characters at CHARS_PER_TOKEN; the cache
+            # reads are the harness's own count (L4).
+            "provenance": {"sessions": honest.MEASURED, "calls": honest.MEASURED,
+                           "cache_reads": honest.MEASURED, "base_tokens": honest.DERIVED,
+                           "explained": honest.DERIVED, "sources[].resident_tokens": honest.DERIVED,
+                           "sources[].entered_tokens": honest.DERIVED, "sources[].share": honest.DERIVED}}
 
 
 def render(data: dict, limit: int = 15) -> str:
     if not data["sessions"]:
         return f"No main sessions with two or more model calls in {data['transcripts']}."
     lines = [f"{data['sessions']} session(s), {data['calls']} model calls since {data['since'] or 'the start'}; "
-             f"cache reads {data['cache_reads'] / 1e6:.1f}M tokens, this table explains "
-             f"{data['explained']:.0%} of them" if data["explained"] is not None else "",
+             f"cache reads {data['cache_reads'] / 1e6:.1f}M tokens (measured), this table explains "
+             f"~{data['explained']:.0%} of them; ~ marks what is estimated from characters"
+             if data["explained"] is not None else "",
              f"  {'source':<40}{'share':>7}{'resident':>12}{'entered':>11}"]
     base_share = data["base_tokens"] / (data["base_tokens"] + sum(r["resident_tokens"] for r in data["sources"]) or 1)
-    lines.append(f"  {'first-call context (system, tools)':<40}{base_share:7.1%}{data['base_tokens'] / 1e6:11.1f}M")
+    lines.append(f"  {'first-call context (system, tools)':<40}{'~' + format(base_share, '.1%'):>7}"
+                 f"{'~' + format(data['base_tokens'] / 1e6, '.1f'):>11}M")
     for row in data["sources"][:limit]:
-        lines.append(f"  {row['source'][:40]:<40}{row['share']:7.1%}{row['resident_tokens'] / 1e6:11.1f}M"
-                     f"{row['entered_tokens'] / 1e3:10.0f}k")
+        share = "—" if row["share"] is None else "~" + format(row["share"], ".1%")
+        lines.append(f"  {row['source'][:40]:<40}{share:>7}{'~' + format(row['resident_tokens'] / 1e6, '.1f'):>11}M"
+                     f"{'~' + format(row['entered_tokens'] / 1e3, '.0f'):>10}k")
     if data["explained"] is not None and data["explained"] > 1.05:
         # More than the model actually read: an item's size or residency is wrong
         # somewhere (a block the harness shrank, a context edit it did not record).

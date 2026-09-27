@@ -312,10 +312,12 @@ def cmd_cost(args: argparse.Namespace) -> int:
 
     print(f"{report['calls']} call(s) since {report['since']}, "
           f"~{report['tokens']} token(s) returned in total (estimated at 4 chars each)")
+    from core.lib import honest
+
     print(f"{'command':<16}{'calls':>7}{'median ms':>11}{'median tok':>12}{'rebuilds':>10}{'failed':>8}")
     for row in report["commands"]:
         print(f"{row['command']:<16}{row['calls']:>7}{row['median_ms']:>11}"
-              f"{row['median_tokens']:>12}{row['rebuilt']:>10}{row['failed']:>8}")
+              f"{honest.show(row['median_tokens'], honest.DERIVED):>12}{row['rebuilt']:>10}{row['failed']:>8}")
 
     # Calls are what this file holds; sessions are what the question was
     # always about. A tool called twelve times by one session and never by

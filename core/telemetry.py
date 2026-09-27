@@ -281,12 +281,20 @@ def summary(project_root: str | Path) -> dict[str, Any]:
         bucket["median_tokens"] = tokens[len(tokens) // 2] if tokens else 0
         rows.append(bucket)
     rows.sort(key=lambda row: (-row["tokens"], row["command"]))
+    from core.lib import honest
+
     return {
         "calls": len(entries),
         "tokens": sum(row["tokens"] for row in rows),
         "commands": rows,
         "since": entries[0]["at"] if entries else None,
         "sessions": session_summary(entries),
+        # Tokens are the answer's characters over _TOKEN_DIVISOR: an estimate (L4).
+        "provenance": {"calls": honest.MEASURED, "tokens": honest.DERIVED,
+                       "commands[].calls": honest.MEASURED, "commands[].tokens": honest.DERIVED,
+                       "commands[].median_tokens": honest.DERIVED, "commands[].median_ms": honest.MEASURED,
+                       "commands[].rebuilt": honest.MEASURED, "commands[].failed": honest.MEASURED,
+                       "sessions": honest.MEASURED},
     }
 
 
