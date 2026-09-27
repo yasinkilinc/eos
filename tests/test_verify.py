@@ -238,3 +238,22 @@ def test_errexit_does_not_reach_conditions_function_bodies_or_subshells(tmp_path
 def test_a_quoted_check_is_not_an_attempt(tmp_path):
     scopes = verify.load(_project(tmp_path, SECOND))
     assert verify.attempted(scopes, 'echo "(make test)"; true', ["unit:billing"]) == []
+
+
+# --- sixth review findings ---------------------------------------------------------------
+
+
+def test_errexit_does_not_count_a_check_inside_a_block_that_may_not_run(tmp_path):
+    for n, command in enumerate(["set -e\nif false; then\n  make test\nfi",
+                                 "set -e\nfor x in ; do\n  make test\ndone",
+                                 "set -e\nwhile false; do\n  make test\ndone",
+                                 "set -e\nf() {\n  make test\n}\n",
+                                 "set -e\ncase $x in\n a) make test;;\nesac",
+                                 "if false; then\nmake test\nfi"]):
+        assert not _cleared(tmp_path / str(n), command), command
+    assert _cleared(tmp_path / "after", "set -e\nif true; then echo x; fi\nmake test\necho done")
+    assert _cleared(tmp_path / "quoted", "python3 -c 'f()'; make test")
+
+
+def test_deep_nesting_is_refused_not_a_crash(tmp_path):
+    assert verify._runs("(" * 600 + "make test" + ")" * 600, r"make\s+test\b") is False

@@ -34,7 +34,10 @@ section as text only.
   `if`/`while` condition, after `!`, in a function body or `{ }` group, and a
   subshell's `set -e` stays in the subshell (`set +e`/`set +o errexit` turn it off);
   a subshell `( … )` is read as the check it runs; a shell named by its path
-  (`/bin/bash`) passes through like `bash`.
+  (`/bin/bash`) passes through like `bash`. A check inside an `if`/loop/`case`/
+  function/`{ }` block never counts, even where it would run (`if true; then make
+  test; fi`): the rule refuses what it cannot be sure of. Nesting past 20 levels is
+  refused, not followed.
 - **Said at once, not only at Stop.** Replaying the host's 61 sessions since
   2026-09-15 through the rule: 36 of the 37 that changed a scoped file would be
   stopped, for 47 unchecked instances -- 24 of them had run their check, piped into

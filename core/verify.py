@@ -33,6 +33,10 @@ _NO_PIPEFAIL = re.compile(r"\s*set\b[^;\n]*\s\+o\s+pipefail\b")
 # conditions, loop and case heads, `!`, a function body or a `{ }` group.
 _COMPOUND = re.compile(r"\s*(?:if|elif|while|until|for|case|select|do|then|else|function|!)(?:\s|$)"
                        r"|.*\w\s*\(\)|(?:.*\s)?\{(?:\s|$)")
+# A block's opening and closing words: what runs between them may not run at all.
+_OPENS = re.compile(r"\s*(?:if|while|until|for|case|select)(?:\s|$)|.*\w\s*\(\)|(?:.*\s)?\{(?:\s|$)|\s*\{$")
+_CLOSES = re.compile(r"\s*(?:fi|done|esac|\})(?:\s|;|$)")
+MAX_NESTING = 20
 _SUBSHELL = re.compile(r"\s*\((?P<inner>.*)\)\s*$", re.S)
 
 
@@ -285,14 +289,14 @@ def _unquoted(command: str) -> str:
     return re.sub(r"'[^']*'|\"(?:\\.|[^\"\\])*\"", "\"\"", command)
 
 
-def _stage_hit(segment: str, regex: str, pipefail: bool) -> int | None:
+def _stage_hit(segment: str, regex: str, pipefail: bool, level: int = 0) -> int | None:
     """Where the check is among the segment's pipeline stages, when its status
     reaches the segment's: the last stage, or any under pipefail."""
     stages = _split(segment, "|")
     for n, stage in enumerate(stages):
         if (re.match(_LEAD + regex, stage)
-                or ((inner := _DASH_C.match(stage)) and _runs(inner.group("inner"), regex))
-                or ((inner := _SUBSHELL.match(stage)) and _runs(inner.group("inner"), regex))):
+                or ((inner := _DASH_C.match(stage)) and _runs(inner.group("inner"), regex, level + 1))
+                or ((inner := _SUBSHELL.match(stage)) and _runs(inner.group("inner"), regex, level + 1))):
             return n if n == len(stages) - 1 or pipefail else None
     return None
 
@@ -302,7 +306,7 @@ def _safe(command: str) -> bool:
     return "||" not in bare and not re.search(r"(?<![&>|<])&(?![&>])", bare)
 
 
-def _runs(command: str, regex: str) -> bool:
+def _runs(command: str, regex: str, level: int = 0) -> bool:
     """Whether the command exits 0 only if the check passed.
 
     In the last top-level command: no `||` or background `&`; after the check
@@ -310,17 +314,31 @@ def _runs(command: str, regex: str) -> bool:
     also any top-level command whose last `&&` segment is the check: a failure
     there ends the shell (a failing `&&` head does not). A pipe after the check
     counts only under `set -o pipefail`."""
+    if level > MAX_NESTING:
+        return False
     commands = _commands(_masked(command))
     errexit = pipefail = False
+    block = 0
     for index, current in enumerate(commands):
         last = index == len(commands) - 1
+        # Inside an if/loop/case/function/group -- or opening one -- a check may
+        # never run, so it never counts (sixth review); a block's close ends it.
+        bare = _unquoted(current)
+        if _CLOSES.match(bare):
+            block = max(block - 1, 0)
+            continue
+        if _OPENS.match(bare):
+            block += 1
+            continue
+        if block:
+            continue
         if _safe(current) and not _COMPOUND.match(current):
             segments = _split(current, "&&")
             local_pipefail = pipefail
             for position, segment in enumerate(segments):
                 if _PIPEFAIL.match(segment):
                     local_pipefail = True
-                if _stage_hit(segment, regex, local_pipefail) is None:
+                if _stage_hit(segment, regex, local_pipefail, level) is None:
                     continue
                 after = [s.split(maxsplit=1)[0] if s.split() else "" for s in segments[position + 1:]]
                 if last and all(word in _HARMLESS for word in after):

@@ -51,6 +51,8 @@ executable launcher under `~/.local/bin/eos`. Override the locations with
 - **`eos cost --context` says when it over-counts** the cache reads.
 - **1.12.1:** a fifth review of the errexit rule: conditions, function bodies,
   `set +o errexit` and subshells are read as bash reads them.
+- **1.12.2:** a sixth review: a check inside an if/loop/case/function block never
+  counts; deep nesting is refused instead of crashing.
 
 ## What changed in 1.11
 
