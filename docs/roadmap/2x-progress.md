@@ -67,3 +67,6 @@ deletion; the nexus `mac` checkout and the global `eos` CLI are not touched.
 - Install checked for the morning's adoption without touching the global CLI: `bin/install.sh` from the
   nexus-2x subtree with EOS_DATA_DIR/EOS_BIN_DIR in a scratch prefix installs 1.10.2; `eos cite` and
   `eos procedure lint` answer from it. The global `eos` stays 1.5.1.
+- Live on 1.12.0: an edit, then the check piped into `tail` -> the PostToolUse hint named the check and
+  the form that counts; the model re-ran it on its own; the turn ended with no Stop gate
+  (verify_gates 0, hinted verify-form). $0.16.
