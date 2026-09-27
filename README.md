@@ -39,6 +39,14 @@ canonical `core/` runtime to `~/.local/share/eos/<version>/` and installs an
 executable launcher under `~/.local/bin/eos`. Override the locations with
 `EOS_INSTALL_PREFIX`, `EOS_DATA_DIR`, `EOS_BIN_DIR`, or `EOS_PYTHON`.
 
+## What changed in 1.11
+
+- **The main session's references are checked too:** at Stop, a missing
+  absolute path or a line past the end in the answer stops the turn once, as a
+  subagent's already did (`[hooks] cite_check`).
+- **The task brief says where a failed run failed:** `failed at step N` on its
+  LAST RUNS line, from the procedure's typed steps.
+
 ## What changed in 1.10
 
 - **Typed procedure steps (ADR-031):** a step may mark `(in: a)`, `(out: b)`,

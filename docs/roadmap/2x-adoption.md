@@ -1,8 +1,8 @@
 # EOS 2.x branch — what landed overnight and how to adopt it
 
-Branch `eos-2x` (from `main` 1.5.1), released on the branch as 1.6.0 → 1.10.2.
+Branch `eos-2x` (from `main` 1.5.1), released on the branch as 1.6.0 → 1.11.0.
 Every step: tests first, the full suite green before the commit
-(1,123 passed, 1 skipped at 1.10.0), `tools/check-clean.sh` clean. `main` untouched.
+(1,130 passed, 1 skipped at 1.11.0), `tools/check-clean.sh` clean. `main` untouched.
 The row-by-row ledger with commits is `docs/roadmap/2x-progress.md`.
 
 ## What changed, by the question it answers
@@ -24,16 +24,19 @@ The row-by-row ledger with commits is `docs/roadmap/2x-progress.md`.
 | 1.9.1 | Branch review | a fresh reviewer found eleven defects (verify false clears, citation false blocks, a lock takeover race, placeholder mapping, cross-ledger finish, hook robustness, lint, brief rebuilds); each fixed with a test; locks are now the kernel's `flock` |
 | 1.9.2 | Second review | seven findings in those fixes: the verify gate parses the command as a shell would (quotes, comments, heredocs, `&& echo PASS`); placeholder bounds; lock fallback on a read-only state dir; finish prefers the caller's ledger; container paths |
 | 1.10.0 | Typed steps (E2, ADR-031), `eos cite` (E3 depth 1) | `run show` names the step a failed run failed at; an answer's quotes are checked against the lines they cite |
+| 1.10.1-2 | Fixes | a retried step is not the failed step; a third review: `$(...)` checks, `bash -c`, finish's root walk |
+| 1.11.0 | Main-session citation check, brief step line | the answer the user reads is checked at Stop like a subagent's; the brief says where the last failure stopped |
 
-Live-verified in headless sessions: the verify Stop gate (re-run on 1.9.1: gate
-once, the check re-run so it counts, `verify_after_gate: 1`), the subagent handoff,
-the citation check (with `--plugin-dir`).
+Live-verified in headless sessions: the verify Stop gate (1.9.1: gate once, the
+check re-run so it counts; 1.10.2: `&& echo VERIFIED` counts and no gate fires),
+the subagent handoff, the subagent citation check, and on 1.11.0 the main
+session's citation check (stopped once, the model read the file and corrected it).
 
 ## Adopting it
 
 1. Review `eos-2x` against `main` (a PR on GitHub from `eos-2x`), then merge.
 2. In nexus: `git subtree pull --prefix tools/eos eos main --squash`, then
-   `bash automation/install-eos-cli.sh` (the global CLI moves to 1.10.2).
+   `bash automation/install-eos-cli.sh` (the global CLI moves to 1.11.0).
 3. The nexus side of this work is on the local branch `eos-2x` in the worktree
    `../nexus-2x` (not pushed: the VPN was off). Its commits: the `verify.toml`
    scopes and their test, the golden-alternates proposal, six read-only scripts
