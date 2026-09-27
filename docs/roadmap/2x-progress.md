@@ -60,3 +60,6 @@ deletion; the nexus `mac` checkout and the global `eos` CLI are not touched.
   model answered "not verified" (verify_gates 1); the same edit followed by
   `bash automation/tests/test-routing-corpus.sh && echo VERIFIED` -- refused by 1.9.1's rule -- counted,
   and the turn ended with no gate (verify_gates 0). $0.27 for both.
+- Install checked for the morning's adoption without touching the global CLI: `bin/install.sh` from the
+  nexus-2x subtree with EOS_DATA_DIR/EOS_BIN_DIR in a scratch prefix installs 1.10.2; `eos cite` and
+  `eos procedure lint` answer from it. The global `eos` stays 1.5.1.
