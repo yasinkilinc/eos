@@ -143,6 +143,10 @@ exit code kept (no `| tail` hiding it); push after every commit; a fresh-agent r
 after every two or three items, its findings fixed with a test. Decide, do not ask:
 the most conservative option, written under "Decided without asking" with the reason.
 Stop only for deletion, env2/prod, credentials. Stop at 08:30 and write the morning report.
+Usage limit (user, 21:25): before each step read `~/.claude/usage/rate-limits.json` (written
+by the status line); at `seven_day.used_percentage` >= 50 stop development, write the
+morning report and end the loop. A reading older than an hour or missing is reported,
+not guessed.
 
 Defaults the user accepted (21:10): synonyms engine-only and off, no host list;
 L2 status quo; M1 forward-only, no migration of existing notes; C1 estimator = the
