@@ -135,6 +135,8 @@ def test_run_show_and_procedure_show_name_the_step_that_failed(tmp_path, monkeyp
          "the push was refused; read the hook's regex first")
     shown = _run(root, "run", "show", str(root), run)
     assert "failed at step 2: Push (tool: git)" in shown
+    brief = _run(root, "brief", str(root), "--task", "Ship it")
+    assert "failed at step 2" in brief
     procedure = _run(root, "procedure", "show", str(root), slug)
     assert " 1. ok      Build (tool: mvn)" in procedure
     assert " 2. failed  Push (tool: git)" in procedure

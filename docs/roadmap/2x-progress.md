@@ -42,6 +42,7 @@ deletion; the nexus `mac` checkout and the global `eos` CLI are not touched.
 | E6b | `graph.json` split / paginated MCP `get_graph` | ALREADY THERE | `get_graph` was removed from the MCP roster (ADR-026); `eos graph --output` exports |
 | RV3 | Third review, of caf6a71..7e7acb4 (second-review fixes, typed steps, eos cite) | DONE | 3 findings (05:06), each fixed with a test, release 1.10.2: a check inside `$(...)`/backticks counted (`echo $(false; pytest)`); `bash -c "<check>"` never counted; `finish` crashed on an unrelated ancestor's broken config. Nothing found in the lock fallback, placeholder bounds, misquoted or steps |
 | L2 | Graph decision: EOS `impact` vs Graphify `affected` on test/subject pairs, three services | IN PROGRESS | background measurement started 05:03 (read-only, index copies) |
+| E2c | The task brief says where a failed run failed (`failed at step N` on its LAST RUNS line) | DONE | host: the three config scripts now record events (nexus-2x ed42e16), so deliver-config-sql-script's steps 1, 3, 4 can be placed |
 | M1/M3/M4/M6 | Provenance on every note, generated store, journey fan-out, priors | BLOCKED | M1/M3/M4 migrate the host's notes (~590 files) -- a person decides; M6 needs F3 |
 | M2 | Counters moved only by verified outcomes | NEEDS DECISION | 1.6 labels ok runs verified/claimed from evidence; whether procedure counters move only on verified is a policy call |
 

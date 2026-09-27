@@ -386,7 +386,8 @@ def _clip(text: str, limit: int = STEP_CHARS) -> str:
     return text if len(text) <= limit else text[: limit - 1] + "…"
 
 
-def _run_line(record) -> str:
+def _run_line(record, parsed=None) -> str:
+    """One run; `parsed` (its procedure's typed steps) adds where a failed run failed."""
     from core.executions import Record  # noqa: F401 - the type this reads
     tools = []
     for e in record.events:
@@ -396,6 +397,12 @@ def _run_line(record) -> str:
     parts = [f"  {when}  {(record.outcome or 'open'):<9}", record.target or "-"]
     if tools:
         parts.append(f"{len(record.events)} event(s): {', '.join(tools[:4])}")
+    if record.outcome == "failed" and parsed:
+        from core import steps
+
+        number = steps.failed_step(parsed, record.events)
+        if number:
+            parts.append(f"failed at step {number}")
     if record.outcome == "failed" and record.lesson:
         parts.append(f"lesson: {_clip(record.lesson.splitlines()[0], 100)}")
     parts.append(record.id)
@@ -454,7 +461,10 @@ def _task_sections(root: Path, task: str) -> tuple[list[list[str]], bool]:
     if runs or catalogued:
         found = True
         total = len(pool)
-        block = [f"LAST RUNS ({len(runs)} of {total})"] + [_run_line(r) for r in runs]
+        from core import steps
+
+        parsed = steps.parse(procedure.body) if procedure is not None else None
+        block = [f"LAST RUNS ({len(runs)} of {total})"] + [_run_line(r, parsed) for r in runs]
         # What the host's own catalogue recorded for a scenario the task names
         # -- a second history, indexed through the procedures extension, that
         # an audit found the brief never read.

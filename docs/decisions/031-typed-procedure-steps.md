@@ -36,5 +36,6 @@ produced, or that two steps sent failures back and forth to each other.
 - Two steps naming the same tool are told apart only by order.
 - A step that failed and passed again later is not the failed step; `run show`
   names one only for a failed run (an ok run printed one on the host, 1.10.1).
+- The task brief's LAST RUNS line of a failed run says `failed at step N`.
 - Not done: never-scheduled steps (needs a schedule), typed outputs checked
-  against what a run produced, per-step outcomes in the brief.
+  against what a run produced.
