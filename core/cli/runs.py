@@ -119,6 +119,21 @@ def cmd_run_list(args: argparse.Namespace) -> int:
     return 0
 
 
+def _failed_step(root, record) -> str | None:
+    """`<n>: <step as written>` for a run of a procedure whose steps name tools."""
+    if not record.procedure:
+        return None
+    from core import notes, steps
+
+    try:
+        note = notes.find_procedure(root, record.procedure)
+    except ValueError:
+        return None
+    parsed = steps.parse(note.body)
+    number = steps.failed_step(parsed, record.events)
+    return f"{number}: {parsed[number - 1].raw}" if number else None
+
+
 def cmd_run_show(args: argparse.Namespace) -> int:
     from core import executions
 
@@ -149,6 +164,9 @@ def cmd_run_show(args: argparse.Namespace) -> int:
         sources[e.source or "wrapper/cli"] = sources.get(e.source or "wrapper/cli", 0) + 1
     by_source = ", ".join(f"{name} {count}" for name, count in sorted(sources.items()))
     print(f"  events    {len(record.events)}" + (f"  ({by_source})" if record.events else ""))
+    failed = _failed_step(args.path, record)
+    if failed:
+        print(f"  failed at step {failed}")
     for e in record.events:
         tail = " ".join(part for part in (
             f"exit={e.exit_code}" if e.exit_code is not None else "",

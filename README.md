@@ -732,7 +732,9 @@ eos run show . <id> | eos run tools . | eos run diff . <id>
   interpreter; capture never fails the command around it.
 - **Procedures** (ADR-023) — notes of `kind: procedure` with `## Steps`. Their
   run counters and `last_verified` move only when a run naming them finishes;
-  `eos procedure audit` recomputes them from the ledger.
+  `eos procedure audit` recomputes them from the ledger. A step may mark
+  `(tool: X)`, `(in: a)`, `(out: b)`, `(on_failure: N)` (ADR-031): `procedure
+  lint` checks them, and `run show` names the step a failed run failed at.
 - **Lessons and decisions** (ADR-024) — note kinds with required sections. A
   failed run must leave a lesson; the same lesson again reads as recurring.
   Confidence (`failing`, `unverified`, `fresh`, `aging`, `stale`) is derived

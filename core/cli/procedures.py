@@ -36,6 +36,13 @@ def cmd_procedure_list(args: argparse.Namespace) -> int:
     return 0
 
 
+def _last_run_steps(note, runs) -> list[dict]:
+    from core import steps
+
+    finished = [r for r in runs if r.outcome and r.events]
+    return steps.attribute(steps.parse(note.body), finished[-1].events) if finished else []
+
+
 def cmd_procedure_show(args: argparse.Namespace) -> int:
     from core import executions
 
@@ -48,6 +55,7 @@ def cmd_procedure_show(args: argparse.Namespace) -> int:
     if args.format == "json":
         print(json.dumps({"procedure": note.procedure, "title": note.title,
                           "steps": notes.procedure_steps(note),
+                          "last_run_steps": _last_run_steps(note, runs),
                           "prerequisites": notes.procedure_prerequisites(note),
                           "success": notes.procedure_success(note),
                           "known_failures": notes.procedure_known_failures(note),
@@ -64,9 +72,16 @@ def cmd_procedure_show(args: argparse.Namespace) -> int:
                          ("success", notes.procedure_success(note))):
         for i, item in enumerate(items):
             print(f"  {label if i == 0 else '':<13} {item}")
-    print("  steps")
-    for number, step in enumerate(notes.procedure_steps(note), start=1):
-        print(f"    {number:>2}. {step}")
+    from core import steps as typed
+
+    parsed = typed.parse(note.body)
+    finished = [r for r in runs if r.outcome and r.events]
+    rows = typed.attribute(parsed, finished[-1].events) if finished and any(s.tool for s in parsed) else []
+    print("  steps" + (f"          (last run {finished[-1].id})" if rows else ""))
+    for step in parsed:
+        status = rows[step.number - 1]["status"] if rows else ""
+        status = "-" if status == "not seen" else status
+        print(f"    {step.number:>2}. {status:<7} {step.raw}" if rows else f"    {step.number:>2}. {step.raw}")
     avoid = notes._items(notes.section_in(note.body, "When not to use this"))
     for i, item in enumerate(avoid):
         print(f"  {'not for' if i == 0 else '':<13} {item}")

@@ -10,7 +10,8 @@ reported done without a check. For each step's `(tool: X)`:
                   the brief names it and a raw bypass gets a hint
   unknown tool    none of the above
 
-and a procedure without a `## Success` section cannot be verified.
+and a procedure without a `## Success` section cannot be verified. The typed
+marks' own checks (an input nothing provides, on_failure loops) are `core.steps`.
 """
 from __future__ import annotations
 
@@ -35,7 +36,7 @@ def _script(root: Path, tool: str) -> Path | None:
 
 
 def lint(project_root: str | Path) -> list[dict]:
-    from core import capabilities, executions, notes
+    from core import capabilities, executions, notes, steps
 
     root = Path(project_root).expanduser().resolve()
     try:
@@ -62,6 +63,7 @@ def lint(project_root: str | Path) -> list[dict]:
                                 "in capabilities.toml")
             else:
                 problems.append(f"(tool: {tool}) -- unknown tool: no capability, program or script by that name")
+        problems += steps.lint(steps.parse(note.body), note.body)
         if not notes.procedure_success(note):
             problems.append("no Success section: finishing it cannot be checked")
         reports.append({"procedure": note.procedure, "title": note.title, "path": str(note.path),
