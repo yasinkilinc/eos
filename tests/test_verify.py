@@ -174,3 +174,18 @@ def test_a_file_matched_without_a_placeholder_can_still_clear(tmp_path):
     key = verify.instance(scopes, root, "lib/shared.py")
     assert key == "mixed" and verify.cleared(scopes, "make check-core", [key]) == [key]
     assert verify.cleared(scopes, "make check-", [key]) == []
+
+
+# --- third review findings ---------------------------------------------------------------
+
+
+def test_a_check_inside_a_command_substitution_does_not_count(tmp_path):
+    for n, command in enumerate(["echo start; echo $(false; make test)", "echo `false; make test`",
+                                 "echo $(true && make test)", "echo \"$(make test)\" | cat"]):
+        assert not _cleared(tmp_path / str(n), command), command
+
+
+def test_a_check_run_through_a_shell_dash_c_counts(tmp_path):
+    for n, command in enumerate(['bash -c "make test"', "sh -c 'make test'", 'bash -lc "cd x && make test"']):
+        assert _cleared(tmp_path / str(n), command), command
+    assert not _cleared(tmp_path / "x", 'bash -c "make test || true"')

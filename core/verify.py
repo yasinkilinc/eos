@@ -227,6 +227,44 @@ def _split(command: str, separator: str) -> list[str]:
     return [part.strip() for part in parts]
 
 
+def _masked(command: str) -> str:
+    """Every `$(...)` and backtick substitution replaced by `$_`: a check inside
+    one never decides the command's exit status (`echo $(false; make test)`
+    exits 0), and its separators are not the command's (third review)."""
+    out, quote, index = [], "", 0
+    while index < len(command):
+        char = command[index]
+        if quote == "'":
+            quote = "" if char == "'" else quote
+        elif char == "\\" and index + 1 < len(command):
+            out.append(command[index:index + 2])
+            index += 2
+            continue
+        elif char == "'" and not quote:
+            quote = "'"
+        elif char == '"':
+            quote = "" if quote == '"' else '"'
+        elif command.startswith("$(", index) or char == "`":
+            depth, index = 1, index + (2 if char == "$" else 1)
+            while index < len(command) and depth:
+                if char == "`":
+                    depth = 0 if command[index] == "`" else 1
+                elif command.startswith("$(", index):
+                    depth += 1
+                    index += 1
+                elif command[index] == ")":
+                    depth -= 1
+                index += 1
+            out.append("$_")
+            continue
+        out.append(char)
+        index += 1
+    return "".join(out)
+
+
+_DASH_C = re.compile(r"(?:\w+=\S*\s+)*(?:bash|sh|zsh)\s+(?:-\w+\s+)*-\w*c\s+(['\"])(?P<inner>.*)\1\s*$", re.S)
+
+
 def _unquoted(command: str) -> str:
     return re.sub(r"'[^']*'|\"(?:\\.|[^\"\\])*\"", "\"\"", command)
 
@@ -236,7 +274,7 @@ def _runs(command: str, regex: str) -> bool:
     last top-level command, which has no `||` and runs nothing in the background;
     after the check, `&&` runs only harmless commands (`echo PASS`); a pipe after
     the check counts only under an earlier `set -o pipefail`."""
-    commands = _commands(command)
+    commands = _commands(_masked(command))
     if not commands:
         return False
     last = commands[-1]
@@ -249,7 +287,8 @@ def _runs(command: str, regex: str) -> bool:
         if _PIPEFAIL.match(segment):
             pipefail = True
         stages = _split(segment, "|")
-        hit = next((n for n, stage in enumerate(stages) if re.match(_LEAD + regex, stage)), None)
+        hit = next((n for n, stage in enumerate(stages) if re.match(_LEAD + regex, stage)
+                    or ((inner := _DASH_C.match(stage)) and _runs(inner.group("inner"), regex))), None)
         if hit is None:
             continue
         after = [s.split(maxsplit=1)[0] if s.split() else "" for s in segments[position + 1:]]

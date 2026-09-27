@@ -333,8 +333,11 @@ def _root_of(ledger: Path) -> Path | None:
     """The project whose ledger this is, so its lessons, procedure counters and
     git head are the ones written -- not the caller's."""
     for candidate in Path(ledger).resolve().parents:
-        if path_for(candidate).resolve() == Path(ledger).resolve():
-            return candidate
+        try:
+            if path_for(candidate).resolve() == Path(ledger).resolve():
+                return candidate
+        except Exception:  # noqa: BLE001 - an unrelated ancestor's broken config is not a match
+            continue
     return None
 
 

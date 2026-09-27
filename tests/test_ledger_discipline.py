@@ -88,3 +88,15 @@ def test_finish_prefers_the_callers_ledger_when_it_holds_the_run(tmp_path, monke
     two_ledger.write_text(executions.path_for(one).read_text(), encoding="utf-8")
     executions.finish(two, run.id, outcome="ok", session="s1")
     assert executions.load(two)[0].outcome == "ok" and executions.load(one)[0].outcome is None
+
+
+def test_finish_survives_an_unreadable_config_above_the_project(tmp_path, monkeypatch):
+    monkeypatch.setenv("EOS_STATE_DIR", str(tmp_path / "state"))
+    (tmp_path / ".eos").mkdir()
+    (tmp_path / ".eos" / "config.toml").write_text("not [valid toml", encoding="utf-8")
+    project = tmp_path / "project"
+    (project / ".eos").mkdir(parents=True)
+    shared = tmp_path / "shared" / "notes"
+    (project / ".eos" / "config.toml").write_text(f'[knowledge]\ndir = "{shared}"\n', encoding="utf-8")
+    run = executions.start(project, "Redirected notes", session="s1")
+    assert executions.finish(project, run.id, outcome="ok", session="s1").outcome == "ok"

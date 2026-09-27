@@ -27,7 +27,9 @@ section as text only.
   `time`, `timeout N` and variable assignments allowed) in the last top-level command
   (split at unquoted `;` and newlines, comments and heredoc bodies removed), with no
   `||` or background `&` in it; after the check `&&` may run only `echo`, `printf`,
-  `true`, `:`; a piped check counts only under an earlier `set -o pipefail`. A `grep`
+  `true`, `:`; a piped check counts only under an earlier `set -o pipefail`. A
+  check inside `$(...)` or backticks never counts (`echo $(false; make test)`
+  exits 0); `bash -c "<check>"` is read as the check it runs. A `grep`
   or `echo` that mentions the check does not count. A placeholder is bounded only
   where nothing in the pattern follows it (`test-{name}\.sh` bounds itself).
 - **The turn stops once.** The plugin's Stop handler blocks the main session when an

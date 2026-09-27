@@ -51,6 +51,9 @@ executable launcher under `~/.local/bin/eos`. Override the locations with
   it cites. Exit 1 when it finds one.
 - **1.10.1:** `run show` names a failed step only for a failed run, and only a
   step whose last event failed (an ok run with a retried call printed one).
+- **1.10.2:** a third review: a check inside `$(...)` no longer counts,
+  `bash -c "<check>"` does, and `run finish` survives a broken config above
+  the project.
 
 ## What changed in 1.9
 
