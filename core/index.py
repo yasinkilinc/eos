@@ -408,6 +408,19 @@ class BuildContext:
         _add_search(self, source, ref, title, body)
 
 
+def _quick_check(path: Path) -> str:
+    """SQLite's own structural check of a finished database: "ok", or what it found."""
+    try:
+        conn = sqlite3.connect(path)
+        try:
+            rows = conn.execute("PRAGMA quick_check").fetchall()
+        finally:
+            conn.close()
+    except sqlite3.Error as exc:
+        return str(exc)
+    return "; ".join(str(row[0]) for row in rows[:3]) or "no answer"
+
+
 def db_path(project_root: str | Path) -> Path:
     return Path(project_root).expanduser().resolve() / ".eos" / "data" / "eos.db"
 
@@ -515,6 +528,11 @@ def _build(root: Path, sources: str) -> BuildResult:
             conn.close()
         with open(temp, "rb+") as written:
             os.fsync(written.fileno())
+        # The report's "integrity check before os.replace" (F2): a database the
+        # engine cannot vouch for never takes the place of one it could.
+        verdict = _quick_check(temp)
+        if verdict != "ok":
+            raise IndexBuildError(f"the new index failed PRAGMA quick_check ({verdict}); kept the previous index")
         try:
             # os.replace, not os.rename: rename refuses an existing target on
             # Windows. Windows also refuses to replace a file another process

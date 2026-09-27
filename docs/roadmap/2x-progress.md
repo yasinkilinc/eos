@@ -78,7 +78,7 @@ has barely started. "Absent" below means the name the report gives does not occu
 
 | Phase | Item | State | What is missing |
 |---|---|---|---|
-| 1 | F2 | mostly | the integrity check before `os.replace`; "every derived file" is not in the rows above |
+| 1 | F2 | done | F2b below; every rewrite through `core/lib/atomic.py` and the index swap are checked first |
 | 1 | F3 | blocked (labels) | the scorer itself: FTS5 BM25 column weights, porter, RRF, MMR, `synonyms` (absent), one scorer behind `eos-query.sh notes` |
 | 1 | F4 | done | `core/notes/` split by F4b below |
 | 1 | F5 | part | `count` collapsing of identical consecutive events (deferred above) |
@@ -109,7 +109,7 @@ has barely started. "Absent" below means the name the report gives does not occu
 | 6 | L3, L4, L5 | L3, L4 done; L5 open | L3 and L4 below; recalibration receipts (L5) need A1's corpus |
 | host | cross-phase | open | M3/M4 moves, `projects.toml` and `capability.toml`, the routing corpus, hook scripts to templates, the service-directory resume eval, generators that rewrite always-loaded files |
 
-Next without a decision (engine only): F2's integrity check before `os.replace`. Everything else waits on F3's labels, C1's estimator, M1/M3's migration, A1's corpus or host work.
+Next without a decision (engine only): none left. Everything waits on F3's labels, C1's estimator, M1/M3's migration, A1's corpus or host work.
 
 | Step | What | Status | Commits / notes |
 |---|---|---|---|
@@ -123,6 +123,7 @@ Next without a decision (engine only): F2's integrity check before `os.replace`.
 | RV17 | Review of 3e390af (C3b) and d6c3658 (rotation race) | DONE | 3 findings, each fixed with a test, release 1.21.1: a task's filler words (why, does, after) outranked the one line naming what it was about, because spans ranked by how many terms they hit -- they rank by the rarest term's weight (log of lines over hits) now, no stopword list; a merged span cut to fit still claimed every term it had hit and counted nothing as left out -- it claims the terms on the lines it kept and counts the hit lines it dropped, and the note says how many; without fcntl the O_EXCL marker is deleted on release, so `ever_locked` proved nothing -- an all-absent look is read under the lock there. Found alongside: a line cut to fit could cut away the term it was kept for -- the window opens before the term. 20,000-case fuzz, claimed terms included: 0 violations |
 | L4 | `measured / derived / unmeasured` on the numbers the reports print | DONE | release 1.22.0; `core/lib/honest.py`: `~` for a derived number, `—` (`?` in a brief) for an unmeasured one, never 0. The three reports that print estimates -- `eos cost` (tokens at chars/4), `cost --context` (residency from chars/3), `cost --sessions` -- mark them and carry a `provenance` map in their JSON, and a test fails when a number in any of the three is not covered by it. Fixed on the way: `cost --context` wrote a share of 0.0 when nothing was explained (now null). `consolidate`, `note eval`, `route --stats` and the brief print counts and exact ratios of observed values -- measured, so unmarked. The estimators themselves stay as they are until C1 |
 | L3 | Symbols with `parent_id` and `breadcrumb` | DONE | release 1.23.0; `core/symbols.py` reads both parsers' shapes (Python `Invoice.total` under `Invoice`, Java `price` under `Line`), resolves the parent in the same file (nearest earlier one of that name), names an unresolved parent anyway and cuts a cycle. `eos.db` gains `symbol(sid, nid, name, short, kind, line, end_line, parent_id, breadcrumb)` (schema 8) from the scan's file cache, and `find_symbol` answers carry the breadcrumb. The file cache enters the index's freshness key by size and mtime only (tens of MB on a large service). On EOS's own core/ and tests/: 2,386 symbols, 199 linked to a parent, no method left without one, cold build 0.08 s. Small-to-big in retrieval waits for F3's scorer |
+| F2b | Integrity check before `os.replace` | DONE | release 1.23.1; `atomic.write_text` reads the fsynced temp file back and compares it byte for byte with what was meant before the rename (a full disk or quota can accept a short write silently) -- on a mismatch it raises `IntegrityError`, removes the temp and leaves the target; the index runs SQLite's `PRAGMA quick_check` on the new database before it replaces the old one (50 ms on 61 MB) and keeps the previous index on anything but `ok`. The report's "never overwrite an authored file after a read failure" already held -- both note rewriters read strict UTF-8 -- and is now pinned by a test |
 
 ## Found along the way
 
