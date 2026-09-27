@@ -17,11 +17,14 @@ had no version on its lines, and accepted a finish for a run nobody started.
 
 ## Decision
 
-- `core/lib/lock.py`: `<file>.lock` created with `O_EXCL`, holding the owner's pid
-  and start time. Taken over when older than 10 s or when its owner is dead; a lock
-  that is empty or unreadable (created, pid not yet written) is stale only by age —
-  the first version judged it dead and let two writers in. Waiting past 15 s raises
-  `LockTimeout`; a statistic waits 2 s and skips.
+- `core/lib/lock.py`: on POSIX the kernel's `fcntl.flock` on a lock file under the
+  user's state directory (one per locked path, never deleted): a holder killed by a
+  hook's timeout releases it with its process, so there is no stale lock to take
+  over. The first version used an `O_EXCL` marker with stale takeover; it judged a
+  just-created empty lock dead (fixed), and a branch review showed two waiters could
+  both take over a dead owner's lock -- hence the kernel lock. `O_EXCL` remains the
+  fallback where `fcntl` does not exist. Waiting past 15 s raises `LockTimeout`; a
+  statistic waits 2 s and skips.
 - `core/lib/atomic.py`: temp file beside the target, fsync, rename, directory fsync.
 - Every shared read-modify-write uses both: procedure counters and note sections
   are re-read under the note's lock; the three logs append and trim under one lock;
@@ -37,7 +40,7 @@ all real wrapper calls at distinct times; collapsing them needs readers that cou
 
 ## Consequences
 
-- A crashed writer delays the next one by at most 10 s.
-- Lock files appear beside notes for the length of a write; they are removed after.
+- A crashed writer delays no one on POSIX; on the fallback, at most 10 s.
+- Lock files live in the user's state directory, never beside the data.
 - `eos-event` (shell) appends without the lock; an append during a rotation lands
   in the rotated file, which the fold still reads.

@@ -101,7 +101,7 @@ def evaluate(project_root: str | Path, entries: list[GoldenEntry],
     present = {note.path.name for note in notes.load_notes(project_root)}
 
     def accepted(entry: GoldenEntry) -> list[str]:
-        return [name for name in entry.expected.split("|") if name.strip()]
+        return [name.strip() for name in entry.expected.split("|") if name.strip()]
 
     broken = [entry for entry in entries if not any(name in present for name in accepted(entry))]
     scored = [entry for entry in entries if any(name in present for name in accepted(entry))]

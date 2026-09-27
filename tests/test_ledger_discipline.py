@@ -61,3 +61,16 @@ def test_a_run_that_was_never_started_cannot_be_finished(project):
     with pytest.raises(ValueError, match="never started"):
         executions.finish(project, "x-nothing-0000", outcome="ok")
     assert not executions.path_for(project).exists()
+
+
+def test_a_run_started_in_another_projects_ledger_is_finished_there(tmp_path, monkeypatch):
+    """Branch review finding 5: in a workspace a run started in a service's
+    ledger is finished by id from the workspace root."""
+    monkeypatch.setenv("EOS_STATE_DIR", str(tmp_path / "state"))
+    hub, svc = tmp_path / "hub", tmp_path / "svc"
+    for root in (hub, svc):
+        (root / ".eos").mkdir(parents=True)
+    run = executions.start(svc, "Deploy the service", session="s1")
+    record = executions.finish(hub, run.id, outcome="ok", session="s1")
+    assert record.outcome == "ok"
+    assert executions.load(svc)[0].outcome == "ok" and executions.load(hub) == []

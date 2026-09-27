@@ -24,3 +24,12 @@ def test_only_certain_mistakes_are_reported(tmp_path):
     problems = citations.wrong(text, [tmp_path])
     assert problems == [f"{source}:40 -- the file has 2 lines",
                         f"{tmp_path}/gone/Missing.java:3 -- no such file"]
+
+
+def test_paths_that_are_not_local_absolute_paths_are_not_flagged(tmp_path):
+    """Branch review finding 2: a home-relative, placeholder, variable or drive
+    path was read as a missing absolute path, and a container path cannot be
+    judged here."""
+    text = ("See ~/.claude/settings.json:12, <repo>/core/x.py:40, ${ROOT}/a.py:1, C:/x/y.py:3 "
+            "and /app/src/main.py:88 from the container log.")
+    assert citations.wrong(text, [tmp_path]) == []

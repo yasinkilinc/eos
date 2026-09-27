@@ -40,3 +40,11 @@ def test_resident_cost_is_charged_by_source_until_a_compaction(tmp_path):
 
 def test_the_transcript_folder_follows_the_harness_naming(tmp_path):
     assert context_cost.transcripts_dir("/Volumes/Data/work/my.proj").name == "-Volumes-Data-work-my-proj"
+
+
+def test_an_unreadable_line_or_file_does_not_stop_the_report(tmp_path):
+    folder = tmp_path / "t"
+    folder.mkdir()
+    (folder / "bad.jsonl").write_text('[1, 2]\n"a string"\nnot json\n', encoding="utf-8")
+    _session(folder / "good.jsonl", [_assistant("m1", 10), _assistant("m2", 10)])
+    assert context_cost.report(tmp_path, transcripts=folder)["sessions"] == 1

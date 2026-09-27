@@ -339,11 +339,15 @@ def finish(project_root: str | Path, execution: str | None = None, *, outcome: s
     if outcome not in OUTCOMES:
         raise ValueError(f"outcome must be one of {', '.join(OUTCOMES)}; got {outcome!r}")
     ledger = path_for(project_root)
+    found = current(project_root, session)
     if not execution:
-        found = current(project_root, session)
         if found is None:
             raise ValueError("no execution given and none is open for this session")
         execution, ledger = found
+    elif found is not None and found[0] == execution:
+        # A run opened in another project's ledger (a service, from the workspace
+        # root) is finished where it was started.
+        ledger = found[1]
     _checked(lesson, "lesson")
     _checked(next_time, "next time")
     existing = {r.id: r for r in load_path(ledger)}.get(execution)

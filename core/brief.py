@@ -219,25 +219,35 @@ def resume(project_root: str | Path, session: str) -> str:
 
 def _branch_brief(root: Path, *, session: str | None, agent: str | None) -> str:
     """Within BRANCH_BUDGET: fewer work items are shown until it fits (the count stays)."""
+    import datetime
+
+    # Everything is read once; only the rendering is repeated with fewer work
+    # items until it fits (branch review finding 9: five full rebuilds of git,
+    # search and ledger folds could pass the SessionStart timeout).
+    now = datetime.datetime.now(datetime.timezone.utc)
+    commit, branch = work.git_head(root)
+    keys = ticket_keys(root, branch or "")
+    query = query_from(branch, keys)
+    facts = {
+        "now": now, "branch": branch, "in_flight": work.items(root),
+        "matched": notes.search_notes(root, query, limit=NOTE_LIMIT) if query else [],
+        "recorded": len(notes.load_notes(root)), "open_runs": _open_runs(root),
+        "state": work.sync_state(root),
+    }
     cap = int(BRANCH_BUDGET * CHARS_PER_TOKEN)
     text = ""
     for shown in range(WORK_LIMIT, 0, -1):
-        text = _branch_text(root, session=session, work_limit=shown)
-        if len(text) <= cap:
+        text = _branch_text(root, facts, session=session, work_limit=shown)
+        if len(text) <= cap or len(facts["in_flight"]) <= 1:
             break
     return text
 
 
-def _branch_text(root: Path, *, session: str | None, work_limit: int) -> str:
-    import datetime
-
-    now = datetime.datetime.now(datetime.timezone.utc)
-    commit, branch = work.git_head(root)
-    keys = ticket_keys(root, branch or "")
-
+def _branch_text(root: Path, facts: dict, *, session: str | None, work_limit: int) -> str:
+    now, branch = facts["now"], facts["branch"]
     lines = [f"EOS brief — {root.name}" + (f" @ {branch}" if branch else "")]
 
-    in_flight = work.items(root)
+    in_flight = facts["in_flight"]
     stale = [item for item in in_flight if item.is_stale(now)]
     if in_flight:
         head = f"IN FLIGHT ({len(in_flight)}"
@@ -255,9 +265,7 @@ def _branch_text(root: Path, *, session: str | None, work_limit: int) -> str:
         lines.append("IN FLIGHT (0) — nothing is claimed here. "
                      "Claim what you start: eos work add . --title \"…\" --claim")
 
-    query = query_from(branch, keys)
-    matched = notes.search_notes(root, query, limit=NOTE_LIMIT) if query else []
-    recorded = len(notes.load_notes(root))
+    matched, recorded = facts["matched"], facts["recorded"]
     lines.append("")
     if matched:
         lines.append(f"KNOWN HERE ({len(matched)} of {recorded} notes match this branch)")
@@ -273,7 +281,7 @@ def _branch_text(root: Path, *, session: str | None, work_limit: int) -> str:
         lines.append("KNOWN HERE (0 notes) — nothing has been recorded in this "
                      "project yet. `eos note add` records the first.")
 
-    open_runs = _open_runs(root)
+    open_runs = facts["open_runs"]
     if open_runs:
         lines.append("")
         lines.append(f"RUNS OPEN ({len(open_runs)}) — finish them: eos run finish . <id> --outcome ok|failed|abandoned")
@@ -281,7 +289,7 @@ def _branch_text(root: Path, *, session: str | None, work_limit: int) -> str:
             lines.append(f"  {record.id}  {record.title}  [{(record.session or 'no session')[:8]}, "
                          f"{work.ago(record.started_at, now)}, {len(record.events)} event(s)]")
 
-    state = work.sync_state(root)
+    state = facts["state"]
     if state.get("state") not in ("pushed", "committed", "absent"):
         # Printed only when something written here cannot be seen by anyone
         # else. In the healthy case it is a line nobody needs every session.

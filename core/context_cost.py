@@ -43,14 +43,21 @@ def _session(path: Path, declared) -> tuple[list, list, int, int, int, str]:
     items, boundaries, seen, names = [], [], set(), {}
     calls = reads = first = 0
     day = ""
-    with open(path, encoding="utf-8", errors="replace") as handle:
+    try:
+        handle = open(path, encoding="utf-8", errors="replace")
+    except OSError:
+        return items, boundaries, calls, reads, first, day
+    with handle:
         for line in handle:
             try:
                 entry = json.loads(line)
             except ValueError:
                 continue
+            if not isinstance(entry, dict):
+                continue
             day = day or str(entry.get("timestamp") or "")[:10]
-            kind, message = entry.get("type"), entry.get("message") or {}
+            kind, message = entry.get("type"), entry.get("message")
+            message = message if isinstance(message, dict) else {}
             if kind == "system" and entry.get("subtype") == "compact_boundary":
                 boundaries.append(calls)
             elif kind == "assistant":

@@ -50,3 +50,13 @@ def test_a_clean_procedure_has_no_problems_and_the_cli_says_so(tmp_path):
     assert procedure_lint.lint(root)[0]["problems"] == []
     done = subprocess.run(EOS + ["procedure", "lint", str(root)], capture_output=True, text=True)
     assert done.returncode == 0 and "0 problem" in done.stdout
+
+
+def test_a_wrapper_path_is_not_taken_for_the_program_it_is_named_after(tmp_path):
+    """Branch review finding 8: (tool: scripts/git.sh) normalised to `git`, found
+    git on PATH and hid an undeclared wrapper."""
+    root = _project(tmp_path)
+    (root / "scripts" / "git.sh").write_text("#!/bin/sh\n", encoding="utf-8")
+    _procedure(root, "Tag a release", ["Tag it (tool: scripts/git.sh)"], success="the tag exists")
+    [report] = procedure_lint.lint(root)
+    assert any("scripts/git.sh" in p and "not declared" in p for p in report["problems"]), report

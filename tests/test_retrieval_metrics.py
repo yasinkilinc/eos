@@ -46,3 +46,12 @@ def test_a_golden_line_may_accept_several_notes(monkeypatch, tmp_path):
     _with_search(monkeypatch, {"the question": ["x.md"]})
     monkeypatch.setattr(notes, "load_notes", lambda root: [SimpleNamespace(path=Path("x.md"))])
     assert retrieval.evaluate(".", [entry])["broken"]      # neither note exists: broken, not a miss
+
+
+def test_alternates_may_be_written_with_spaces(monkeypatch, tmp_path):
+    golden = tmp_path / "g.tsv"
+    golden.write_text("the question\ta.md | b.md\n", encoding="utf-8")
+    [entry] = retrieval.parse_golden(golden)
+    _with_search(monkeypatch, {"the question": ["b.md"]})
+    report = retrieval.evaluate(".", [entry])
+    assert report["broken"] == [] and report["results"][0]["rank"] == 1

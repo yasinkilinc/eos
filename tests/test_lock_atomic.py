@@ -45,17 +45,23 @@ def test_concurrent_read_modify_writes_lose_nothing_under_the_lock(tmp_path):
                for _ in range(4)]
     assert all(worker.wait(timeout=60) == 0 for worker in workers)
     assert counter.read_text(encoding="utf-8") == "100"
-    assert not lock.lock_path(counter).exists()
+    assert lock.lock_path(counter).parent != counter.parent     # no lock file beside the data
 
 
-def test_a_lock_left_by_a_dead_process_is_taken_over(tmp_path):
+def test_a_lock_whose_holder_died_is_free(tmp_path):
+    """The holder is killed while holding it (a hook's timeout): the next writer
+    gets it at once -- no stale-lock takeover, so no two writers."""
     target = tmp_path / "note.md"
-    stale = lock.lock_path(target)
-    stale.write_text("999999999 0\n", encoding="utf-8")
-    old = time.time() - 3600
-    os.utime(stale, (old, old))
+    dead = subprocess.run([sys.executable, "-c",
+                           "import os, sys; sys.path.insert(0, sys.argv[1]);"
+                           "from pathlib import Path; from core.lib import lock\n"
+                           "with lock.locked(Path(sys.argv[2])): os._exit(0)",
+                           str(REPO), str(target)], timeout=30)
+    assert dead.returncode == 0
+    started = time.monotonic()
     with lock.locked(target, timeout=2):
-        assert stale.read_text(encoding="utf-8").split()[0] == str(os.getpid())
+        pass
+    assert time.monotonic() - started < 1
 
 
 def test_a_lock_held_by_a_live_process_times_out(tmp_path):

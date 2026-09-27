@@ -51,7 +51,10 @@ def lint(project_root: str | Path) -> list[dict]:
         problems = []
         for tool in notes.procedure_tools(note):
             key = executions.normalize_tool(tool)
-            if key in declared or shutil.which(tool) or shutil.which(key or ""):
+            # A tool written as a path is a script, never the program its name
+            # resembles (scripts/git.sh is not git).
+            program = "/" not in tool and bool(shutil.which(tool))
+            if key in declared or program:
                 continue
             script = _script(root, tool)
             if script is not None:

@@ -14,7 +14,9 @@ import re
 from pathlib import Path
 
 # A file name with an extension, then a line (or a range, whose end is checked).
-_PLAIN = re.compile(r"(?<![\w./-])((?:/|\.{0,2}/)?[\w.-]+(?:/[\w.-]+)*\.[A-Za-z]\w{0,5}):(\d+)(?:-(\d+))?(?!\d)")
+# The lookbehind keeps a path's start out: `~/`, `<repo>/`, `${ROOT}/`, `C:/` are
+# not absolute paths on this machine.
+_PLAIN = re.compile(r"(?<![\w./~$}>:@-])((?:/|\.{0,2}/)?[\w.-]+(?:/[\w.-]+)*\.[A-Za-z]\w{0,5}):(\d+)(?:-(\d+))?(?!\d)")
 _LINK = re.compile(r"\]\(([^)\s#]+)#L(\d+)(?:-L(\d+))?\)")
 MAX_BYTES = 8 * 1024 * 1024
 
@@ -49,7 +51,10 @@ def wrong(text: str, bases: list[str | Path]) -> list[str]:
         candidates = [Path(path)] if os.path.isabs(path) else [Path(base) / path for base in bases]
         existing = next((c for c in candidates if c.is_file()), None)
         if existing is None:
-            if os.path.isabs(path):
+            # Missing only counts on this machine's own tree: `/app/...` from a
+            # container log may be right where it was written.
+            top = Path(path).parts[1] if os.path.isabs(path) and len(Path(path).parts) > 1 else ""
+            if top and Path("/", top).exists():
                 problems.append(f"{path}:{line} -- no such file")
             continue
         count = _lines(existing)
