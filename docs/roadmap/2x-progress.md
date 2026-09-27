@@ -156,6 +156,9 @@ session had used by then).
 The proxy stopped the night at 22:01 (2.08M units); the user said to continue at 22:08.
 From then on every step runs in a background subagent and the main session stays idle;
 the stop is the user's next `/usage` reading at or over 50%.
+Readings: 23:15 = 37% at 11.47M units (1 point per ~9.4M units measured). Rounding can hide
+up to 2 points, so the rule assumes 1 point per 4.7M from 37.5%: stop once 48M units have
+been spent after 23:15 (about 48%).
 
 Defaults the user accepted (21:10): synonyms engine-only and off, no host list;
 L2 status quo; M1 forward-only, no migration of existing notes; C1 estimator = the
@@ -172,6 +175,10 @@ measured 2.22 chars/token; A1 candidates proposed into a file, used by nothing u
 | N6 | E3 rest: `run finish` names changed files outside the procedure's declared scope | DONE | `_outside_scope` (core/cli/runs.py): at finish, changed-event refs the run's procedure note does not cover (exact match, directory prefix, or fnmatch glob against each `scope` entry) print as `warning: changed outside <procedure>'s scope: <up to 5>, (+N more)` -- never refuses the finish, never touches `outcome`. A procedure with no scope, or a run with nothing changed, prints nothing. `run finish` has no `--format json` today, so nothing to add a list field to (the spec's "if any") |
 | RVb | Review of N4-N6 | DONE | 3 findings, each fixed with a test: `advised_vs_used_outcome_stats` compared `used_model` (the transcript's raw string, e.g. `claude-sonnet-5`) against `advised_model` (the router's canonical id, `sonnet`) with only a `[...]` suffix stripped, never through the registry's aliases, so an exact match counted as `different` (N5); `advised_vs_used_outcome` joined a run to its first `decided` event instead of its latest, unlike `core.routing._decided`, so a run re-routed with an explicit `--model`/`--fresh` call was attributed to the superseded advice (N5); `_outside_scope` read the procedure note and changed-event refs from the CLI's own `args.path` instead of the run's own project, so a `run finish` from a workspace root for a run routed to a named project's ledger (C5b) silently printed no warning at all (N6). Released 1.30.1. Limitations found and left alone: a scope entry that is a class name rather than a file (`note add --scope` allows this; `store._hash_file` already treats it as unresolvable) never matches any changed ref, so a procedure scoped only by class names always reports every change as outside scope -- resolving a class name to a file needs a symbol lookup this function does not have; an absolute changed ref (an event recorded directly outside the harness hook, which always relativizes) or an `@parent:`-scoped entry is deliberately left unmatched by string form alone, the same choice N6's own "Decided without asking" note already made for `_scope_anchor`'s parent-link resolution |
 | N7 | A1 candidates (host, nexus worktree): real prompts from transcripts with a proposed label into `docs/eos-evals/golden/routing-candidates.tsv`, used by nothing | TODO | |
+| N8 | RVa's limitations: procedure matching (`best_procedure`, `notes.procedures()`) skips expired and replaced notes; `note amend --provenance/--agent/--valid-until` | TODO | |
+| N9 | E1 capture measured: per finished run, changed files recorded as events vs the files git says the run's commits touched; `eos consolidate` prints the share | TODO | |
+| N10 | C2 lessons `evidence:`: a lesson names the run/command that shows it; the brief marks a lesson without evidence | TODO | |
+| RVc | Review of N7-N10 | TODO | |
 | MR | Morning report `docs/roadmap/2x-night2-report.md`: what landed, measured numbers, decisions taken, how to merge | DONE | written at 22:05 when the usage rule stopped the night |
 
 ### Decided without asking
