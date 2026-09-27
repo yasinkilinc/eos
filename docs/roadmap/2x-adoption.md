@@ -2,7 +2,7 @@
 
 Branch `eos-2x` (from `main` 1.5.1), released on the branch as 1.6.0 → 1.12.1.
 Every step: tests first, the full suite green before the commit
-(1,136 passed, 1 skipped at 1.12.0), `tools/check-clean.sh` clean. `main` untouched.
+(1,138 passed, 1 skipped at 1.12.1), `tools/check-clean.sh` clean. `main` untouched.
 The row-by-row ledger with commits is `docs/roadmap/2x-progress.md`.
 
 ## What changed, by the question it answers
@@ -27,11 +27,15 @@ The row-by-row ledger with commits is `docs/roadmap/2x-progress.md`.
 | 1.10.1-2 | Fixes | a retried step is not the failed step; a third review: `$(...)` checks, `bash -c`, finish's root walk |
 | 1.11.0 | Main-session citation check, brief step line | the answer the user reads is checked at Stop like a subagent's; the brief says where the last failure stopped |
 | 1.12.0 | Verify gate measured on the host's history | 36 of 37 past sessions with scoped changes would be stopped; half had run the check uncountably, so that now gets a hint at once; `consolidate` names silent steps |
+| 1.12.1 | Fifth review | `set -e` read as bash reads it: not in conditions or function bodies, `set +o errexit`, subshells |
 
 Live-verified in headless sessions: the verify Stop gate (1.9.1: gate once, the
 check re-run so it counts; 1.10.2: `&& echo VERIFIED` counts and no gate fires),
 the subagent handoff, the subagent citation check, and on 1.11.0 the main
-session's citation check (stopped once, the model read the file and corrected it).
+session's citation check (stopped once, the model read the file and corrected it),
+and on 1.12.0 the uncounted-check hint (a piped check was named at once, the model
+re-ran it countably, no Stop gate). Six fresh reviews ran over the branch; every
+finding is fixed with a test (ledger rows RV-RV6).
 
 ## Adopting it
 
@@ -39,9 +43,13 @@ session's citation check (stopped once, the model read the file and corrected it
 2. In nexus: `git subtree pull --prefix tools/eos eos main --squash`, then
    `bash automation/install-eos-cli.sh` (the global CLI moves to 1.12.1).
 3. The nexus side of this work is on the local branch `eos-2x` in the worktree
-   `../nexus-2x` (not pushed: the VPN was off). Its commits: the `verify.toml`
-   scopes and their test, the golden-alternates proposal, six read-only scripts
-   declared for procedure lint. Cherry-pick them onto `mac` or merge the branch.
+   `../nexus-2x` (not pushed: the VPN was off). Its own commits: the `verify.toml`
+   scopes and their test (4ebb01c), the verified-completion design as built
+   (a1b5c7b), the golden-alternates proposal (df70c4e), six read-only scripts
+   declared for procedure lint (e7c86c7), the three config scripts recording run
+   events (ed42e16), the L2 graph report (145837e); the rest are subtree pulls.
+   Cherry-pick them onto `mac` or merge the branch. Its host shell tests pass except
+   `test-release-run-recovery` (2 of 8), which touches no file the branch changed.
 4. Settings worth turning on in nexus (all off or absent today):
    - `[hooks] handoff_tokens = 400` -- the subagent handoff;
    - `verify.toml` is in the worktree commit; with it the Stop gate is live
