@@ -39,6 +39,23 @@ canonical `core/` runtime to `~/.local/share/eos/<version>/` and installs an
 executable launcher under `~/.local/bin/eos`. Override the locations with
 `EOS_INSTALL_PREFIX`, `EOS_DATA_DIR`, `EOS_BIN_DIR`, or `EOS_PYTHON`.
 
+## What changed in 1.9
+
+- **`eos consolidate`:** one report of what needs attention -- procedures
+  failing or never run, procedure lint, notes that read alike, notes whose
+  files changed, runs open for days, stale work, the verified rate. It changes
+  nothing.
+- **`eos procedure lint`:** a step naming a tool no capability, program or
+  script provides, a script that exists but is not declared, a procedure with
+  no Success section.
+- **`eos cost --context`:** what a project's agent sessions keep re-reading,
+  by source, from the harness's transcripts, checked against their cache reads.
+- **Runs join work:** `eos run start` on a ticket's branch links the run to
+  that ticket's open work item; `eos work show` lists its runs.
+- **Briefs say how old a note is:** `[finding, 3d]` beside every note named.
+- **Smaller artifacts:** graph and file caches and MCP results are written
+  without indentation (a real service: 64.7 MB -> 42.2 MB file cache).
+
 ## What changed in 1.8
 
 - **Subagent handoff:** `eos brief --for-subagent --task "…"` is what a
