@@ -5,7 +5,7 @@ import math
 import re
 from pathlib import Path
 
-from core.notes.store import Note, _WORD, is_bulk_index, load_notes, superseded
+from core.notes.store import Note, _WORD, is_bulk_index, load_notes, note_synonyms, superseded
 
 
 # Similarity carried over from the one earlier iteration that actually ran a
@@ -57,7 +57,45 @@ def _words(text: str) -> set[str]:
     return words - prefixes
 
 
-def word_weights(corpus: list[Note], query_words: set[str]) -> dict[str, float]:
+def synonym_groups(groups: object) -> dict[str, str]:
+    """Word -> the key of its synonym group, from a list of word lists.
+
+    Each group becomes one concept: its members and a query naming any of them
+    are all read as the same synthetic key, so a note written with "confluence"
+    answers a question asked with "wiki", and naming both counts once. A member
+    is one word as `_words` reads it; a phrase or an empty member is dropped and
+    the rest of its group kept. A word already in an earlier group stays there
+    -- groups are not merged, so one careless entry cannot join two meanings.
+    Anything that is not a list of lists is no table at all.
+    """
+    canon: dict[str, str] = {}
+    if not isinstance(groups, list):
+        return canon
+    for index, group in enumerate(groups):
+        if not isinstance(group, list):
+            continue
+        members = []
+        for member in group:
+            words = _words(member) if isinstance(member, str) else set()
+            if len(words) == 1 and len(member.split()) == 1:
+                members.extend(words)
+        members = [word for word in dict.fromkeys(members) if word not in canon]
+        if len(members) < 2:
+            continue
+        for word in members:
+            canon[word] = f"\x00synonym-{index}"
+    return canon
+
+
+def canonical_words(words: set[str], canon: dict[str, str] | None) -> set[str]:
+    """`words` with every synonym-group member read as its group's key."""
+    if not canon:
+        return words
+    return {canon.get(word, word) for word in words}
+
+
+def word_weights(corpus: list[Note], query_words: set[str],
+                 *, canon: dict[str, str] | None = None) -> dict[str, float]:
     """How much each query word is worth here: `log(notes / notes using it)`.
 
     Without this every word counts the same, and a question asked in a sentence
@@ -72,20 +110,25 @@ def word_weights(corpus: list[Note], query_words: set[str]) -> dict[str, float]:
     short ones. When every word of a query is worthless the caller falls back to
     equal weights, so a search for a single ubiquitous word still answers with
     what it matched rather than with nothing.
+
+    With `canon` (see `synonym_groups`) a group counts the notes using any of
+    its members, so the concept is worth what the group is, not one spelling.
     """
     if not corpus or not query_words:
         return {}
     total = len(corpus)
     seen = {word: 0 for word in query_words}
     for note in corpus:
-        present = _words(note.title) | _words(" ".join(note.tags)) | _words(note.body)
+        present = canonical_words(
+            _words(note.title) | _words(" ".join(note.tags)) | _words(note.body), canon)
         for word in query_words & present:
             seen[word] += 1
     return {word: math.log(total / count) if count else 0.0 for word, count in seen.items()}
 
 
 def relevance(note: Note, query_words: set[str],
-              weights: dict[str, float] | None = None, *, body: bool = True) -> float:
+              weights: dict[str, float] | None = None, *, body: bool = True,
+              canon: dict[str, str] | None = None) -> float:
     """How well one note answers a query, in 0.0 - 1.0.
 
     Scores how much of the *query* the note covers, rather than the Jaccard
@@ -109,13 +152,16 @@ def relevance(note: Note, query_words: set[str],
     `body=False` scores the title and tags alone, for callers that put the
     result in front of a session nobody asked (the task brief): there one
     word of prose is not enough to speak.
+
+    `canon` reads synonym-group members as their group's key, on the note's
+    side; the caller passes query words already read the same way.
     """
     if not query_words:
         return 0.0
 
-    title_words = _words(note.title)
-    tag_words = _words(" ".join(note.tags))
-    body_words = _words(note.body) if body else set()
+    title_words = canonical_words(_words(note.title), canon)
+    tag_words = canonical_words(_words(" ".join(note.tags)), canon)
+    body_words = canonical_words(_words(note.body), canon) if body else set()
 
     if weights:
         budget = sum(weights.get(word, 0.0) for word in query_words)
@@ -141,26 +187,30 @@ def relevance(note: Note, query_words: set[str],
 
 
 def search_notes(project_root: str | Path, query: str, limit: int | None = None) -> list[Note]:
-    """Notes relevant to `query`, most relevant first."""
-    return rank(load_notes(project_root), query, limit)
+    """Notes relevant to `query`, most relevant first, with the project's synonym groups."""
+    return rank(load_notes(project_root), query, limit, synonyms=note_synonyms(project_root))
 
 
-def rank(corpus: list[Note], query: str, limit: int | None = None) -> list[Note]:
+def rank(corpus: list[Note], query: str, limit: int | None = None,
+         *, synonyms: object = None) -> list[Note]:
     """The one note scorer (2.x roadmap F3): `corpus` ranked against `query`.
 
     `search_notes` passes one project's notes; a host searching several stores
     passes their union, so word weights are computed over what is searched.
+    `synonyms` is a list of word groups (`[notes] synonyms`); without it a
+    query is matched on its own words only.
     """
-    query_words = _words(query)
+    canon = synonym_groups(synonyms) if synonyms else {}
+    query_words = canonical_words(_words(query), canon)
     replaced = superseded(corpus)
     corpus = [note for note in corpus if note.path.name not in replaced]  # the record stays on disk
-    weights = word_weights(corpus, query_words)
+    weights = word_weights(corpus, query_words, canon=canon)
     # Every word ubiquitous (or the query is one such word): weighting has
     # nothing left to say, and falling through to equal weights answers with
     # what matched instead of with nothing.
     if not any(weight > 0 for weight in weights.values()):
         weights = None
-    scored = [(relevance(note, query_words, weights), note) for note in corpus]
+    scored = [(relevance(note, query_words, weights, canon=canon), note) for note in corpus]
     matches = [pair for pair in scored if pair[0] >= _RELEVANCE_THRESHOLD]
     matches.sort(key=lambda pair: (-pair[0], pair[1].path.name))
     if matches:

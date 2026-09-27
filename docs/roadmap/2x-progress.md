@@ -150,7 +150,7 @@ measured 2.22 chars/token; A1 candidates proposed into a file, used by nothing u
 
 | Step | What | Status | Commits / notes |
 |---|---|---|---|
-| N1 | F3 `synonyms`: `[notes] synonyms` in a project's config expands query words (group -> every member), weight = the rarest member's; off without the table; `rank(..., synonyms=)` for hosts | TODO | |
+| N1 | F3 `synonyms`: `[notes] synonyms` in a project's config; off without the table; `rank(..., synonyms=)` for hosts | DONE | each group is one concept: members and a query naming any of them read as one key, its weight counts the notes using any member (not the rarest member's, as planned -- that would let an unused spelling inflate the concept); two members named count once; a phrase member dropped, a word in two groups stays in the first. 9 tests; no host list (default) |
 | N2 | M1 forward-only: `note add` records `provenance` (human/agent/generated), `agent`, `valid_from`; `--valid-until`; `consolidate` lists expired notes; search leaves an expired note out; old notes untouched | TODO | |
 | N3 | C1 `core/context/budget.py`: one estimator (2.22 chars/token, measured), every chars/3 and chars/4 site through it, L4 provenance kept | TODO | |
 | RVa | Review of N1-N3 | TODO | |

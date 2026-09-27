@@ -14,7 +14,7 @@ The package is split by concern (2.x roadmap F4); every name the single module
 from __future__ import annotations
 
 from core.notes.store import (
-    DEFAULT_NOTES_DIR, notes_dir, _slug, _front_matter, _SAFE_SCALAR, _scalar, KINDS,
+    DEFAULT_NOTES_DIR, notes_dir, note_synonyms, _slug, _front_matter, _SAFE_SCALAR, _scalar, KINDS,
     GENERATOR_SOURCES, BULK_INDEX_SOURCES, is_generated, is_bulk_index, _is_sensitive,
     _scope_anchor, _resolve_scope_entry, _hash_file, _one_note, superseded, Note,
     _unscalar, parse_note, _count, load_notes, load_dir, _WORD, stale_notes,
@@ -42,6 +42,7 @@ from core.notes.validate import (
 from core.notes.render import (
     _RELEVANCE_THRESHOLD, SCORE_FLOOR, _KEY, _words, word_weights, relevance, NARROWED_KINDS,
     search_notes, rank, _OMITTED_TITLE_LIMIT, _render_note, render_context_section,
+    synonym_groups, canonical_words,
 )  # noqa: F401
 from core.notes.write import (
     SKIPS_FILE, skips_path, record_skip, was_skipped, add_note, amend_note,

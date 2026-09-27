@@ -49,6 +49,20 @@ def notes_dir(project_root: str | Path) -> Path:
     return (project / configured).resolve()
 
 
+def note_synonyms(project_root: str | Path) -> object:
+    """The ``[notes] synonyms`` table of a project's config, as written.
+
+    A list of word groups (``[["wiki", "confluence"], ["sms", "notification"]]``)
+    read by the scorer; absent, or a config that is not a table, is ``None``.
+    Validation is the scorer's (`synonym_groups`), which drops what it cannot use.
+    """
+    config_path = Path(project_root).expanduser().resolve() / ".eos" / "config.toml"
+    if not config_path.is_file():
+        return None
+    section = ConfigIO.read_toml(config_path).get("notes")
+    return section.get("synonyms") if isinstance(section, dict) else None
+
+
 def _slug(title: str) -> str:
     return re.sub(r"[^a-z0-9]+", "-", title.lower()).strip("-")
 

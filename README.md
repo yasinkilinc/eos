@@ -669,6 +669,20 @@ Notes live in `.eos/knowledge/` by default, or wherever `[knowledge] dir` in
 good home for them (a workspace of repos that share one knowledge directory,
 for instance). Notes are never touched by `scan`, `clean` or `update`.
 
+A question asked in other words than the note's ("wiki" for a note about
+Confluence) is what no weighting finds. A project can name word groups that
+mean the same thing to it; each group then counts as one concept in search,
+so naming two members of a group counts once. Off without the table:
+
+```toml
+[notes]
+synonyms = [["wiki", "confluence"], ["sms", "notification"]]
+```
+
+A member is one word; a phrase is dropped, and a word already in an earlier
+group stays there. A host ranking its own corpus passes the same list to
+`notes.rank(corpus, query, synonyms=...)`.
+
 `--scope` records which files a note is about and hashes them at write time,
 so `eos doctor` can later flag notes whose code has moved on since. Notes
 matching the current task are injected into `get_context` output, capped at
