@@ -109,3 +109,13 @@ def test_runs_of_one_procedure_finished_at_once_are_all_counted(tmp_path, monkey
     go.write_text("go", encoding="utf-8")
     assert all(worker.wait(timeout=120) == 0 for worker in workers)
     assert notes.find_procedure(root, slug).runs_ok == 16
+
+
+def test_an_unwritable_state_directory_falls_back_beside_the_file(tmp_path, monkeypatch):
+    blocked = tmp_path / "blocked"
+    blocked.write_text("a file, not a directory", encoding="utf-8")
+    monkeypatch.setenv("EOS_STATE_DIR", str(blocked))
+    target = tmp_path / "ledger.jsonl"
+    with lock.locked(target, timeout=2):
+        target.write_text("x", encoding="utf-8")
+    assert target.read_text(encoding="utf-8") == "x"

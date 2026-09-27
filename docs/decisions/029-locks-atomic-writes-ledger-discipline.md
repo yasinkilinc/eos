@@ -41,6 +41,8 @@ all real wrapper calls at distinct times; collapsing them needs readers that cou
 ## Consequences
 
 - A crashed writer delays no one on POSIX; on the fallback, at most 10 s.
-- Lock files live in the user's state directory, never beside the data.
+- Lock files live in the user's state directory; where it cannot be written (a
+  read-only home, a sandbox) every writer falls back to `.<file>.eos-lock` beside
+  the file, so they still share one lock.
 - `eos-event` (shell) appends without the lock; an append during a rotation lands
   in the rotated file, which the fold still reads.

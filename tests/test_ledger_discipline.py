@@ -74,3 +74,17 @@ def test_a_run_started_in_another_projects_ledger_is_finished_there(tmp_path, mo
     record = executions.finish(hub, run.id, outcome="ok", session="s1")
     assert record.outcome == "ok"
     assert executions.load(svc)[0].outcome == "ok" and executions.load(hub) == []
+
+
+def test_finish_prefers_the_callers_ledger_when_it_holds_the_run(tmp_path, monkeypatch):
+    """Worktrees share committed ledgers: the same id can be open in two of them."""
+    monkeypatch.setenv("EOS_STATE_DIR", str(tmp_path / "state"))
+    one, two = tmp_path / "one", tmp_path / "two"
+    for root in (one, two):
+        (root / ".eos").mkdir(parents=True)
+    run = executions.start(one, "Shared run", session="s1")
+    two_ledger = executions.path_for(two)
+    two_ledger.parent.mkdir(parents=True, exist_ok=True)
+    two_ledger.write_text(executions.path_for(one).read_text(), encoding="utf-8")
+    executions.finish(two, run.id, outcome="ok", session="s1")
+    assert executions.load(two)[0].outcome == "ok" and executions.load(one)[0].outcome is None

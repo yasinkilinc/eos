@@ -89,10 +89,11 @@ def test_a_check_whose_exit_code_is_not_the_commands_does_not_clear(tmp_path):
     keys = ["svc:billing"]
     for command in ("tools/mvn.sh test billing || true", "tools/mvn.sh test billing; echo done",
                     "tools/mvn.sh test billing &", "tools/mvn.sh test billing && sed -i s/a/b/ x.java",
-                    "git commit -F - <<'EOF'\ntools/mvn.sh test billing\nEOF",
-                    "echo start\ntools/mvn.sh test billing"):
+                    "git commit -F - <<'EOF'\ntools/mvn.sh test billing\nEOF"):
         assert verify.cleared(scopes, command, keys) == [], command
     assert verify.cleared(scopes, "cd hub && tools/mvn.sh test billing", keys) == keys
+    # The last line's status is the command's (second review: the first rule was too strict).
+    assert verify.cleared(scopes, "echo start\ntools/mvn.sh test billing", keys) == keys
 
 
 def test_a_value_is_matched_whole(tmp_path):
@@ -117,3 +118,59 @@ def test_a_repeated_placeholder_in_a_path_is_one_value(tmp_path):
     scopes = verify.load(root)
     assert verify.instance(scopes, root, "svc/a/a/x.py") == "rep:a"
     assert verify.instance(scopes, root, "svc/a/b/x.py") is None
+
+
+# --- second review findings --------------------------------------------------------------
+
+SECOND = r'''
+[[scope]]
+name = "unit"
+paths = ["src/{name}.py"]
+passes = ['scripts/test-{name}\.sh', 'pytest\s+tests/test_{name}', 'make\s+test\b']
+run = "pytest tests/test_{name}.py"
+
+[[scope]]
+name = "mixed"
+paths = ["lib/{part}/**", "lib/shared.py"]
+passes = ['make\s+check-{part}']
+run = "make check-{part}"
+'''
+
+
+def _cleared(tmp_path, command, key="unit:billing"):
+    return verify.cleared(verify.load(_project(tmp_path, SECOND)), command, [key]) == [key]
+
+
+def test_text_after_a_placeholder_bounds_the_value_itself(tmp_path):
+    assert _cleared(tmp_path, "scripts/test-billing.sh")
+    assert _cleared(tmp_path / "b", "pytest tests/test_billing.py")
+    assert not _cleared(tmp_path / "c", "scripts/test-billingx.sh")
+
+
+def test_commands_a_person_would_expect_to_count_do(tmp_path):
+    for n, command in enumerate(["make test && echo PASS", "cd x; make test", "cd x\nmake test",
+                                 "# run the tests\nmake test", "set -o pipefail; make test | tail -5",
+                                 "make test 2>&1", "make test &> out.log", "VAR=1 make test",
+                                 "(cd x && make test)", "time make test", "nice make test",
+                                 "timeout 600 make test", "make test \\\n  --verbose"]):
+        assert _cleared(tmp_path / str(n), command), command
+
+
+def test_commands_whose_status_is_not_the_checks_still_do_not(tmp_path):
+    for n, command in enumerate(["make test <<< y || true", "make test <<EOF || true\nx\nEOF",
+                                 "make test <<EOF\nx\nEOF\necho done", "make test | tail # pipefail",
+                                 "make test; echo done", "make test || true", "make test &",
+                                 "echo 'make test; ok'"]):
+        assert not _cleared(tmp_path / str(n), command), command
+
+
+def test_a_quoted_separator_is_not_a_separator(tmp_path):
+    assert _cleared(tmp_path, "make test ARGS='a;b'")
+
+
+def test_a_file_matched_without_a_placeholder_can_still_clear(tmp_path):
+    root = _project(tmp_path, SECOND)
+    scopes = verify.load(root)
+    key = verify.instance(scopes, root, "lib/shared.py")
+    assert key == "mixed" and verify.cleared(scopes, "make check-core", [key]) == [key]
+    assert verify.cleared(scopes, "make check-", [key]) == []

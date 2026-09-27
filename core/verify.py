@@ -19,10 +19,11 @@ FILENAME = "verify.toml"
 MAX_SHOWN = 3
 MAX_REASON = 600
 _PLACEHOLDER = re.compile(r"\{([A-Za-z_]\w*)\}")
-_LEAD = r"\s*(?:\w+=\S*\s+)*(?:(?:bash|sh|env)\s+)?"
-# After `&&` is split away, any of these means the command's exit status may not
-# be the check's: `a || true`, `a; b`, `a &`, two lines.
-_UNSAFE = re.compile(r"\|\||;|(?<![&>])&(?![&>])|\n")
+# Words that run the next word as the command and pass its exit status through.
+_LEAD = r"(?:(?:bash|sh|env|command|exec|time|nice|nohup)\s+|timeout\s+\S+\s+|\w+=\S*\s+)*"
+# After the check, `&&` may run only these: none of them changes a file or the outcome.
+_HARMLESS = {"echo", "printf", "true", ":"}
+_PIPEFAIL = re.compile(r"\s*set\s+(?:-\w+\s+)*-\w*o\s+pipefail\b")
 
 
 @dataclasses.dataclass(frozen=True)
@@ -64,10 +65,21 @@ def load(project_root: str | Path) -> list[Scope]:
 
 
 def _fill(pattern: str, values: dict, escape: bool = True) -> str:
-    """Placeholders filled; in a regex the value is escaped and bounded, so
-    `billing` does not match the start of `billing-batch`."""
-    return _PLACEHOLDER.sub(lambda m: re.escape(values.get(m.group(1), "")) + r"(?![\w.-])" if escape
-                            else values.get(m.group(1), m.group(0)), pattern)
+    """Placeholders filled. In a regex the value is escaped; where nothing in the
+    pattern follows it, it is bounded, so `billing` does not match the start of
+    `billing-batch`. A placeholder with no value (a file matched by a pattern
+    without one) stands for any single word."""
+    if not escape:
+        return _PLACEHOLDER.sub(lambda m: values.get(m.group(1), m.group(0)), pattern)
+
+    def one(found: re.Match) -> str:
+        if found.group(1) not in values:
+            return r"[^\s/]+"
+        after = pattern[found.end():]
+        bounded = not after or after[0] in " )$" or after.startswith((r"\s", r"\b"))
+        return re.escape(values[found.group(1)]) + (r"(?![\w-])" if bounded else "")
+
+    return _PLACEHOLDER.sub(one, pattern)
 
 
 def _real(root: Path, path: str) -> str:
@@ -139,16 +151,112 @@ def _values(scope: Scope, key: str) -> dict:
     return dict(part.split("=", 1) for part in rest.split(",") if "=" in part)
 
 
+def _commands(command: str) -> list[str]:
+    """The command's top-level commands, split at unquoted `;` and newlines, with
+    comments, heredoc bodies and subshell parentheses removed. Quoted text stays
+    as written, so a regex still sees it; a separator inside quotes is not one."""
+    text = command.replace("\\\n", " ")
+    commands, current, quote, index, pending = [], [], "", 0, []
+    while index < len(text):
+        char = text[index]
+        if quote:
+            current.append(char)
+            if char == "\\" and quote == '"' and index + 1 < len(text):
+                current.append(text[index + 1])
+                index += 1
+            elif char == quote:
+                quote = ""
+        elif char == "\\" and index + 1 < len(text):
+            current += [char, text[index + 1]]
+            index += 1
+        elif char in "'\"":
+            quote = char
+            current.append(char)
+        elif char == "#" and (not current or current[-1] in " \t;&|("):
+            while index + 1 < len(text) and text[index + 1] != "\n":
+                index += 1
+        elif text.startswith("<<<", index):
+            current.append("<<<")
+            index += 2
+        elif text.startswith("<<", index):
+            found = re.match(r"<<-?\s*(['\"]?)([\w.-]+)\1", text[index:])
+            if found is None:
+                current.append("<<")
+                index += 1
+            else:
+                pending.append(found.group(2))
+                current.append("<<" + found.group(2))
+                index += found.end() - 1
+        elif char in ";\n":
+            commands.append("".join(current))
+            current = []
+            if char == "\n":
+                for tag in pending:  # the bodies start on the next line and end at their tag
+                    end = re.compile(r"^[ \t]*" + re.escape(tag) + r"[ \t]*$", re.M).search(text, index + 1)
+                    index = end.end() if end else len(text)
+                pending = []
+        elif char in "()":
+            current.append(" ")
+        else:
+            current.append(char)
+        index += 1
+    commands.append("".join(current))
+    return [c.strip() for c in commands if c.strip()]
+
+
+def _split(command: str, separator: str) -> list[str]:
+    """`command` split at unquoted `separator` (`&&` or `|`); `||` is never a pipe."""
+    parts, current, quote, index = [], [], "", 0
+    while index < len(command):
+        char = command[index]
+        if quote:
+            quote = "" if char == quote else quote
+        elif char in "'\"":
+            quote = char
+        elif command.startswith(separator, index) and not (separator == "|" and (
+                command.startswith("||", index) or command[index - 1:index] == "|")):
+            parts.append("".join(current))
+            current = []
+            index += len(separator)
+            if separator == "|" and command.startswith("&", index):  # `|&`
+                index += 1
+            continue
+        current.append(char)
+        index += 1
+    parts.append("".join(current))
+    return [part.strip() for part in parts]
+
+
+def _unquoted(command: str) -> str:
+    return re.sub(r"'[^']*'|\"(?:\\.|[^\"\\])*\"", "\"\"", command)
+
+
 def _runs(command: str, regex: str) -> bool:
-    """Whether the command's own exit status is the check's: the check is the
-    last `&&` segment, before any heredoc, with no `||`, `;`, `&` or second line."""
-    text = command.replace("\\\n", " ").split("<<", 1)[0]
-    segments = text.split("&&")
-    if any(_UNSAFE.search(segment) for segment in segments):
+    """Whether the command exits 0 only if the check passed: the check is in the
+    last top-level command, which has no `||` and runs nothing in the background;
+    after the check, `&&` runs only harmless commands (`echo PASS`); a pipe after
+    the check counts only under an earlier `set -o pipefail`."""
+    commands = _commands(command)
+    if not commands:
         return False
-    last = segments[-1]
-    head, piped = last.split("|", 1)[0], "|" in last
-    return bool(re.match(_LEAD + regex, head)) and (not piped or "pipefail" in command)
+    last = commands[-1]
+    bare = _unquoted(last)
+    if "||" in bare or re.search(r"(?<![&>|<])&(?![&>])", bare):
+        return False
+    segments = _split(last, "&&")
+    pipefail = any(_PIPEFAIL.match(c) for c in commands[:-1])
+    for position, segment in enumerate(segments):
+        if _PIPEFAIL.match(segment):
+            pipefail = True
+        stages = _split(segment, "|")
+        hit = next((n for n, stage in enumerate(stages) if re.match(_LEAD + regex, stage)), None)
+        if hit is None:
+            continue
+        after = [s.split(maxsplit=1)[0] if s.split() else "" for s in segments[position + 1:]]
+        if any(word not in _HARMLESS for word in after):
+            return False
+        return hit == len(stages) - 1 or pipefail
+    return False
 
 
 def cleared(scopes: list[Scope], command: str, keys: list[str]) -> list[str]:
@@ -160,9 +268,7 @@ def cleared(scopes: list[Scope], command: str, keys: list[str]) -> list[str]:
         if scope is None:
             continue
         values = _values(scope, key)
-        # A pattern naming a placeholder this instance has no value for cannot be its check.
-        usable = [p for p in scope.passes if set(_PLACEHOLDER.findall(p)) <= set(values)]
-        if any(_runs(command, _fill(p, values)) for p in usable):
+        if any(_runs(command, _fill(p, values)) for p in scope.passes):
             done.append(key)
     return done
 
@@ -195,7 +301,6 @@ def reason(scopes: list[Scope], found: list[tuple[str, int]]) -> str:
     lines += [f"- {key}: {run_hint(scopes, key)}" for key, _ in found[:MAX_SHOWN]]
     if len(found) > MAX_SHOWN:
         lines.append(f"- (+{len(found) - MAX_SHOWN} more)")
-    lines.append("Run the check so its exit status is the command's -- on its own or after `&&`, with no "
-                 "`| tail`, `;` or `||` (or `set -o pipefail &&` first) -- or say in your answer that this "
-                 "is not verified. Asked once.")
+    lines.append("Run the check as the last command, with no `||` after it and no `| tail` (unless "
+                 "`set -o pipefail` comes first) -- or say in your answer that this is not verified. Asked once.")
     return "\n".join(lines)[:MAX_REASON]

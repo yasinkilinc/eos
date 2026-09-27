@@ -22,11 +22,14 @@ section as text only.
   in no scope are never asked about.
 - **`core/verify.py` is pure.** Path → scope instance (`service:billing`),
   command → the waiting instances it checks, ordered events → instances changed
-  after their last passing check. A command clears a scope only when the check
-  starts a shell segment (`&&`, `||`, `;`, newline; leading `bash`/`sh`/`env` and
-  variable assignments allowed) — a `grep` or `echo` that mentions it does not — and
-  a piped check counts only under `pipefail`, since a pipeline's status is its last
-  command's.
+  after their last passing check. A command clears a scope only when it exits 0
+  only if the check passed: the check starts a command (leading `bash`, `env`,
+  `time`, `timeout N` and variable assignments allowed) in the last top-level command
+  (split at unquoted `;` and newlines, comments and heredoc bodies removed), with no
+  `||` or background `&` in it; after the check `&&` may run only `echo`, `printf`,
+  `true`, `:`; a piped check counts only under an earlier `set -o pipefail`. A `grep`
+  or `echo` that mentions the check does not count. A placeholder is bounded only
+  where nothing in the pattern follows it (`test-{name}\.sh` bounds itself).
 - **The turn stops once.** The plugin's Stop handler blocks the main session when an
   instance is dirty, naming at most three with their check, ~600 characters: "run the
   check, or say in your answer that this is not verified". The same set is not asked

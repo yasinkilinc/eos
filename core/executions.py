@@ -324,6 +324,20 @@ def outcome_source(project_root: str | Path, record: Record | None) -> tuple[str
     return ("claimed" if left else "verified"), left
 
 
+def _open_in(ledger: Path, execution: str) -> bool:
+    record = {r.id: r for r in load_path(ledger)}.get(execution)
+    return record is not None and record.outcome is None
+
+
+def _root_of(ledger: Path) -> Path | None:
+    """The project whose ledger this is, so its lessons, procedure counters and
+    git head are the ones written -- not the caller's."""
+    for candidate in Path(ledger).resolve().parents:
+        if path_for(candidate).resolve() == Path(ledger).resolve():
+            return candidate
+    return None
+
+
 def finish(project_root: str | Path, execution: str | None = None, *, outcome: str,
            lesson: str | None = None, session: str | None = None,
            next_time: str | None = None) -> Record:
@@ -344,10 +358,13 @@ def finish(project_root: str | Path, execution: str | None = None, *, outcome: s
         if found is None:
             raise ValueError("no execution given and none is open for this session")
         execution, ledger = found
-    elif found is not None and found[0] == execution:
+    elif found is not None and found[0] == execution and not _open_in(ledger, execution):
         # A run opened in another project's ledger (a service, from the workspace
-        # root) is finished where it was started.
+        # root) is finished where it was started -- unless the caller's own ledger
+        # holds it open: worktrees share a committed ledger, so the same id can be
+        # open in two of them, and the caller means its own (second review).
         ledger = found[1]
+    project_root = _root_of(ledger) or project_root
     _checked(lesson, "lesson")
     _checked(next_time, "next time")
     existing = {r.id: r for r in load_path(ledger)}.get(execution)

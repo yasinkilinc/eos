@@ -42,6 +42,11 @@ def _lines(path: Path) -> int | None:
     return data.count(b"\n") + (0 if data.endswith(b"\n") or not data else 1)
 
 
+def _here(path: Path, bases: list[str | Path]) -> bool:
+    roots = [Path(base).expanduser().resolve() for base in bases] + [Path.home()]
+    return path.parent.is_dir() or any(path.is_relative_to(root) for root in roots)
+
+
 def wrong(text: str, bases: list[str | Path]) -> list[str]:
     """`<reference> -- <why>` for each certainly wrong reference."""
     problems = []
@@ -51,10 +56,11 @@ def wrong(text: str, bases: list[str | Path]) -> list[str]:
         candidates = [Path(path)] if os.path.isabs(path) else [Path(base) / path for base in bases]
         existing = next((c for c in candidates if c.is_file()), None)
         if existing is None:
-            # Missing only counts on this machine's own tree: `/app/...` from a
-            # container log may be right where it was written.
-            top = Path(path).parts[1] if os.path.isabs(path) and len(Path(path).parts) > 1 else ""
-            if top and Path("/", top).exists():
+            # Missing only counts where this machine would have the file: under a
+            # project base or home, or in a directory that exists here. `/app/...`
+            # or `/home/runner/...` from a container or CI log may be right where
+            # it was written.
+            if os.path.isabs(path) and _here(Path(path), bases):
                 problems.append(f"{path}:{line} -- no such file")
             continue
         count = _lines(existing)

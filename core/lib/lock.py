@@ -1,7 +1,8 @@
 """One writer at a time for a file that is read, changed and written back (2.x roadmap F2).
 
 On POSIX the lock is the kernel's (`fcntl.flock`) on a lock file kept under the
-user's state directory, one per locked path: a holder that dies -- a hook killed
+user's state directory, one per locked path (beside the file when that directory
+cannot be written): a holder that dies -- a hook killed
 by its timeout -- releases it with its process, so there is no stale lock to take
 over and no window in which two writers both take one over (branch review
 finding 3). The lock files are never deleted: deleting one while a writer waits
@@ -45,10 +46,24 @@ def lock_path(path: str | Path) -> Path:
     return _state_dir() / "locks" / f"{key}.lock"
 
 
+def _marker(path: str | Path) -> Path:
+    """`lock_path`, or a hidden lock file beside the target when the state
+    directory cannot be created (read-only home, a sandbox): every writer of the
+    same file falls back the same way, so they still share one lock."""
+    marker = lock_path(path)
+    try:
+        marker.parent.mkdir(parents=True, exist_ok=True)
+        if os.access(marker.parent, os.W_OK):
+            return marker
+    except OSError:
+        pass
+    target = Path(path).expanduser().resolve()
+    return target.parent / f".{target.name}.eos-lock"
+
+
 @contextlib.contextmanager
 def locked(path: str | Path, timeout: float = TIMEOUT_SECONDS, stale: float = STALE_SECONDS):
-    marker = lock_path(path)
-    marker.parent.mkdir(parents=True, exist_ok=True)
+    marker = _marker(path)
     if fcntl is None:
         yield from _exclusive(marker, timeout, stale)
         return

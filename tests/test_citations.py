@@ -33,3 +33,8 @@ def test_paths_that_are_not_local_absolute_paths_are_not_flagged(tmp_path):
     text = ("See ~/.claude/settings.json:12, <repo>/core/x.py:40, ${ROOT}/a.py:1, C:/x/y.py:3 "
             "and /app/src/main.py:88 from the container log.")
     assert citations.wrong(text, [tmp_path]) == []
+
+
+def test_a_missing_path_is_reported_only_where_this_machine_could_have_it(tmp_path):
+    text = "/usr/src/app/x.py:3 /home/runner/work/r/y.py:9 /opt/tool/z.py:1 /var/lib/app/w.py:2"
+    assert citations.wrong(text, [tmp_path]) == []
