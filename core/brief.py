@@ -411,7 +411,8 @@ def best_procedure(root: Path, task: str, corpus: list | None = None):
     """
     corpus = corpus if corpus is not None else notes.load_notes(root)
     replaced = notes.superseded(corpus)
-    candidates = [n for n in corpus if n.kind == "procedure" and n.path.name not in replaced]
+    candidates = [n for n in corpus if n.kind == "procedure" and n.path.name not in replaced
+                 and not notes.expired(n)]
     if not candidates:
         return None
     words = notes._words(task)

@@ -269,6 +269,9 @@ def amend_note(
     reaffirm: str | None = None,
     scope: list[str] | None = None,
     session: str | None = None,
+    provenance: str | None = None,
+    agent: str | None = None,
+    valid_until: str | None = None,
 ) -> Path:
     """Rewrite one note in place and re-hash its scope.
 
@@ -327,6 +330,17 @@ def amend_note(
     omitted `--session` must not erase that record. Time provenance lives in
     the created/updated pair instead.
 
+    `--provenance`, `--agent` and `--valid-until` (N8) each independently
+    keep the note's existing value when their flag is not given -- a metadata
+    amend that only widens `valid_until` must not clear who wrote it. Given,
+    they are checked exactly as `add_note` checks them (`_check_provenance`,
+    `_check_valid_until`), against the value this call is about to write, so
+    `--agent` alone still implies `provenance: agent` and naming one while
+    the note (new or kept) is `provenance: human` is still refused. Setting
+    only these three is a valid amend on its own, with no `--body` required:
+    unlike a body revision, recording who wrote a note or how long it holds
+    changes nothing the duplicate or stale-flag guards above care about.
+
     `note_path` must resolve inside `notes_dir(project_root)` and must parse
     as a note (front matter with a non-empty kind and title). Both guard the
     same failure mode: a wrong or defaulted `--path` -- or a target that is
@@ -354,8 +368,10 @@ def amend_note(
     """
     if body is not None and reaffirm is not None:
         raise ValueError("amend accepts only one of --body or --reaffirm")
-    if body is None and reaffirm is None and scope is None:
-        raise ValueError("amend needs at least one of --body, --reaffirm, or --scope")
+    if (body is None and reaffirm is None and scope is None
+            and provenance is None and agent is None and valid_until is None):
+        raise ValueError("amend needs at least one of --body, --reaffirm, --scope, "
+                         "--provenance, --agent, or --valid-until")
     if scope is not None and not scope:
         raise ValueError(
             "--scope must name at least one file; an empty value is refused "
@@ -384,6 +400,16 @@ def amend_note(
             f"{path} does not look like a note (front matter has no kind or "
             "title); refusing to rewrite a file amend_note did not write."
         )
+
+    # A flag not given keeps what the note already has; given, it is checked
+    # against the value the note is about to carry, so `--agent` alone still
+    # forces `provenance: agent` and a contradiction with the kept (or new)
+    # provenance is still refused, exactly as `add_note` refuses it.
+    effective_agent = agent if agent is not None else note.agent
+    effective_provenance = _check_provenance(
+        provenance if provenance is not None else note.provenance, effective_agent
+    )
+    effective_valid_until = _check_valid_until(valid_until) if valid_until is not None else note.valid_until
 
     if body is not None:
         if not body.strip():
@@ -426,7 +452,11 @@ def amend_note(
         stamp = datetime.date.today().isoformat()
         content = f"{note.body.strip()}\n\n[{stamp}] Still holds: {reaffirm.strip()}"
     else:
-        if _canonical_scope(scope) == _canonical_scope(note.scope):
+        # Reached with `scope` still None for a metadata-only amend (N8):
+        # --provenance/--agent/--valid-until alone, no --body, --reaffirm or
+        # --scope. Nothing about scope was asked to change, so there is
+        # nothing to compare here.
+        if scope is not None and _canonical_scope(scope) == _canonical_scope(note.scope):
             raise ValueError(
                 "--scope names the same set of entries the note already has "
                 "(reordering them, or repeating one, re-points nothing), so "
@@ -563,11 +593,12 @@ def amend_note(
             # A lesson keeps the run that taught it through any rewrite.
             "execution": note.execution,
             "supersedes": note.supersedes,
-            # Provenance and validity are recorded once, at `add`; amend has no
-            # flags for them and must not erase what is already there.
-            "provenance": note.provenance,
-            "agent": note.agent,
-            "valid_until": note.valid_until,
+            # --provenance/--agent/--valid-until (N8): the value this call
+            # computed above, which is the note's own kept value when the
+            # flag was not given.
+            "provenance": effective_provenance,
+            "agent": effective_agent,
+            "valid_until": effective_valid_until,
         }
     )
     path.write_text(f"{document}\n\n{content}\n", encoding="utf-8")

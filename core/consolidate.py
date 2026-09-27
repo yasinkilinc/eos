@@ -85,7 +85,9 @@ def _silent_steps(root: Path, records) -> dict:
     from core import executions, notes, steps
 
     silent = {}
-    for note in notes.procedures(root):
+    # Same reason as audit_procedures: consolidate reports problems, and an
+    # expired procedure's silent steps are still one (N8).
+    for note in notes.procedures(root, include_expired=True):
         runs = [r for r in records if r.procedure == note.procedure and r.outcome]
         if not runs:
             continue

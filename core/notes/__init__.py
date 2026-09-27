@@ -32,8 +32,8 @@ from core.notes.procedures import (
     _STEP_TOOL, KNOWN_FAILURES, RULES_SECTION, RULES_MAX_CHARS, procedure_steps,
     procedure_tools, procedure_rules, procedure_prerequisites, procedure_success,
     procedure_known_failures, _procedure_front, procedures, replacing_procedure,
-    find_procedure, _append_known_failure, record_procedure_run, FRESH_DAYS,
-    AGING_DAYS, CONFIDENCE_WORDS, procedure_confidence, lessons_for,
+    expired_procedure, find_procedure, _append_known_failure, record_procedure_run,
+    FRESH_DAYS, AGING_DAYS, CONFIDENCE_WORDS, procedure_confidence, lessons_for,
 )  # noqa: F401
 from core.notes.validate import (
     _REQUIRED_SECTIONS, _compose_body, _PLACEHOLDER_RE, _is_placeholder, _refuse_scope,

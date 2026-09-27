@@ -14,7 +14,9 @@ from core.cli.common import _split_csv
 def cmd_procedure_list(args: argparse.Namespace) -> int:
     from core import executions
 
-    found = notes.procedures(args.path)
+    # A listing is browsed by a person deciding what to run; an expired one
+    # still belongs in it so its state is visible, not silently gone (N8).
+    found = notes.procedures(args.path, include_expired=True)
     if args.tool:
         found = [n for n in found if args.tool in notes.procedure_tools(n)]
     if args.target:

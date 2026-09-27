@@ -169,6 +169,59 @@ def test_the_audit_names_never_verified_and_latest_failed_without_failing(projec
     assert _run(["procedure", "audit", str(project)]).returncode == 0
 
 
+# --- expiry and replacement (N8) --------------------------------------------------------
+
+
+def _expire(note, when="2020-01-01"):
+    """Give a recorded procedure a `valid_until` in the past. `add_note` itself
+    refuses a past date (it would never be offered), so this edits the file the
+    way `test_a_counter_update_keeps_every_other_front_matter_line` does."""
+    text = note.path.read_text()
+    note.path.write_text(text.replace("---\n\n", f"valid_until: {when}\n---\n\n", 1))
+    return notes.parse_note(note.path)
+
+
+def test_an_expired_procedure_is_left_out_by_default_but_kept_for_audit(project):
+    note = _procedure(project)
+    stale = _expire(note)
+    assert notes.procedures(project) == []
+    assert [n.procedure for n in notes.procedures(project, include_expired=True)] == [stale.procedure]
+
+
+def test_best_procedure_skips_an_expired_procedure(project):
+    from core import brief
+
+    note = _procedure(project, title="Deploy to staging", tags=["deploy"])
+    _expire(note)
+    assert brief.best_procedure(project, "deploy to staging") is None
+
+
+def test_run_start_refuses_an_expired_procedure_naming_valid_until(project):
+    note = _procedure(project)
+    stale = _expire(note, "2020-01-01")
+    refused = pytest.raises(ValueError, match="2020-01-01")
+    with refused:
+        executions.start(project, "Deploy", procedure=stale.procedure)
+
+
+def test_the_cli_list_and_audit_still_show_an_expired_procedure(project):
+    note = _procedure(project)
+    stale = _expire(note, "2020-01-01")
+    listed = _run(["procedure", "list", str(project)])
+    assert stale.procedure in listed.stdout
+    audited = _run(["procedure", "audit", str(project)])
+    assert stale.procedure in audited.stdout
+
+
+def test_consolidate_still_counts_an_expired_procedure(project):
+    from core import consolidate
+
+    note = _procedure(project)
+    _expire(note, "2020-01-01")
+    data = consolidate.report(project)
+    assert data["procedures"]["total"] == 1
+
+
 # --- the CLI ---------------------------------------------------------------------------
 
 

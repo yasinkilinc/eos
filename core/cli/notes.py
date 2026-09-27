@@ -263,6 +263,9 @@ def cmd_note_amend(args: argparse.Namespace) -> int:
             reaffirm=args.reaffirm,
             scope=scope,
             session=args.session,
+            provenance=args.provenance,
+            agent=args.agent,
+            valid_until=args.valid_until,
         )
     except (ValueError, OSError) as exc:
         print(f"error: {exc}", file=sys.stderr)

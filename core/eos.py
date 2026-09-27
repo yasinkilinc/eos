@@ -368,6 +368,13 @@ def main(argv: list[str] | None = None) -> int:
         "scope list wholesale. May stand alone or combine with --body/--reaffirm.",
     )
     note_amend_p.add_argument("--session", default=None, help="Session id, set by the gate hook")
+    note_amend_p.add_argument("--provenance", choices=notes.PROVENANCES,
+                              help="Who wrote it; --agent alone implies 'agent'. Unset keeps the "
+                              "note's current provenance")
+    note_amend_p.add_argument("--agent", help="The agent that wrote it (claude, devin, ...); unset "
+                              "keeps the note's current agent")
+    note_amend_p.add_argument("--valid-until", help="YYYY-MM-DD: after this day search and briefs "
+                              "stop offering it; unset keeps the note's current valid-until")
 
     note_audit_p = note_sub.add_parser("audit", help="Report notes whose scoped files changed")
     add_path(note_audit_p)

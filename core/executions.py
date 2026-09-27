@@ -243,6 +243,10 @@ def start(project_root: str | Path, title: str, *, procedure: str | None = None,
         if newer is not None:
             raise ValueError(f"procedure {procedure!r} was replaced by {newer.procedure!r} "
                              f"({newer.title}); start the run with --procedure {newer.procedure}")
+        stale = notes.expired_procedure(project_root, procedure)
+        if stale is not None:
+            raise ValueError(f"procedure {procedure!r} expired {stale.valid_until} "
+                             f"({stale.title}); it is refused the same way a replaced procedure is")
     sid = session_for(project_root, session)
     commit, branch = work.git_head(project_root)
     record = Record(id=f"x-{work.make_id(title)}", title=title.strip(), procedure=procedure,
@@ -652,7 +656,9 @@ def audit_procedures(project_root: str | Path, now: str | None = None) -> list[d
     clock = datetime.datetime.fromisoformat(now or utc_now())
     stale_names = {entry["note"] for entry in notes.stale_notes(project_root)}
     report = []
-    for note in notes.procedures(project_root):
+    # The audit's job is to surface a problem, and an expired procedure never
+    # run (or failing) is exactly that -- it must not disappear here (N8).
+    for note in notes.procedures(project_root, include_expired=True):
         runs = of_procedure(project_root, note.procedure or "")
         ok = sum(1 for r in runs if r.outcome == "ok")
         failed = sum(1 for r in runs if r.outcome == "failed")

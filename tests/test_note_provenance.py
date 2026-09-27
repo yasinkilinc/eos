@@ -134,3 +134,72 @@ def test_the_cli_writes_provenance_and_validity(tmp_path):
     note = notes.load_notes(project)[0]
     assert (note.provenance, note.valid_until) == ("human", until)
     assert note.path.name in result.stdout
+
+
+# --- N8 ---------------------------------------------------------------------------------
+
+
+def test_amend_can_set_provenance_agent_and_valid_until_with_no_body(tmp_path):
+    project = _project(tmp_path)
+    path = _add(project, "Wallet cache warms on boot")
+    until = (datetime.date.today() + datetime.timedelta(days=30)).isoformat()
+    # No --body, --reaffirm or --scope: a metadata-only amend was refused before N8.
+    notes.amend_note(path, project, provenance="agent", agent="claude", valid_until=until)
+    note = notes.parse_note(path)
+    assert (note.provenance, note.agent, note.valid_until) == ("agent", "claude", until)
+
+
+def test_amend_setting_only_agent_implies_agent_provenance(tmp_path):
+    project = _project(tmp_path)
+    path = _add(project, "Wallet cache warms on boot")
+    notes.amend_note(path, project, agent="devin")
+    note = notes.parse_note(path)
+    assert (note.provenance, note.agent) == ("agent", "devin")
+
+
+def test_amend_keeps_the_fields_a_flag_did_not_touch(tmp_path):
+    project = _project(tmp_path)
+    until = (datetime.date.today() + datetime.timedelta(days=10)).isoformat()
+    path = _add(project, "Wallet cache warms on boot", provenance="human", valid_until=until)
+    notes.amend_note(path, project, reaffirm="checked again")
+    note = notes.parse_note(path)
+    assert (note.provenance, note.agent, note.valid_until) == ("human", None, until)
+
+
+def test_amend_validates_provenance_the_same_as_add(tmp_path):
+    project = _project(tmp_path)
+    path = _add(project, "Wallet cache warms on boot")
+    with pytest.raises(ValueError, match="provenance"):
+        notes.amend_note(path, project, provenance="robot")
+
+
+def test_amend_refuses_an_agent_name_against_the_notes_human_provenance(tmp_path):
+    project = _project(tmp_path)
+    path = _add(project, "Wallet cache warms on boot", provenance="human")
+    with pytest.raises(ValueError, match="agent"):
+        notes.amend_note(path, project, agent="claude")
+
+
+def test_amend_validates_valid_until_the_same_as_add(tmp_path):
+    project = _project(tmp_path)
+    path = _add(project, "Wallet cache warms on boot")
+    with pytest.raises(ValueError, match="past"):
+        notes.amend_note(path, project,
+                         valid_until=(datetime.date.today() - datetime.timedelta(days=1)).isoformat())
+
+
+def test_the_cli_amends_provenance_and_validity_alone(tmp_path):
+    project = tmp_path / "demo"
+    project.mkdir()
+    run = lambda *a: subprocess.run([sys.executable, str(REPO / "core" / "eos.py"), *a],  # noqa: E731
+                                    capture_output=True, text=True, cwd=REPO)
+    assert run("init", str(project)).returncode == 0
+    added = run("note", "add", str(project), "--kind", "finding", "--title", "Cache warms on boot",
+               "--body", "The first request pays for it otherwise.")
+    assert added.returncode == 0, added.stderr
+    note_path = notes.load_notes(project)[0].path
+    until = (datetime.date.today() + datetime.timedelta(days=30)).isoformat()
+    result = run("note", "amend", str(note_path), str(project), "--agent", "devin", "--valid-until", until)
+    assert result.returncode == 0, result.stderr
+    note = notes.load_notes(project)[0]
+    assert (note.provenance, note.agent, note.valid_until) == ("agent", "devin", until)

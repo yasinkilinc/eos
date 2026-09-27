@@ -5,7 +5,7 @@ import re
 from pathlib import Path
 
 from core.notes.store import (
-    Note, _items, _set_front, append_bullet, load_notes, section_in, steps_in,
+    Note, _items, _set_front, append_bullet, expired, load_notes, section_in, steps_in,
     superseded,
 )
 
@@ -68,11 +68,16 @@ def _procedure_front(slug: str, runs_ok: int, runs_failed: int,
             "last_verified": last_verified, "last_execution": last_execution}
 
 
-def procedures(project_root: str | Path) -> list[Note]:
-    """The procedures in use: one another replaced is left out."""
+def procedures(project_root: str | Path, *, include_expired: bool = False) -> list[Note]:
+    """The procedures in use: one another replaced is left out, and -- unless
+    `include_expired` -- one past its `valid_until` too (N8). Matching (`eos
+    run start --procedure`, the task brief) wants the default; audit, lint and
+    consolidate tooling still has to report a problem an expired procedure
+    has, so those pass `include_expired=True` rather than lose it."""
     corpus = load_notes(project_root)
     replaced = superseded(corpus)
-    return [n for n in corpus if n.kind == "procedure" and n.path.name not in replaced]
+    return [n for n in corpus if n.kind == "procedure" and n.path.name not in replaced
+            and (include_expired or not expired(n))]
 
 
 def replacing_procedure(project_root: str | Path, slug: str) -> Note | None:
@@ -84,6 +89,15 @@ def replacing_procedure(project_root: str | Path, slug: str) -> Note | None:
         return None
     by_name = {n.path.name: n for n in corpus}
     return by_name.get(replaced[old.path.name][-1])
+
+
+def expired_procedure(project_root: str | Path, slug: str) -> Note | None:
+    """The procedure recorded under `slug`, when it is past its `valid_until` --
+    for `run start --procedure`'s refusal (N8), the same shape `replacing_procedure`
+    uses: an exact slug only, and no note by that slug is not an error here."""
+    corpus = load_notes(project_root)
+    note = next((n for n in corpus if n.kind == "procedure" and n.procedure == slug), None)
+    return note if note is not None and expired(note) else None
 
 
 def find_procedure(project_root: str | Path, needle: str) -> Note:
