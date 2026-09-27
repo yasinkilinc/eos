@@ -39,6 +39,17 @@ canonical `core/` runtime to `~/.local/share/eos/<version>/` and installs an
 executable launcher under `~/.local/bin/eos`. Override the locations with
 `EOS_INSTALL_PREFIX`, `EOS_DATA_DIR`, `EOS_BIN_DIR`, or `EOS_PYTHON`.
 
+## What changed in 1.12
+
+- **A check run so it cannot count is said at once:** when a command runs a
+  waiting check piped into `tail` or followed by `;`, the hook says so once per
+  session with the form that counts -- replaying the host's history, half the
+  changes the Stop gate would ask about had their check run that way. Under
+  `set -e` a check ending its `&&` chain counts; `/bin/bash` passes through.
+- **`eos consolidate` names silent steps:** steps whose tool no run of the
+  procedure ever recorded, so no run can say how they went.
+- **`eos cost --context` says when it over-counts** the cache reads.
+
 ## What changed in 1.11
 
 - **The main session's references are checked too:** at Stop, a missing

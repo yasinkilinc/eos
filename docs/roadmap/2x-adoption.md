@@ -1,8 +1,8 @@
 # EOS 2.x branch — what landed overnight and how to adopt it
 
-Branch `eos-2x` (from `main` 1.5.1), released on the branch as 1.6.0 → 1.11.0.
+Branch `eos-2x` (from `main` 1.5.1), released on the branch as 1.6.0 → 1.12.0.
 Every step: tests first, the full suite green before the commit
-(1,130 passed, 1 skipped at 1.11.0), `tools/check-clean.sh` clean. `main` untouched.
+(1,136 passed, 1 skipped at 1.12.0), `tools/check-clean.sh` clean. `main` untouched.
 The row-by-row ledger with commits is `docs/roadmap/2x-progress.md`.
 
 ## What changed, by the question it answers
@@ -26,6 +26,7 @@ The row-by-row ledger with commits is `docs/roadmap/2x-progress.md`.
 | 1.10.0 | Typed steps (E2, ADR-031), `eos cite` (E3 depth 1) | `run show` names the step a failed run failed at; an answer's quotes are checked against the lines they cite |
 | 1.10.1-2 | Fixes | a retried step is not the failed step; a third review: `$(...)` checks, `bash -c`, finish's root walk |
 | 1.11.0 | Main-session citation check, brief step line | the answer the user reads is checked at Stop like a subagent's; the brief says where the last failure stopped |
+| 1.12.0 | Verify gate measured on the host's history | 36 of 37 past sessions with scoped changes would be stopped; half had run the check uncountably, so that now gets a hint at once; `consolidate` names silent steps |
 
 Live-verified in headless sessions: the verify Stop gate (1.9.1: gate once, the
 check re-run so it counts; 1.10.2: `&& echo VERIFIED` counts and no gate fires),
@@ -36,7 +37,7 @@ session's citation check (stopped once, the model read the file and corrected it
 
 1. Review `eos-2x` against `main` (a PR on GitHub from `eos-2x`), then merge.
 2. In nexus: `git subtree pull --prefix tools/eos eos main --squash`, then
-   `bash automation/install-eos-cli.sh` (the global CLI moves to 1.11.0).
+   `bash automation/install-eos-cli.sh` (the global CLI moves to 1.12.0).
 3. The nexus side of this work is on the local branch `eos-2x` in the worktree
    `../nexus-2x` (not pushed: the VPN was off). Its commits: the `verify.toml`
    scopes and their test, the golden-alternates proposal, six read-only scripts
@@ -57,6 +58,10 @@ session's citation check (stopped once, the model read the file and corrected it
   by about a quarter (they are sized at 3.0 today).
 - **Procedure texts:** `admin-toolbox`, `review`, `report` are named as tools by three
   procedures and exist nowhere (`eos procedure lint .`).
+- **The `automation` verify scope:** replaying 61 past sessions, 21 of the 23 changes
+  never checked were wrapper edits (bb.sh, jenkins.sh, generate-env.sh ...) with no
+  automation test run. Keep asking, or also accept a live call of the edited wrapper /
+  `bash -n` as its check (`nexus-2x .devin/knowledge/nexus/verify.toml`)?
 - **L2 graph (ADR-032, proposed):** EOS's graph found 99.4% of the tests affected by a
   change against Graphify's 83.6% (353 pairs, three services), at 0.16 ms against ~1 s.
   Stop building Graphify's per-service graph.json once nothing else reads it?
