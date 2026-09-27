@@ -39,6 +39,17 @@ canonical `core/` runtime to `~/.local/share/eos/<version>/` and installs an
 executable launcher under `~/.local/bin/eos`. Override the locations with
 `EOS_INSTALL_PREFIX`, `EOS_DATA_DIR`, `EOS_BIN_DIR`, or `EOS_PYTHON`.
 
+## What changed in 1.10
+
+- **Typed procedure steps (ADR-031):** a step may mark `(in: a)`, `(out: b)`,
+  `(on_failure: N)` beside `(tool: X)`. `eos procedure lint` names an input
+  nothing provides, a jump to no step and on_failure circles; a run's events are
+  placed on steps by tool, so `eos run show` says which step a failed run failed
+  at and `eos procedure show` gives each step's status in the last run.
+- **`eos cite`:** references and quotes in an answer that cannot be right -- a
+  missing file, a line past the end, a quote not within two lines of the range
+  it cites. Exit 1 when it finds one.
+
 ## What changed in 1.9
 
 - **`eos consolidate`:** one report of what needs attention -- procedures
