@@ -253,6 +253,72 @@ def test_the_cli_round_trip_start_event_finish_show(project):
     assert run_id in listed.stdout
 
 
+def test_run_finish_warns_about_changed_files_outside_the_procedures_scope(project):
+    notes.add_note(project, kind="procedure", title="Deploy wallet scope test",
+                   body="## Steps\n1. build\n2. deploy\n",
+                   scope=["src/wallet.py", "src/wallet_config.py"])
+    env = {**os.environ, "EOS_SESSION": "s-scope"}
+    assert _run(["run", "start", str(project), "--title", "run it",
+                "--procedure", "Deploy wallet scope test"], env).returncode == 0
+    assert _run(["run", "event", str(project), "--kind", "changed", "--ref", "src/wallet.py"],
+               env).returncode == 0
+    assert _run(["run", "event", str(project), "--kind", "changed", "--ref", "docs/README.md"],
+               env).returncode == 0
+
+    finished = _run(["run", "finish", str(project), "--outcome", "ok"], env)
+
+    assert finished.returncode == 0
+    assert "docs/README.md" in finished.stdout
+    assert "src/wallet.py" not in finished.stdout
+
+
+def test_run_finish_never_refuses_and_never_changes_outcome_for_out_of_scope_changes(project):
+    notes.add_note(project, kind="procedure", title="Narrow scope test",
+                   body="## Steps\n1. build\n", scope=["src/only.py"])
+    env = {**os.environ, "EOS_SESSION": "s-scope2"}
+    assert _run(["run", "start", str(project), "--title", "run it",
+                "--procedure", "Narrow scope test"], env).returncode == 0
+    assert _run(["run", "event", str(project), "--kind", "changed", "--ref", "elsewhere.py"],
+               env).returncode == 0
+
+    finished = _run(["run", "finish", str(project), "--outcome", "ok"], env)
+
+    assert finished.returncode == 0
+    record = executions.load(project)[0]
+    assert record.outcome == "ok"
+
+
+def test_run_finish_caps_the_warning_at_five_files_then_a_count(project):
+    notes.add_note(project, kind="procedure", title="Many files scope test",
+                   body="## Steps\n1. build\n", scope=["src/only.py"])
+    env = {**os.environ, "EOS_SESSION": "s-scope3"}
+    assert _run(["run", "start", str(project), "--title", "run it",
+                "--procedure", "Many files scope test"], env).returncode == 0
+    for n in range(7):
+        assert _run(["run", "event", str(project), "--kind", "changed",
+                    "--ref", f"other/file{n}.py"], env).returncode == 0
+
+    finished = _run(["run", "finish", str(project), "--outcome", "ok"], env)
+
+    for n in range(5):
+        assert f"other/file{n}.py" in finished.stdout
+    assert "other/file5.py" not in finished.stdout and "other/file6.py" not in finished.stdout
+    assert "+2" in finished.stdout or "2 more" in finished.stdout
+
+
+def test_run_finish_says_nothing_when_the_procedure_has_no_scope(project):
+    notes.add_note(project, kind="procedure", title="No scope test", body="## Steps\n1. build\n")
+    env = {**os.environ, "EOS_SESSION": "s-scope4"}
+    assert _run(["run", "start", str(project), "--title", "run it",
+                "--procedure", "No scope test"], env).returncode == 0
+    assert _run(["run", "event", str(project), "--kind", "changed", "--ref", "anything.py"],
+               env).returncode == 0
+
+    finished = _run(["run", "finish", str(project), "--outcome", "ok"], env)
+
+    assert "scope" not in finished.stdout.lower()
+
+
 def test_run_start_without_any_session_says_how_capture_can_still_reach_it(project):
     env = {k: v for k, v in os.environ.items() if k not in ("EOS_SESSION", "CLAUDE_CODE_SESSION_ID")}
     done = _run(["run", "start", str(project), "--title", "Deploy"], env)

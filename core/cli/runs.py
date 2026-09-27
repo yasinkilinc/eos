@@ -99,6 +99,35 @@ def cmd_run_event(args: argparse.Namespace) -> int:
     return 0
 
 
+def _outside_scope(root, record) -> list[str]:
+    """Changed files this run recorded that its procedure's own scope does not
+    cover (2.x roadmap N6); [] when the procedure names no scope, or names
+    none at all. Matches a scope entry exactly, as a directory prefix, or as
+    an fnmatch glob -- the same three shapes scope entries are written in.
+    """
+    if not record.procedure:
+        return []
+    from core import notes
+
+    try:
+        note = notes.find_procedure(root, record.procedure)
+    except ValueError:
+        return []
+    if not note.scope:
+        return []
+    import fnmatch
+
+    def in_scope(ref: str) -> bool:
+        return any(ref == entry or ref.startswith(entry.rstrip("/") + "/") or fnmatch.fnmatch(ref, entry)
+                   for entry in note.scope)
+
+    outside: list[str] = []
+    for event in record.events:
+        if event.kind == "changed" and event.ref and event.ref not in outside and not in_scope(event.ref):
+            outside.append(event.ref)
+    return outside
+
+
 def cmd_run_finish(args: argparse.Namespace) -> int:
     from core import executions
 
@@ -118,6 +147,11 @@ def cmd_run_finish(args: argparse.Namespace) -> int:
             print(f"claimed: {', '.join(changed)} changed after its last passing check")
         if success:
             print(f"claimed: the procedure's Success check(s) never ran: {', '.join(success)}")
+    outside = _outside_scope(args.path, record)
+    if outside:
+        shown = ", ".join(outside[:5])
+        rest = f" (+{len(outside) - 5} more)" if len(outside) > 5 else ""
+        print(f"warning: changed outside {record.procedure}'s scope: {shown}{rest}")
     return 0
 
 
