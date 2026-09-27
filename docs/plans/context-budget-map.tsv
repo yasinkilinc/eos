@@ -1,0 +1,124 @@
+# Sections the context-budget C rows moved out of loaded files (A-06).
+# Checked by: automation/context-budget.sh --moved
+source	rev	heading	note
+CLAUDE.md	c2e762f	Start here	.devin/knowledge/nexus/20260924-nexus-claude-md-start-here-which-agent-and-skills-a-session-works-through-devin-and-claude-load-this-file.md
+CLAUDE.md	c2e762f	Two knowledge tools, different questions	.devin/knowledge/nexus/20260924-nexus-claude-md-two-knowledge-tools-eos-commands-worth-a-habit-eos-subtree-flow-and-graphify-affected.md
+CLAUDE.md	c2e762f	Local builds and tests	.devin/knowledge/nexus/20260924-nexus-claude-md-local-builds-and-evidence-wrappers-mvn-jinspect-gitx-argo-obs-ntf-jira-bb-apitest-scenario.md
+CLAUDE.md	c2e762f	Product version upgrade	.devin/knowledge/nexus/20260924-nexus-claude-md-product-version-upgrade-with-release-manifest-release-run-upgrade-prep-and-release-preflight.md
+CLAUDE.md	c2e762f	Cache after a config fix	.devin/knowledge/nexus/20260924-nexus-claude-md-cache-after-a-config-fix-time-to-idle-cache-and-cache-clear-sh.md
+CLAUDE.md	c2e762f	Confluence	.devin/knowledge/nexus/20260924-nexus-claude-md-confluence-through-confluence-sh-digest-stale-version-refusal.md
+CLAUDE.md	c2e762f	Config SQL scripts	.devin/knowledge/nexus/20260924-nexus-claude-md-config-sql-scripts-take-their-ids-from-generate-config-ids-sh-no-placeholders.md
+CLAUDE.md	c2e762f	When a tool looks missing	.devin/knowledge/nexus/20260924-nexus-claude-md-when-a-tool-looks-missing-one-shared-mcp-config-and-the-retired-mcp-servers.md
+.claude/agents/atlas.md	bf2b403	Skill composition	.devin/knowledge/nexus/20260924-atlas-agent-claude-skill-composition-and-the-evidence-wrapper-table-the-raw-command-each-replaces-and-its-measured-cost.md
+.devin/agents/atlas.md	bf2b403	Behavior	.devin/knowledge/nexus/20260924-atlas-agent-devin-behavior-list-with-the-evidence-wrappers-the-raw-command-each-replaces-and-its-measured-cost.md
+.devin/skills/project-intelligence/SKILL.md	6f1b2bb	Capability policy	.devin/knowledge/nexus/20260924-project-intelligence-capability-policy-and-choosing-between-eos-and-graphify-measured-cost-of-each-call-the-project-path-trap.md
+.devin/skills/dev-atlas/SKILL.md	c7bb9e2	0. CONTEXT — Execute on Every Task Start (intro)	.devin/knowledge/nexus/20260924-dev-atlas-0-the-code-is-the-source-of-truth-no-decompiler-jinspect-sh-cmp-before-trusting-parent-source.md
+.devin/skills/dev-atlas/SKILL.md	c7bb9e2	0.1 MCP Server Setup (one-time per service)	.devin/knowledge/nexus/20260924-dev-atlas-0-1-eos-index-setup-per-service-with-ensure-eos-mcp-sh-parent-link.md
+.devin/skills/dev-atlas/SKILL.md	c7bb9e2	0.2 Context Load	.devin/knowledge/nexus/20260924-dev-atlas-0-2-context-load-read-grep-glob-first-eos-query-parent-and-notes-eos-rules-trace-why-impact.md
+.devin/skills/dev-atlas/SKILL.md	c7bb9e2	Environment Databases — `automation/db.sh`, Use Automatically When Data Is Needed	.devin/knowledge/nexus/20260924-dev-atlas-0-3-environment-databases-through-db-sh-read-only-retired-postgres-and-mongo-mcp-servers.md
+.devin/skills/dev-atlas/SKILL.md	c7bb9e2	0.4 Parent Project Verification	.devin/knowledge/nexus/20260924-dev-atlas-0-4-parent-project-verification-with-check-parent-versions-sh-not-eos-parents.md
+.devin/skills/dev-atlas/SKILL.md	c7bb9e2	0.5 Accumulated Knowledge	.devin/knowledge/nexus/20260924-dev-atlas-0-5-accumulated-knowledge-eos-query-notes-journeys-first-jira-task-to-service-mapping.md
+.devin/skills/dev-atlas/SKILL.md	c7bb9e2	0.6 Repo topology — overlay, fork, or the product itself	.devin/knowledge/nexus/20260924-dev-atlas-0-6-repo-topology-overlay-fork-or-product-repo-where-a-fix-belongs.md
+.devin/skills/dev-atlas/SKILL.md	c7bb9e2	1.1 Fetch Task from Jira	.devin/knowledge/nexus/20260924-dev-atlas-1-1-fetch-the-task-from-jira-with-jira-sh-which-atlassian-site-hosts-which-project.md
+.devin/skills/dev-atlas/SKILL.md	c7bb9e2	1.2 Service Workspace Safety — Stash First	.devin/knowledge/nexus/20260924-dev-atlas-1-2-stash-first-before-changing-branches-in-a-service.md
+.devin/skills/dev-atlas/SKILL.md	c7bb9e2	1.3 Master Sync — Required Before Branch Creation	.devin/knowledge/nexus/20260924-dev-atlas-1-3-master-sync-before-branch-creation-no-pull-no-merge.md
+.devin/skills/dev-atlas/SKILL.md	c7bb9e2	1.4 Task Branch — Exact Jira ID	.devin/knowledge/nexus/20260924-dev-atlas-1-4-task-branch-with-the-exact-jira-id-control-freak-regex-branch-name-selection-reopening-a-merged-branch.md
+.devin/skills/dev-atlas/SKILL.md	c7bb9e2	1.5 Environment	.devin/knowledge/nexus/20260924-dev-atlas-1-5-environment-env1-by-default-workspace-paths-the-e2e-prepaid-activation-case.md
+.devin/skills/dev-atlas/SKILL.md	c7bb9e2	1.6 Changelog deployment workflow	.devin/knowledge/nexus/20260924-dev-atlas-1-6-changelog-deployment-workflow-a-fm-master-pr-enters-env0.md
+.devin/skills/dev-atlas/SKILL.md	c7bb9e2	2. Context Analysis → Task Mapping	.devin/knowledge/nexus/20260924-dev-atlas-2-context-analysis-before-code-layer-classes-parent-blast-radius-command-wiring-links.md
+.devin/skills/dev-atlas/SKILL.md	c7bb9e2	3. Implementation Report (Approval Gate)	.devin/knowledge/nexus/20260924-dev-atlas-3-implementation-report-template-for-the-approval-gate.md
+.devin/skills/dev-atlas/SKILL.md	c7bb9e2	4. TDD Implementation (After Approval)	.devin/knowledge/nexus/20260924-dev-atlas-4-tdd-red-green-refactor-the-failing-test-first.md
+.devin/skills/dev-atlas/SKILL.md	c7bb9e2	5. Hexagonal Architecture — File Structure (intro)	.devin/knowledge/nexus/20260924-dev-atlas-5-hexagonal-architecture-file-structure-and-its-hard-rules.md
+.devin/skills/dev-atlas/SKILL.md	c7bb9e2	6. API Test Scenarios and Sanitized curl	.devin/knowledge/nexus/20260924-dev-atlas-6-api-test-scenarios-and-sanitized-curl-through-env-api-verification.md
+.devin/skills/dev-atlas/SKILL.md	c7bb9e2	7.1 Commit Strategy	.devin/knowledge/nexus/20260924-dev-atlas-7-1-commit-strategy-one-file-per-commit-the-control-freak-commit-format-no-attribution.md
+.devin/skills/dev-atlas/SKILL.md	c7bb9e2	7.2 Push to Remote	.devin/knowledge/nexus/20260924-dev-atlas-7-2-push-with-gitx-sh-a-control-freak-rejection-foxtrot-safe-mode.md
+.devin/skills/dev-atlas/SKILL.md	c7bb9e2	7.3 PR Creation and Link	.devin/knowledge/nexus/20260924-dev-atlas-7-3-pr-creation-with-bb-sh-create-a-draft-when-it-must-not-merge-the-manual-pr-link.md
+.devin/skills/dev-atlas/SKILL.md	c7bb9e2	7.4 Mandatory Pre-PR Gate	.devin/knowledge/nexus/20260924-dev-atlas-7-4-pre-pr-gate-ai-reviewer-self-check-pre-pr-check-sh-new-code-coverage-stale-notes.md
+.devin/skills/dev-atlas/SKILL.md	c7bb9e2	7.5 Jira Worklog — never overlap	.devin/knowledge/nexus/20260924-dev-atlas-7-5-jira-worklog-read-the-day-s-logs-on-both-sites-first-0400-fix-by-put.md
+.devin/skills/dev-atlas/SKILL.md	c7bb9e2	8. Post-Task EOS Refresh	.devin/knowledge/nexus/20260924-dev-atlas-8-post-task-eos-refresh-scan-note-add-skip-amend-audit.md
+.devin/skills/dev-atlas/SKILL.md	c7bb9e2	9. Success Checklist	.devin/knowledge/nexus/20260924-dev-atlas-9-success-checklist-for-an-fm-task.md
+.devin/rules/global_rules.md	e9f466e	🚨 ABSOLUTE RULES (Always Applicable)	.devin/knowledge/nexus/archive/20260924-global-rules-devin-before-2026-09-24-skill-selection-generic-java-checklist-naming-table-package-structure-example-flow.md
+.devin/rules/global_rules.md	e9f466e	🔧 Skill Categories	.devin/knowledge/nexus/archive/20260924-global-rules-devin-before-2026-09-24-skill-selection-generic-java-checklist-naming-table-package-structure-example-flow.md
+.devin/rules/global_rules.md	e9f466e	🎯 Example Flow	.devin/knowledge/nexus/archive/20260924-global-rules-devin-before-2026-09-24-skill-selection-generic-java-checklist-naming-table-package-structure-example-flow.md
+.devin/rules/global_rules.md	e9f466e	⚠️ Critical Warnings	.devin/knowledge/nexus/archive/20260924-global-rules-devin-before-2026-09-24-skill-selection-generic-java-checklist-naming-table-package-structure-example-flow.md
+~/.claude/memory/confluence-via-script.md	sha256:d25c7d2176875246b68ff7a9ec19abbc5639e71cdb8ef5ee8cf7ef348d1586c3	(whole file)	.devin/knowledge/nexus/archive/20260924-memory-confluence-through-confluence-sh-never-the-confluence-mcp-user-decision-2026-09-15.md
+~/.claude/memory/fm-bss-api-mcp.md	sha256:45b6c98330d767b9321ab273f843f149a950314e506591c2057d19c7c0a6e43a	(whole file)	.devin/knowledge/nexus/20260924-memory-bss-apis-through-bssapi-sh-ropc-token-test-user-aliases-write-guards-service-discovery-fm-bss-api-mcp-retired.md
+~/.claude/memory/mcp-data-access-status.md	sha256:e1a82a99f9e15eaee9dd1a5af77914a3a722c51de055e64027d5cdd34a4497ef	(whole file)	.devin/knowledge/nexus/archive/20260924-memory-kafka-mongo-postgres-mcp-status-history-and-why-db-credentials-come-from-env-repo-not-a-wiki-page.md
+~/.claude/memory/cache-clear-standing-approval.md	sha256:c2495dfe97152f274a943c274f4ccd0e1eab10545fcf16314f72203ff570b355	(whole file)	.devin/knowledge/nexus/archive/20260924-memory-cache-clear-after-a-db-config-fix-on-env0-env1-without-asking-user-decision-2026-09-15.md
+~/.claude/memory/no-test-data-cleanup.md	sha256:121325ad75bb2d374d0c4053893c542e87edad2dc30da6d58d30606aaebfee6d	(whole file)	.devin/knowledge/nexus/archive/20260924-memory-no-test-data-cleanup-in-env0-env1-env2-never-offer-it-never-mention-it.md
+~/.claude/memory/nexus-commits-continuously.md	sha256:9c8b6a794ef3b92bb735baeeef4ae5e079a6a6338002645cbdbba95b2689eb52	(whole file)	.devin/knowledge/nexus/archive/20260924-memory-nexus-commits-continuously-without-asking-pushes-only-when-asked.md
+~/.claude/memory/never-delete-branches.md	sha256:88d1a0971e1d68f870e78cca3416b29b6d5c4eaf2afce2c156c7c2f659c2f0a5	(whole file)	.devin/knowledge/nexus/archive/20260924-memory-never-delete-branches-not-even-with-approval.md
+~/.claude/memory/domainconfig-delivery-env0-only.md	sha256:7d52cc40e51c6532343e2226da007323930d778d634a4379b1c5c64fd6187bf9	(whole file)	.devin/knowledge/nexus/archive/20260924-memory-domainconfig-scripts-are-delivered-on-env0-only-ids-from-the-env0-id-generator.md
+~/.claude/memory/jira-worklog-timezone.md	sha256:93511917235992987c902dcc7f66f5a899be34b9cfefc38b302cb215941d3cfe	(whole file)	.devin/knowledge/nexus/archive/20260924-memory-jira-worklog-started-time-is-0400-fix-by-put.md
+~/.claude/memory/e2e-prepaid-activation-case.md	sha256:cf40e1e33c954845baa8d20ea85c3219d9c993a04cfc323a33ae34b89a571ee2	(whole file)	.devin/knowledge/nexus/20260924-memory-e2e-prepaid-activation-case-triggers-fresh-customer-last-verified-run.md
+~/.claude/memory/proj2-1588-final-payment-callback.md	sha256:454315ad53f489f83cf215d0ea7cc19835e59c92f1affc455ecb1af0da11ca7a	(whole file)	.devin/knowledge/nexus/archive/20260924-memory-proj2-1588-finalpaymentcallback-where-to-resume-when-the-task-comes-back.md
+~/.claude/memory/topup-env2-verified.md	sha256:733ec0467525c2543390879c2f3411e940e9049641a3fbd8cbd548049d321eb4	(whole file)	.devin/knowledge/nexus/20260924-memory-top-up-verified-end-to-end-on-env2-payment-method-field-formats.md
+~/.claude/memory/test-users-not-defined-everywhere.md	sha256:df7d1e2f3ce10a7847e1e9a32b05e0928c79a994b2a8b0527c4288b034498c97	(whole file)	.devin/knowledge/nexus/20260924-memory-not-every-test-user-is-defined-everywhere-a-403-is-not-an-outage.md
+~/.claude/memory/skills-shared-via-symlink.md	sha256:0f8606fedd72391a7c6806cb1158a826fcbc7a31923db0d57208dd6aee027161	(whole file)	.devin/knowledge/nexus/20260924-memory-claude-personal-skills-are-symlinks-to-nexus-devin-skills-one-source-of-truth.md
+~/.claude/memory/mcp-access-decisions.md	sha256:9e2a076a346648c6632ca9e79b4df11d32ad95b06d2de4fc569f932f5343e937	(whole file)	.devin/knowledge/nexus/20260924-memory-ai-access-to-env0-env1-env2-systems-user-decisions-2026-09-10.md
+~/.claude/memory/git-commit-per-file-after-stash-pop.md	sha256:eaff7fe3eccabc90a327934eadcfc32bc9a9e1034ff3fc203015af2232997107	(whole file)	.devin/knowledge/nexus/20260924-memory-one-commit-per-file-and-git-stash-pop-leaves-files-staged.md
+~/.claude/memory/MEMORY.md	sha256:fdefd3fd4589e20660975e50c5c09db4928276ee21ebbfbd29aeb575fc2f599c	(whole file)	.devin/knowledge/nexus/archive/20260924-memory-the-personal-memory-md-index-as-it-was-before-2026-09-24-every-line-verbatim.md
+.devin/skills/dev-atlas/db-config-scripts.md	2711d35	1. One script, env0 only	.devin/knowledge/nexus/20260924-dev-atlas-db-config-scripts-1-one-script-env0-only.md
+.devin/skills/dev-atlas/db-config-scripts.md	2711d35	2. Ids come from the id service, never from the table	.devin/knowledge/nexus/20260924-dev-atlas-db-config-scripts-2-ids-come-from-the-id-service-never-from-the-table.md
+.devin/skills/dev-atlas/db-config-scripts.md	2711d35	3. One INSERT per row	.devin/knowledge/nexus/20260924-dev-atlas-db-config-scripts-3-one-insert-per-row.md
+.devin/skills/dev-atlas/db-config-scripts.md	2711d35	4. Let the tool write the rollback	.devin/knowledge/nexus/20260924-dev-atlas-db-config-scripts-4-let-the-tool-write-the-rollback.md
+.devin/skills/dev-atlas/db-config-scripts.md	2711d35	5. No schema names, no BEGIN/COMMIT	.devin/knowledge/nexus/20260924-dev-atlas-db-config-scripts-5-no-schema-names-no-begin-commit.md
+.devin/skills/dev-atlas/db-config-scripts.md	2711d35	6. The upload	.devin/knowledge/nexus/20260924-dev-atlas-db-config-scripts-6-the-upload.md
+.devin/skills/dev-atlas/db-config-scripts.md	2711d35	7. psql is for throwaway verification only	.devin/knowledge/nexus/20260924-dev-atlas-db-config-scripts-7-psql-is-for-throwaway-verification-only.md
+.devin/skills/dev-atlas/db-config-scripts.md	2711d35	Visibility trap worth knowing	.devin/knowledge/nexus/20260924-dev-atlas-db-config-scripts-note-visibility-trap-worth-knowing.md
+.devin/skills/dev-atlas/version-upgrade.md	2711d35	1. The `-fm` suffix is not a fork — it is a hotfix lane	.devin/knowledge/nexus/20260924-dev-atlas-version-upgrade-1-the-fm-suffix-is-not-a-fork-it-is-a-hotfix-lane.md
+.devin/skills/dev-atlas/version-upgrade.md	2711d35	2. Order of operations	.devin/knowledge/nexus/20260924-dev-atlas-version-upgrade-2-order-of-operations.md
+.devin/skills/dev-atlas/version-upgrade.md	2711d35	3. Inventory — from the release page	.devin/knowledge/nexus/20260924-dev-atlas-version-upgrade-3-inventory-from-the-release-page.md
+.devin/skills/dev-atlas/version-upgrade.md	2711d35	4. Liquibase — the changelogs	.devin/knowledge/nexus/20260924-dev-atlas-version-upgrade-4-liquibase-the-changelogs.md
+.devin/skills/dev-atlas/version-upgrade.md	2711d35	5. Config — the application.yml delta (this runs FIRST, see §2)	.devin/knowledge/nexus/20260924-dev-atlas-version-upgrade-5-config-the-application-yml-delta-this-runs-first-see-2.md
+.devin/skills/dev-atlas/version-upgrade.md	2711d35	6. The upgrade job — pom and code	.devin/knowledge/nexus/20260924-dev-atlas-version-upgrade-6-the-upgrade-job-pom-and-code.md
+.devin/skills/dev-atlas/version-upgrade.md	2711d35	7. Recording a run	.devin/knowledge/nexus/20260924-dev-atlas-version-upgrade-7-recording-a-run.md
+.devin/skills/dev-atlas/eom-grafana-access.md	2711d35	1. EOM UI	.devin/knowledge/nexus/20260924-dev-atlas-eom-grafana-1-eom-ui.md
+.devin/skills/dev-atlas/eom-grafana-access.md	2711d35	2. eom-operate endpoint haritası	.devin/knowledge/nexus/20260924-dev-atlas-eom-grafana-2-eom-operate-endpoint-haritas.md
+.devin/skills/dev-atlas/eom-grafana-access.md	2711d35	3. Sipariş hatası teşhis akışı (doğrulanmış örnek)	.devin/knowledge/nexus/20260924-dev-atlas-eom-grafana-3-sipari-hatas-te-his-ak-do-rulanm-rnek.md
+.devin/skills/dev-atlas/eom-grafana-access.md	2711d35	4. Grafana RR-Log (request/response arama)	.devin/knowledge/nexus/20260924-dev-atlas-eom-grafana-4-grafana-rr-log-request-response-arama.md
+.devin/skills/dev-atlas/eom-grafana-access.md	2711d35	5. EOM + rrlog birlikte — doğrulanmış teşhis	.devin/knowledge/nexus/20260924-dev-atlas-eom-grafana-5-eom-rrlog-birlikte-do-rulanm-te-his.md
+docs/journeys/00-platform-order-capture.md	6db07c7	The order lifecycle	.devin/knowledge/nexus/20260924-journey-order-capture-platform-the-order-lifecycle.md
+docs/journeys/00-platform-order-capture.md	6db07c7	The command pipeline is data	.devin/knowledge/nexus/20260924-journey-order-capture-platform-the-command-pipeline-is-data.md
+docs/journeys/00-platform-order-capture.md	6db07c7	The wizard is data too	.devin/knowledge/nexus/20260924-journey-order-capture-platform-the-wizard-is-data-too.md
+docs/journeys/00-platform-order-capture.md	6db07c7	The configuration plane	.devin/knowledge/nexus/20260924-journey-order-capture-platform-the-configuration-plane.md
+docs/journeys/00-platform-order-capture.md	6db07c7	The frontend runtime	.devin/knowledge/nexus/20260924-journey-order-capture-platform-the-frontend-runtime.md
+docs/journeys/00-platform-order-capture.md	6db07c7	Observability	.devin/knowledge/nexus/20260924-journey-order-capture-platform-observability.md
+docs/journeys/00-platform-order-capture.md	6db07c7	The checkout is not the deployment	.devin/knowledge/nexus/20260924-journey-order-capture-platform-the-checkout-is-not-the-deployment.md
+docs/journeys/00-platform-order-capture.md	6db07c7	Staleness	.devin/knowledge/nexus/20260924-journey-order-capture-platform-staleness.md
+docs/journeys/00-platform-order-capture.md	6db07c7	Open questions	.devin/knowledge/nexus/20260924-journey-order-capture-platform-open-questions.md
+docs/journeys/10-top-up.md	6db07c7	1. In one paragraph	.devin/knowledge/nexus/20260924-journey-top-up-1-in-one-paragraph.md
+docs/journeys/10-top-up.md	6db07c7	2. Trigger and entry points	.devin/knowledge/nexus/20260924-journey-top-up-2-trigger-and-entry-points.md
+docs/journeys/10-top-up.md	6db07c7	3. The call sequence	.devin/knowledge/nexus/20260924-journey-top-up-3-the-call-sequence.md
+docs/journeys/10-top-up.md	6db07c7	4. Step by step	.devin/knowledge/nexus/20260924-journey-top-up-4-step-by-step.md
+docs/journeys/10-top-up.md	6db07c7	5. Config that drives behaviour	.devin/knowledge/nexus/20260924-journey-top-up-5-config-that-drives-behaviour.md
+docs/journeys/10-top-up.md	6db07c7	6. Code that drives behaviour	.devin/knowledge/nexus/20260924-journey-top-up-6-code-that-drives-behaviour.md
+docs/journeys/10-top-up.md	6db07c7	7. Failure modes	.devin/knowledge/nexus/20260924-journey-top-up-7-failure-modes.md
+docs/journeys/10-top-up.md	6db07c7	8. What I got wrong	.devin/knowledge/nexus/20260924-journey-top-up-8-what-i-got-wrong.md
+docs/journeys/10-top-up.md	6db07c7	9. Open questions	.devin/knowledge/nexus/20260924-journey-top-up-9-open-questions.md
+docs/journeys/10-top-up.md	6db07c7	10. Evidence	.devin/knowledge/nexus/20260924-journey-top-up-10-evidence.md
+docs/journeys/20-activation-mobile.md	6db07c7	1. In one paragraph	.devin/knowledge/nexus/20260924-journey-mobile-activation-1-in-one-paragraph.md
+docs/journeys/20-activation-mobile.md	6db07c7	2. Trigger and entry points	.devin/knowledge/nexus/20260924-journey-mobile-activation-2-trigger-and-entry-points.md
+docs/journeys/20-activation-mobile.md	6db07c7	3. The wizard	.devin/knowledge/nexus/20260924-journey-mobile-activation-3-the-wizard.md
+docs/journeys/20-activation-mobile.md	6db07c7	4. Step by step	.devin/knowledge/nexus/20260924-journey-mobile-activation-4-step-by-step.md
+docs/journeys/20-activation-mobile.md	6db07c7	5. Prepaid and postpaid — the complete delta	.devin/knowledge/nexus/20260924-journey-mobile-activation-5-prepaid-and-postpaid-the-complete-delta.md
+docs/journeys/20-activation-mobile.md	6db07c7	6. Config that drives behaviour	.devin/knowledge/nexus/20260924-journey-mobile-activation-6-config-that-drives-behaviour.md
+docs/journeys/20-activation-mobile.md	6db07c7	7. Failure modes	.devin/knowledge/nexus/20260924-journey-mobile-activation-7-failure-modes.md
+docs/journeys/20-activation-mobile.md	6db07c7	8. What I got wrong	.devin/knowledge/nexus/20260924-journey-mobile-activation-8-what-i-got-wrong.md
+docs/journeys/20-activation-mobile.md	6db07c7	9. Known env1 issues	.devin/knowledge/nexus/20260924-journey-mobile-activation-9-known-env1-issues.md
+docs/journeys/20-activation-mobile.md	6db07c7	9b. Open questions	.devin/knowledge/nexus/20260924-journey-mobile-activation-9b-open-questions.md
+docs/journeys/20-activation-mobile.md	6db07c7	10. Evidence	.devin/knowledge/nexus/20260924-journey-mobile-activation-10-evidence.md
+docs/journeys/30-sim-card-change.md	6db07c7	1. Preconditions	.devin/knowledge/nexus/20260924-journey-sim-card-change-1-preconditions.md
+docs/journeys/30-sim-card-change.md	6db07c7	2. Correct API sequence	.devin/knowledge/nexus/20260924-journey-sim-card-change-2-correct-api-sequence.md
+docs/journeys/30-sim-card-change.md	6db07c7	3. Observed env1 run	.devin/knowledge/nexus/20260924-journey-sim-card-change-3-observed-env1-run.md
+docs/journeys/30-sim-card-change.md	6db07c7	4. Notification boundary	.devin/knowledge/nexus/20260924-journey-sim-card-change-4-notification-boundary.md
+docs/journeys/30-sim-card-change.md	6db07c7	5. Config-versus-code triage	.devin/knowledge/nexus/20260924-journey-sim-card-change-5-config-versus-code-triage.md
+docs/open-items.md	6db07c7	A. Waiting on a decision by the user	.devin/knowledge/nexus/20260924-open-items-a-waiting-on-a-decision-by-the-user.md
+docs/open-items.md	6db07c7	B. Waiting on another team	.devin/knowledge/nexus/20260924-open-items-b-waiting-on-another-team.md
+docs/open-items.md	6db07c7	C. Waiting on environment access or a config delivery	.devin/knowledge/nexus/20260924-open-items-c-waiting-on-environment-access-or-a-config-delivery.md
+docs/open-items.md	6db07c7	D. Known-failing on purpose — do not "fix"	.devin/knowledge/nexus/20260924-open-items-d-known-failing-on-purpose-do-not-fix.md
+docs/open-items.md	6db07c7	E. Records to correct (no external dependency)	.devin/knowledge/nexus/20260924-open-items-e-records-to-correct-no-external-dependency.md
+docs/open-items.md	6db07c7	Re-deriving the two counts above	.devin/knowledge/nexus/20260924-open-items-re-deriving-the-two-counts-above.md
+automation/scenarios/README.md	6db07c7	Regression	.devin/knowledge/nexus/20260924-scenarios-readme-regression.md
+automation/scenarios/README.md	6db07c7	Scenarios	.devin/knowledge/nexus/20260924-scenarios-readme-scenarios.md
+automation/scenarios/README.md	6db07c7	Adding a scenario	.devin/knowledge/nexus/20260924-scenarios-readme-adding-a-scenario.md
