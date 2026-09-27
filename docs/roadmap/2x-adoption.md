@@ -1,8 +1,8 @@
 # EOS 2.x branch — what landed overnight and how to adopt it
 
-Branch `eos-2x` (from `main` 1.5.1), released on the branch as 1.6.0 → 1.12.4.
+Branch `eos-2x` (from `main` 1.5.1), released on the branch as 1.6.0 → 1.13.0.
 Every step: tests first, the full suite green before the commit
-(1,142 passed, 1 skipped at 1.12.4), `tools/check-clean.sh` clean. `main` untouched.
+(1,144 passed, 1 skipped at 1.13.0), `tools/check-clean.sh` clean. `main` untouched.
 The row-by-row ledger with commits is `docs/roadmap/2x-progress.md`.
 
 ## What changed, by the question it answers
@@ -30,6 +30,7 @@ The row-by-row ledger with commits is `docs/roadmap/2x-progress.md`.
 | 1.12.1 | Fifth review | `set -e` read as bash reads it: not in conditions or function bodies, `set +o errexit`, subshells |
 | 1.12.2 | Sixth review | a check inside an if/loop/case/function block never counts; deep nesting refused, not a crash |
 | 1.12.3 | Seventh review | block words read at every command start, not only a fragment's first word |
+| 1.13.0 | Fuzzer kept, fewer refusals | `tools/verify_fuzz.py` in the suite (400 commands); `check; exit $?` and read-only `&&` tails count: refusals 27% -> 22%, still 0 false clears |
 | 1.12.4 | Differential fuzz | 20,000 generated commands in real bash, check passing and failing: one false-clear shape (after `exit 0`) fixed, then 0 false clears, 0 crashes |
 
 Live-verified in headless sessions: the verify Stop gate (1.9.1: gate once, the
@@ -44,7 +45,7 @@ finding is fixed with a test (ledger rows RV-RV7).
 
 1. Review `eos-2x` against `main` (a PR on GitHub from `eos-2x`), then merge.
 2. In nexus: `git subtree pull --prefix tools/eos eos main --squash`, then
-   `bash automation/install-eos-cli.sh` (the global CLI moves to 1.12.4).
+   `bash automation/install-eos-cli.sh` (the global CLI moves to 1.13.0).
 3. The nexus side of this work is on the local branch `eos-2x` in the worktree
    `../nexus-2x` (not pushed: the VPN was off). Its own commits: the `verify.toml`
    scopes and their test (4ebb01c), the verified-completion design as built

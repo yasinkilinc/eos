@@ -39,6 +39,13 @@ canonical `core/` runtime to `~/.local/share/eos/<version>/` and installs an
 executable launcher under `~/.local/bin/eos`. Override the locations with
 `EOS_INSTALL_PREFIX`, `EOS_DATA_DIR`, `EOS_BIN_DIR`, or `EOS_PYTHON`.
 
+## What changed in 1.13
+
+- **The verify check rule is held to real bash:** `tools/verify_fuzz.py` runs
+  generated commands with the check passing and failing; 20,000 of them find no
+  false clear, and 400 run with every test suite. `check; exit $?` and read-only
+  tails after `&&` (`cd`, `ls`, `tail`, `git status`) now count.
+
 ## What changed in 1.12
 
 - **A check run so it cannot count is said at once:** when a command runs a
