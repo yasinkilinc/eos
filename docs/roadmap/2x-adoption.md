@@ -20,10 +20,12 @@ The row-by-row ledger with commits is `docs/roadmap/2x-progress.md`.
 | 1.8.0 | Citation check (E3a, ADR-030) | a subagent citing a missing absolute path or a line past the end is asked once to fix it |
 | 1.8.0 | Fix | the routing hook sent only `{model}` as the whole tool input -- live it would have dropped prompts |
 | 1.8.0 | `eos brief --resume` (M7), paraphrase guard (M5) | what a session left; a reworded duplicate note refused |
+| 1.9.1 | Branch review | a fresh reviewer found eleven defects (verify false clears, citation false blocks, a lock takeover race, placeholder mapping, cross-ledger finish, hook robustness, lint, brief rebuilds); each fixed with a test; locks are now the kernel's `flock` |
 | 1.9.0 | `eos consolidate` (L1), `eos procedure lint` (E2), `eos cost --context` (C7), work-run links (E4), note `[kind, age]` (C2), compact artifacts (E6) | maintenance report, procedure checks, context measurement, traceability, smaller files |
 
-Live-verified in headless sessions: the verify Stop gate, the subagent handoff, the
-citation check (with `--plugin-dir`).
+Live-verified in headless sessions: the verify Stop gate (re-run on 1.9.1: gate
+once, the check re-run so it counts, `verify_after_gate: 1`), the subagent handoff,
+the citation check (with `--plugin-dir`).
 
 ## Adopting it
 

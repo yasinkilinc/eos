@@ -43,3 +43,6 @@ deletion; the nexus `mac` checkout and the global `eos` CLI are not touched.
 - A session in the nexus worktree loads the plugin's hooks.json from the main nexus checkout's
   `tools/eos` (the marketplace is registered once); the `eos` command on PATH decides the code.
   Live tests of hook-registration changes need `--plugin-dir` (seen testing E3a).
+- Live on 1.9.1 the Stop gate fired but the model's re-check ('... | tail -5; python3 ...') did not count:
+  a piped check with ';' is not the command's exit status. The gate's reason now says how to run it;
+  re-run live: gate once, check run countably, sessions.jsonl verify_gates 1 / verify_after_gate 1.
