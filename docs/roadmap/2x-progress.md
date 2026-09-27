@@ -55,3 +55,7 @@ deletion; the nexus `mac` checkout and the global `eos` CLI are not touched.
 - Live on 1.9.1 the Stop gate fired but the model's re-check ('... | tail -5; python3 ...') did not count:
   a piped check with ';' is not the command's exit status. The gate's reason now says how to run it;
   re-run live: gate once, check run countably, sessions.jsonl verify_gates 1 / verify_after_gate 1.
+- Live on 1.10.2 (headless, nexus-2x, `--plugin-dir`): an edit left unchecked was stopped once and the
+  model answered "not verified" (verify_gates 1); the same edit followed by
+  `bash automation/tests/test-routing-corpus.sh && echo VERIFIED` -- refused by 1.9.1's rule -- counted,
+  and the turn ended with no gate (verify_gates 0). $0.27 for both.
