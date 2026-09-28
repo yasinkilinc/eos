@@ -304,7 +304,7 @@ again after 3-4, each finding fixed with a test before the release commit.
 | RVh | Review of P1 (7f1126d) and P2 (1428bb4) | DONE | 6 findings; the marker-scope one fixed with a test, four more (session flag, docstring, output digest, two test gaps) fixed, one left as documented cosmetic. Commit below |
 | P3 | A4: the six-state capability truth model (catalogued/registered/configured/reachable/healthy/authorized) and `verifyBeforeUse`, report line 810/1545 | DONE | 0b2a745. `capabilities.truth(root, name)`: read-only throughout, never executes a capability to find out. `catalogued` and `registered` coincide in this engine (`capabilities.toml` is the only place to declare one -- there is no second registry to draw a distinction from, unlike the source system); `configured` needs `does` (a description) set; `reachable` checks `shutil.which` and the project's own script directories (reusing `procedure_lint._script`); `healthy` always reads `"unknown"` (report: "health defaulting to unknown" -- EOS records no live signal for a capability today, and inventing one was out of scope); `authorized`, the top rung, is reached once reachable unless the capability's own new `verify_before_use` marker (`capabilities.toml`) asks for evidence of health first, in which case it holds at `reachable` -- a named limitation (nothing yet supplies that evidence), not a guess. `eos capabilities --status <name>` is the reader's CLI surface (the one "surface that already reads capability status" this repo has); `Capability.line()` marks `verify_before_use` capabilities `[verify before use]` |
 | P4 | C4/C7 measured against the report, no behaviour change; results below | DONE | Read-only throughout, including on the nexus host. See "C4/C7 measurement" below; nothing in `core/` changed for this row |
-| RVi | Review of P3 (0b2a745) and P4 (doc-only) | IN PROGRESS | |
+| RVi | Review of P3 (0b2a745) and P4 (doc-only) | DONE | 1 finding, fixed with a test: `truth()`'s docstring promises `None` for "a broken registry," but it only caught `ValueError` around `load()`; `capabilities.toml` reads through `ConfigIO.read_toml`'s plain `open()`, which can raise `OSError` (permission denied, a path that stopped being a file) -- not a `ValueError` -- and every other caller of `load()` in this codebase (`procedure_lint.lint`, `context_cost.report`) already catches `Exception` for exactly this reason; `truth()` was the one caller that narrowed the catch. Widened to match. 2 more tests added for gaps the review named but that were not themselves bugs: a harness-tool capability (`run = "Edit tool"`, `program == ""`) reaching `authorized` with nothing to check on disk; the malformed-registry path itself. Checked and found correct, no fix needed: the ladder never reports a rung it has not earned; path resolution (`_reachable` resolves before calling `procedure_lint._script`; `notes.notes_dir` resolves internally) is correct for a relative or `~` root despite looking redundant; `verify_before_use` as a new `Capability` field has no consumer outside this module that would break. P4's doc-only "C4/C7 measurement" section: every one of its six factual claims (prompt_submit's self-digest dedup, loaded.jsonl's lack of a reader, the absent dedup.py/`[ai] loaded` key, cost's missing saved/baseline field, context_cost's attachment-based taxonomy, budget.py's 2.22 constant) verified accurate against the code by the reviewer independently; nothing corrected |
 
 ### C4/C7 measurement (P4)
 
@@ -412,6 +412,12 @@ read in full.
   registry-wide health signal), and building that link is a real design
   decision the report does not specify, not a measurement this pass's scope
   covers.
+- RVi: the fix widens `truth()`'s own `except` clause (`ValueError` ->
+  `Exception`) rather than adding a try/except at the CLI call site
+  (`core/cli/route.py`'s `--status` branch) -- `truth()`'s docstring already
+  promised a pure read that only ever answers `None`/a `Truth`, so the bug
+  was that function breaking its own contract, the same reasoning RVg(1)
+  already used for `index.is_stale()` on this same branch.
 - P4: measured only, wrote no code, per the task's own instruction. Where a
   real design decision would be needed to go further -- which attachment
   types roll up into which baseline channel (C7); whether digest-dedup should
