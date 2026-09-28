@@ -122,6 +122,7 @@ def add_note(
     session: str | None = None,
     procedure: str | None = None,
     execution: str | None = None,
+    evidence: str | None = None,
     supersedes: str | None = None,
     provenance: str | None = None,
     agent: str | None = None,
@@ -151,6 +152,8 @@ def add_note(
     if source is not None:
         _refuse_placeholder(source, "note source")
     _refuse_scope(scope)
+    if evidence is not None and kind != "lesson":
+        raise ValueError(f"--evidence is only for a lesson note (ADR-024); kind {kind!r} refuses it")
     provenance = _check_provenance(provenance, agent)
     valid_until = _check_valid_until(valid_until)
     content = _compose_body(kind, body, cause, solution, metric)
@@ -225,6 +228,7 @@ def add_note(
             **(_procedure_front(procedure or _slug(title), 0, 0, None, None)
                if kind == "procedure" else {"procedure": procedure}),
             "execution": execution,
+            "evidence": evidence,
             "supersedes": replaced.path.name if replaced else None,
             "provenance": provenance,
             "agent": agent,
@@ -590,8 +594,9 @@ def amend_note(
             **(_procedure_front(note.procedure or _slug(note.title), note.runs_ok or 0,
                                 note.runs_failed or 0, note.last_verified, note.last_execution)
                if note.kind == "procedure" else {"procedure": note.procedure}),
-            # A lesson keeps the run that taught it through any rewrite.
+            # A lesson keeps the run that taught it, and its evidence, through any rewrite.
             "execution": note.execution,
+            "evidence": note.evidence,
             "supersedes": note.supersedes,
             # --provenance/--agent/--valid-until (N8): the value this call
             # computed above, which is the note's own kept value when the

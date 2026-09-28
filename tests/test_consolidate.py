@@ -74,6 +74,22 @@ def test_a_config_of_the_wrong_shape_is_read_as_no_setting(tmp_path):
     assert done.returncode == 0 and "Traceback" not in done.stderr
 
 
+def test_lessons_without_evidence_are_counted(tmp_path):
+    root = tmp_path / "proj"
+    root.mkdir()
+    assert subprocess.run(EOS + ["init", str(root), "--no-ai"], capture_output=True).returncode == 0
+    notes.add_note(root, "lesson", "Registry was down",
+                   "## What went wrong\nRegistry down.\n\n## What was learned\ny\n\n## Next time\nz\n")
+    notes.add_note(root, "lesson", "Build broke on main",
+                   "## What went wrong\nBuild broke.\n\n## What was learned\ny\n\n## Next time\nz\n",
+                   evidence="automation/jenkins.sh log build-42")
+
+    data = consolidate.report(root)
+
+    assert data["lessons_without_evidence"] == ["Registry was down"]
+    assert "LESSONS WITHOUT EVIDENCE (1)" in consolidate.render(data)
+
+
 def test_a_note_citing_a_replaced_note_is_named(tmp_path):
     root = tmp_path / "proj"
     root.mkdir()

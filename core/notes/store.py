@@ -286,8 +286,11 @@ class Note:
     runs_failed: int | None = None
     last_verified: str | None = None
     last_execution: str | None = None
-    # kind: lesson (ADR-024) -- the execution that taught it.
+    # kind: lesson (ADR-024) -- the execution that taught it, and/or the
+    # command, run id or file:line a person can check it against (N10; a
+    # lesson may carry either, both, or -- until amended -- neither).
     execution: str | None = None
+    evidence: str | None = None
     # The file name of the note this one replaces (ADR-033 addendum).
     supersedes: str | None = None
     # Who wrote it and until when it holds (2.x M1, forward-only): absent on
@@ -355,6 +358,7 @@ def parse_note(path: Path) -> Note:
         last_verified=meta.get("last_verified") or None,
         last_execution=meta.get("last_execution") or None,
         execution=meta.get("execution") or None,
+        evidence=meta.get("evidence") or None,
         supersedes=meta.get("supersedes") or None,
         provenance=meta.get("provenance") or None,
         agent=meta.get("agent") or None,

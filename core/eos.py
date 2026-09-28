@@ -309,6 +309,8 @@ def main(argv: list[str] | None = None) -> int:
     note_add_p.add_argument("--metric", help="Measured before/after (required for 'defect')")
     note_add_p.add_argument("--session", default=None, help="Session id, set by the gate hook")
     note_add_p.add_argument("--execution", help="For a lesson: the run that taught it (eos run list)")
+    note_add_p.add_argument("--evidence", help="For a lesson: the command, run id, or file:line that "
+                                               "supports it; other kinds refuse this")
     note_add_p.add_argument("--procedure", help="For a lesson: the procedure it concerns; for a "
                             "procedure: its slug")
     note_add_p.add_argument("--supersedes", help="The note this one replaces (file name or title): it stays "

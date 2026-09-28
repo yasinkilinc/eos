@@ -148,6 +148,8 @@ def report(project_root: str | Path) -> dict:
             if (now - started).days >= OPEN_RUN_DAYS:
                 old_runs.append((record.id, record.title, (now - started).days))
     stale_work = [item for item in work.items(root) if item.is_stale(now)]
+    lessons_without_evidence = [n.title for n in corpus
+                                if n.kind == "lesson" and not n.execution and not n.evidence]
     done = [r for r in records if r.outcome == "ok"]
     verified = sum(1 for r in done if r.outcome_source == "verified")
     claimed = sum(1 for r in done if r.outcome_source == "claimed")
@@ -166,6 +168,7 @@ def report(project_root: str | Path) -> dict:
         "stale_work": [(item.id, item.title) for item in stale_work],
         "verified_rate": {"verified": verified, "claimed": claimed},
         "change_capture": capture,
+        "lessons_without_evidence": lessons_without_evidence,
     }
 
 
@@ -217,6 +220,8 @@ def render(data: dict) -> str:
     lines += block("RUNS OPEN FOR DAYS", [f"{rid}  {title}  ({days}d)" for rid, title, days in data["open_runs_older"]],
                    "eos run finish . <id> --outcome ok|failed|abandoned")
     lines += block("STALE WORK", [f"{wid}  {title}" for wid, title in data["stale_work"]], "eos work list .")
+    lines += block("LESSONS WITHOUT EVIDENCE", data.get("lessons_without_evidence", []),
+                   "no execution and no evidence recorded; eos note show . \"<title>\" to read one")
     rate = data["verified_rate"]
     if rate["verified"] + rate["claimed"]:
         share = rate["verified"] / (rate["verified"] + rate["claimed"])

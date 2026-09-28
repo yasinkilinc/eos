@@ -121,7 +121,12 @@ def build(project_root: str | Path, *, session: str | None = None,
 
 def note_label(note) -> str:
     """`[kind, age]` for a note a brief names (2.x roadmap C2): a two-day-old
-    lesson and a quarter-old finding weigh differently."""
+    lesson and a quarter-old finding weigh differently.
+
+    A lesson naming neither the run that taught it nor other evidence gets a
+    short `[no evidence]` mark appended (N10): nothing here says why it can be
+    trusted, and the brief is where a session decides whether to act on it.
+    """
     import datetime
 
     try:
@@ -129,7 +134,10 @@ def note_label(note) -> str:
         age = "today" if days <= 0 else f"{days}d"
     except ValueError:
         age = "undated"
-    return f"[{note.kind}, {age}]"
+    label = f"[{note.kind}, {age}]"
+    if note.kind == "lesson" and not note.execution and not note.evidence:
+        label += " [no evidence]"
+    return label
 
 
 HANDOFF_BUDGET = 400

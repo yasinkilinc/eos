@@ -89,6 +89,20 @@ def test_a_lesson_and_a_decision_without_their_sections_are_refused(project):
         notes.add_note(project, kind="decision", title="D", body="## Why\nx\n\n## When\ny\n\n## Component\n\n")
 
 
+def test_a_lesson_carries_evidence_stored_and_parsed_back(project):
+    path = notes.add_note(project, kind="lesson", title="Registry was down", body=LESSON_BODY,
+                          evidence="automation/jenkins.sh log build-42")
+
+    note = notes.parse_note(path)
+    assert note.evidence == "automation/jenkins.sh log build-42"
+    assert "evidence: automation/jenkins.sh log build-42" in path.read_text()
+
+
+def test_a_non_lesson_note_refuses_evidence(project):
+    with pytest.raises(ValueError, match="evidence"):
+        notes.add_note(project, kind="finding", title="F", body="x", evidence="run x-1")
+
+
 def test_amending_a_lesson_keeps_the_run_that_taught_it(project, tmp_path):
     (project / "deploy.sh").write_text("v1\n")
     run = executions.start(project, "Deploy", session="s")
@@ -99,6 +113,15 @@ def test_amending_a_lesson_keeps_the_run_that_taught_it(project, tmp_path):
     notes.amend_note(path, project, body=LESSON_BODY.replace("Built from main", "Built from a stale main"))
 
     assert notes.parse_note(path).execution == run.id
+
+
+def test_amending_a_lesson_keeps_its_evidence(project):
+    path = notes.add_note(project, kind="lesson", title="Registry was down", body=LESSON_BODY,
+                          evidence="automation/jenkins.sh log build-42")
+
+    notes.amend_note(path, project, body=LESSON_BODY.replace("Built from main", "Built from a stale main"))
+
+    assert notes.parse_note(path).evidence == "automation/jenkins.sh log build-42"
 
 
 # --- confidence -------------------------------------------------------------------

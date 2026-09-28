@@ -74,6 +74,7 @@ def cmd_note_add(args: argparse.Namespace) -> int:
             session=args.session,
             procedure=args.procedure,
             execution=args.execution,
+            evidence=args.evidence,
             supersedes=args.supersedes,
             provenance=args.provenance,
             agent=args.agent,
