@@ -201,6 +201,38 @@ def test_a_file_a_run_own_commit_also_touches_is_never_excluded(tmp_path):
     assert result == {"captured": 0, "touched": 1, "missed": ["shared.txt"]}
 
 
+def test_change_capture_excludes_an_idle_runs_finish_commit_from_other_finish_commits(tmp_path):
+    # RVd/N11: `commit_end` is just `git_head()` at finish time, not a commit
+    # the finishing run necessarily made itself (N9's own "no commit made"
+    # case: `commit_start == commit_end`). A concurrent run that finishes idle
+    # still contributes whatever HEAD happens to be as its `commit_end`; if
+    # that HEAD is really an *earlier, still-open* run's own intermediate
+    # commit, `change_capture` must not mistake it for foreign noise once the
+    # earlier run makes a further commit and finishes -- that would make the
+    # earlier run's own uncaptured file vanish from `touched`, overstating its
+    # capture share.
+    root = _repo(tmp_path)
+    (root / ".eos").mkdir(exist_ok=True)
+    mine = executions.start(root, "Mine, still working")
+    (root / "intermediate.txt").write_text("1\n")
+    _git(root, "add", "intermediate.txt")
+    _git(root, "commit", "-q", "-m", "my own intermediate commit")
+
+    idle = executions.start(root, "Idle concurrent session")  # no commit of its own
+    executions.finish(root, idle.id, outcome="ok")  # commit_end == my intermediate commit
+
+    (root / "final.txt").write_text("1\n")
+    _git(root, "add", "final.txt")
+    _git(root, "commit", "-q", "-m", "my own final commit")
+    executions.event(root, mine.id, kind="changed", ref="final.txt")
+    executions.finish(root, mine.id, outcome="ok")
+
+    data = consolidate.change_capture(root)
+
+    assert data == {"captured": 1, "touched": 2, "share": 0.5,
+                    "runs_with_commits": 1, "runs_unmeasurable": 1}
+
+
 def test_a_subtree_squash_commits_own_files_are_excluded(tmp_path):
     root = _repo(tmp_path)
     run = executions.start(root, "Adopt upstream")

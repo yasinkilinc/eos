@@ -84,6 +84,13 @@ def _foreign_files(project_root: str | Path, commit_start: str | None, commit_en
     18/454 gap. Only ever removes a file every commit naming it is foreign;
     a file a run's own commit also touches is always kept, so this can only
     shrink `touched`, never make a run's own work disappear from it.
+
+    `other_finish_commits` must already exclude a run that made no commit of
+    its own (RVd: `commit_end` is only ever `git_head()` at finish time --
+    idle, it names whatever HEAD already was, which can be *this* run's own
+    still-open, not-yet-finished intermediate commit; the caller filters those
+    out before this ever sees them, the same `commit_start == commit_end`
+    signal `touched_files` already uses for "no commit made").
     """
     import shutil
     import subprocess
@@ -134,6 +141,8 @@ def change_capture_for_run(project_root: str | Path, record,
     that lands in this run's range only because another session committed to
     the same branch in between is not counted as this run's to have missed
     (N11); left empty (the default), nothing is excluded, exactly N9's number.
+    A caller passing this in is expected to have already dropped a run whose
+    own `commit_start == commit_end` (RVd) -- `change_capture` does.
     """
     if record.outcome is None:
         return None
@@ -160,7 +169,13 @@ def change_capture(project_root: str | Path, records: list | None = None) -> dic
 
     root = Path(project_root).expanduser().resolve()
     records = records if records is not None else executions.load(root)
-    other_finish_commits = frozenset(r.commit_end for r in records if r.commit_end)
+    # A run whose own commit_start == commit_end made no commit of its own
+    # (touched_files' own "unmeasurable" signal); its commit_end is just
+    # whatever HEAD happened to be, and could be another still-open run's own
+    # intermediate commit -- excluded here so it is never mistaken for that
+    # run's foreign, real work (RVd).
+    other_finish_commits = frozenset(r.commit_end for r in records
+                                     if r.commit_end and r.commit_start != r.commit_end)
     captured = touched = runs_with_commits = runs_unmeasurable = 0
     for record in records:
         if record.outcome is None:
