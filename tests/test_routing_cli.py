@@ -138,6 +138,31 @@ def test_stats_prints_advised_vs_used_vs_outcome(tmp_path):
     assert "ok rate" in done.stdout
 
 
+def test_the_text_format_prints_the_verify_depth(tmp_path):
+    root = _project(tmp_path)
+    done = _run(tmp_path, ["route", str(root), "fix the typo in the readme"])
+    assert "Verify:      depth 0" in done.stdout
+
+
+def test_a_reused_decision_inside_a_run_keeps_its_verify_depth(tmp_path):
+    """A2: verify_depth is not on the ledger's own seven-token wire line
+    (`_body`) -- it is recomputed from the reused decision's own level, not
+    silently dropped back to 0 the way a stored field would need decoding to
+    avoid."""
+    root = _project(tmp_path, "[model_routing]\n")
+    assert _run(tmp_path, ["run", "start", str(root), "--title",
+                           "design the service boundaries for a new billing domain"],
+               EOS_SESSION="s1").returncode == 0
+    first = json.loads(_run(tmp_path, ["route", str(root), "design the service boundaries "
+                                       "for a new billing domain", "--json"],
+                            EOS_SESSION="s1").stdout)
+    again = json.loads(_run(tmp_path, ["route", str(root), "design the service boundaries "
+                                       "for a new billing domain", "--json"],
+                            EOS_SESSION="s1").stdout)
+    assert first["level"] in ("HIGH", "CRITICAL") and again["reused"] is True
+    assert again["verify_depth"] == first["verify_depth"] == 2
+
+
 def test_a_missing_task_exits_2(tmp_path):
     root = _project(tmp_path)
     done = _run(tmp_path, ["route", str(root)])

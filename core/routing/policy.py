@@ -40,6 +40,11 @@ REASONING_HEAVY = ("investigation", "planning", "complex_reasoning")
 # Half the width of a middle band: a score this far from every cut is as
 # settled as a level gets.
 SETTLED_DISTANCE = 0.10
+# A2: level -> verification depth (report §8.3/§16). Level alone, not task
+# type -- a coding- or reasoning-heavy type already raised the level's own
+# requirement (`requirement()` above); a second axis on the same signal would
+# double-count it rather than add information.
+VERIFY_DEPTH = {"LOW": 0, "MEDIUM": 1, "HIGH": 2, "CRITICAL": 2}
 _SOURCE_ORDER = ("flag", "env", "config")
 
 
@@ -132,6 +137,7 @@ def decide(task_class: TaskClass, complexity: Complexity, registry: Registry, *,
         override_source=override_source,
         factors=dict(complexity.factors),
         alternatives=alternatives,
+        verify_depth=VERIFY_DEPTH[level],
     )
 
 

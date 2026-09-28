@@ -95,6 +95,7 @@ def cmd_route(args: argparse.Namespace) -> int:
         f"Model:       {decision.model}",
         f"Effort:      {decision.effort or '(none: the model takes no effort setting)'}",
         f"Confidence:  {decision.confidence:.2f}",
+        f"Verify:      depth {decision.verify_depth}",
         f"Source:      {decision.override_source}" + ("  (reused)" if decision.reused else ""),
         "",
         "Reason:",

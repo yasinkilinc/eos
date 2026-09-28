@@ -186,6 +186,31 @@ def test_the_history_seam_changes_nothing_today(tmp_path):
     assert policy.adjust_for_history(decision, tmp_path) is decision
 
 
+# --- A2: verify_depth, deterministic from level alone ---------------------------------------
+
+
+@pytest.mark.parametrize("level,depth", [("LOW", 0), ("MEDIUM", 1), ("HIGH", 2), ("CRITICAL", 2)])
+def test_verify_depth_is_deterministic_from_level(level, depth):
+    decision = policy.decide(TaskClass("normal_implementation", 0.9),
+                             Complexity(0.5, level, {}), registry.Registry(DEFAULT_MODELS))
+    assert decision.verify_depth == depth
+
+
+def test_verify_depth_does_not_depend_on_task_type():
+    """Level alone decides it (Decided without asking, A2): a coding-heavy or
+    reasoning-heavy type already raised the level's own requirement (`requirement()`);
+    a second axis on top of that would double-count the same signal."""
+    reg = registry.Registry(DEFAULT_MODELS)
+    for task_type in ("trivial_edit", "code_review", "architecture", "repository_wide_change"):
+        decision = policy.decide(TaskClass(task_type, 0.9), Complexity(0.5, "HIGH", {}), reg)
+        assert decision.verify_depth == 2
+
+
+def test_verify_depth_rides_along_in_to_dict_and_the_json_route_output(tmp_path):
+    decision = _route(tmp_path, "fix the typo in the readme")
+    assert decision.to_dict()["verify_depth"] == 0
+
+
 MIXED = registry.Registry([
     _spec("tiny", 1, 2, 0.5, efforts=("low",)),
     _spec("mid", 3, 4, 1.0, efforts=("medium", "high")),

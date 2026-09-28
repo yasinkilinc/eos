@@ -151,7 +151,10 @@ def _decided(run, models) -> Decision | None:
             reason=f"Reused the decision already made in run {run.id} ({source}); "
                    f"--fresh decides again.",
             confidence=confidence, override_source="run",
-            task_hash=ref.removeprefix("route:"), execution=run.id, reused=True)
+            task_hash=ref.removeprefix("route:"), execution=run.id, reused=True,
+            # Not on the wire (the ledger body is a fixed seven tokens): level
+            # alone decides it, so it is recomputed rather than duplicated.
+            verify_depth=policy.VERIFY_DEPTH[level])
     return None
 
 

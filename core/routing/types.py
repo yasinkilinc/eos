@@ -90,6 +90,10 @@ class Decision:
     task_hash: str = ""
     execution: str | None = None
     reused: bool = False
+    # A2: how much the run's own verification should do, straight from the
+    # level (LOW 0 = record only, MEDIUM 1 = structural checks, HIGH/CRITICAL
+    # 2 = the procedure's `## Success` check) -- see `policy.VERIFY_DEPTH`.
+    verify_depth: int = 0
 
     def to_dict(self) -> dict:
         data = dataclasses.asdict(self)
