@@ -164,6 +164,20 @@ Full list with reasons: `docs/roadmap/2x-progress.md`, "Decided without asking"
   session started work: `outcome ok`, finished 2026-09-27T19:02:17Z. Nothing
   to finish; confirmed by `run show` in the nexus worktree, not re-opened.
 
+## Why 38 host runs had no hook events (read-only, 08:50)
+
+Confirmed from the host ledger and `.claude/settings.json` history: the EOS plugin --
+the only thing that writes `source="hook"` events -- was enabled in the host on
+2026-09-26 14:38 UTC (first hook event in the ledger at 14:38:49, in the plugin's own
+verification run) and replaced the host's own hooks on 09-27. By start date:
+09-24 0/12 runs with hook events, 09-25 0/30, 09-26 2/18, 09-27 8/8. Runs started
+later on 09-26 in sessions opened before the change stayed hookless: a plugin
+enabled mid-session is picked up only by a new session. Not Devin, not a `capture`
+setting. Nothing to backfill; `consolidate` already labels these runs unmeasurable.
+Still open: a session opened with a service repo as its project root gets no
+plugin (those repos carry no `.claude/settings.json`); the host's rule is that
+sessions start in the workspace root, so no change was made.
+
 ## How to merge
 
 **EOS** (this repo): `main` has not moved since this branch forked.
