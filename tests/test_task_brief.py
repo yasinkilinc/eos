@@ -324,3 +324,34 @@ def test_a_rules_section_over_the_cap_is_refused_when_written_and_when_amended(p
     path = notes.add_note(project, kind="procedure", title="Deploy", body=RULES + "\n" + STEPS)
     with pytest.raises(ValueError, match="capped at"):
         notes.amend_note(path, project, body=too_long)
+
+
+# --- C5c open point: where a procedure's steps run (2.x roadmap Day 3) ----------------
+
+
+def test_a_procedures_steps_state_the_workspace_root_when_the_project_belongs_to_one(tmp_path, monkeypatch):
+    """Procedure steps stay relative to the workspace by convention (C5c), but
+    the header only ever named the store, not where its own steps run -- a
+    session in a service directory had no way to tell a step's relative paths
+    resolve from the workspace root rather than its own cwd."""
+    monkeypatch.setenv("EOS_STATE_DIR", str(tmp_path / "state"))
+    ws_root = tmp_path / "ws"
+    (ws_root / ".eos").mkdir(parents=True)
+    service = ws_root / "services" / "svc"
+    (service / ".eos").mkdir(parents=True)
+    (ws_root / ".eos" / "projects.toml").write_text('[[project]]\nroot = "services/svc"\n', encoding="utf-8")
+    (service / ".eos" / "config.toml").write_text('[workspace]\nroot = "../.."\n', encoding="utf-8")
+    _procedure(service)
+
+    text = brief.build(service, task="Deploy a service to staging", task_only=True)
+
+    assert f"steps run from the workspace root: {ws_root.resolve()}" in text
+
+
+def test_a_procedures_steps_say_nothing_about_a_workspace_without_one(project):
+    """Without `[workspace] root` (or without the workspace's own projects.toml
+    listing it back), nothing changes -- the store IS where the steps run, and
+    there is nothing to disambiguate."""
+    _procedure(project)
+    text = brief.build(project, task="Deploy a service to staging", task_only=True)
+    assert "steps run from the workspace root" not in text

@@ -48,6 +48,13 @@ PROCEDURE_NAMED_RARITY = 7.0
 # How a procedure's `## Rules` item is printed; also how the budget loop
 # recognises it.
 RULE_MARK = "  RULE  "
+# C5c's open point: a procedure's steps stay relative to the workspace by
+# convention, but the header only ever named the store (this project), not
+# where its own steps run -- a session in a service directory had no way to
+# tell a step's relative paths resolve from the workspace root rather than
+# its own cwd. Printed only when the project belongs to one (`workspace.of`);
+# exempt from the budget for the same reason a rule is.
+WORKSPACE_MARK = "  steps run from the workspace root: "
 # The routing decision's two lines (ADR-025). Exempt from the budget like a
 # procedure's rules: a model recommendation cut off is one that did not arrive.
 ROUTE_MARKS = ("ROUTE  ", "  Apply: ", "  Context: ")
@@ -501,6 +508,11 @@ def _task_sections(root: Path, task: str) -> tuple[list[list[str]], bool]:
                 f"{procedure.runs_ok or 0} ok / {procedure.runs_failed or 0} failed, "
                 f"last verified {(procedure.last_verified or 'never')[:10]}, "
                 f"{notes.procedure_confidence(procedure).upper()}"]
+        from core import workspace
+
+        home = workspace.of(root)
+        if home is not None:
+            head.append(f"{WORKSPACE_MARK}{home}")
         # Whole, never clipped, never trimmed by the budget (`_with_task`).
         head += [f"{RULE_MARK}{rule}" for rule in notes.procedure_rules(procedure)]
         head += [f"  {n}. {_clip(step)}" for n, step in enumerate(notes.procedure_steps(procedure), start=1)]
@@ -697,7 +709,7 @@ def _with_task(root: Path, task: str, *, session, agent, budget: int, task_only:
             # (notes.RULES_MAX_CHARS), so the exemption cannot grow. The ROUTE
             # lines are two or three, and exempt for the same reason; once the budget
             # is spent, only exempt lines are still let through.
-            exempt = line.startswith(("PROCEDURE  ", RULE_MARK) + ROUTE_MARKS)
+            exempt = line.startswith(("PROCEDURE  ", RULE_MARK, WORKSPACE_MARK) + ROUTE_MARKS)
             if trimmed and not exempt:
                 continue
             if not exempt and len("\n".join(lines + [line])) > cap:

@@ -46,7 +46,7 @@ def _last_run_steps(note, runs) -> list[dict]:
 
 
 def cmd_procedure_show(args: argparse.Namespace) -> int:
-    from core import executions
+    from core import executions, workspace
 
     try:
         note = notes.find_procedure(args.path, args.procedure)
@@ -59,6 +59,11 @@ def cmd_procedure_show(args: argparse.Namespace) -> int:
     # were verified or claimed is shown beside it, not enforced.
     verified = sum(1 for r in every if r.outcome == "ok" and r.outcome_source == "verified")
     claimed = sum(1 for r in every if r.outcome == "ok" and r.outcome_source == "claimed")
+    # C5c's open point: the header names the store (this project), not where a
+    # step's relative paths actually resolve from -- stated only when the
+    # project belongs to a workspace (`[workspace] root`, listed back by that
+    # workspace's own projects.toml); None otherwise, the store IS where.
+    home = workspace.of(args.path)
     if args.format == "json":
         print(json.dumps({"procedure": note.procedure, "title": note.title,
                           "steps": notes.procedure_steps(note),
@@ -70,9 +75,12 @@ def cmd_procedure_show(args: argparse.Namespace) -> int:
                           "runs_verified": verified, "runs_claimed": claimed,
                           "last_verified": note.last_verified,
                           "recent": [r.to_dict() for r in reversed(runs)],
+                          "steps_run_from": str(home) if home is not None else None,
                           "path": str(note.path)}, indent=2, ensure_ascii=False))
         return 0
     print(f"{note.title}   [{note.procedure}]")
+    if home is not None:
+        print(f"  steps run from the workspace root: {home}")
     print(f"  runs      {note.runs_ok or 0} ok / {note.runs_failed or 0} failed   "
           f"of the ok: verified {verified}, claimed {claimed}   "
           f"last verified {note.last_verified or 'never'}   "

@@ -240,6 +240,33 @@ def test_the_cli_writes_a_procedure_from_stdin_and_shows_its_recent_runs(project
     assert slug in listed.stdout
 
 
+def test_procedure_show_states_the_workspace_root_when_the_project_belongs_to_one(tmp_path):
+    """C5c's open point: `procedure show`'s header names the store, not where
+    its steps run -- stated only when the project belongs to a workspace
+    (`[workspace] root`, that workspace's own projects.toml listing it back)."""
+    ws_root = tmp_path / "ws"
+    (ws_root / ".eos").mkdir(parents=True)
+    service = ws_root / "services" / "svc"
+    (service / ".eos").mkdir(parents=True)
+    (ws_root / ".eos" / "projects.toml").write_text('[[project]]\nroot = "services/svc"\n', encoding="utf-8")
+    (service / ".eos" / "config.toml").write_text('[workspace]\nroot = "../.."\n', encoding="utf-8")
+    _procedure(service, title="Deploy to staging")
+
+    shown = _run(["procedure", "show", str(service), "staging"])
+    assert f"steps run from the workspace root: {ws_root.resolve()}" in shown.stdout
+
+    shown_json = _run(["procedure", "show", str(service), "staging", "--format", "json"])
+    assert json.loads(shown_json.stdout)["steps_run_from"] == str(ws_root.resolve())
+
+
+def test_procedure_show_says_nothing_about_a_workspace_without_one(project):
+    _procedure(project, title="Deploy to staging")
+    shown = _run(["procedure", "show", str(project), "staging"])
+    assert "steps run from the workspace root" not in shown.stdout
+    shown_json = _run(["procedure", "show", str(project), "staging", "--format", "json"])
+    assert json.loads(shown_json.stdout)["steps_run_from"] is None
+
+
 # --- a host's catalogue ----------------------------------------------------------------
 
 
