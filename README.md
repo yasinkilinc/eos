@@ -712,6 +712,12 @@ one of them is left out of this injection and of the PostToolBatch
 touched-file context, and each says how many it left out. Unset, nothing
 changes.
 
+A finding longer than 1,200 characters is narrowed to the lines the task's
+words hit, in both places: `get_context` by its query, the touched-file context
+by the words of the user's latest prompt. The narrowed body says so and names
+`eos note show` for the rest; lessons, decisions, defects and procedures come
+whole, and with no prompt yet every body does.
+
 ## Work in flight
 
 Notes answer "what was learned here". They cannot answer "what is happening
@@ -1113,6 +1119,9 @@ CRITICAL tasks on the cheapest model and efforts a model would refuse, and
 ends with `GATE: PASS` or `FAIL` (exit 0 or 1). Tune on `dev`; `test` prints no
 rows or suggestions, a prompt in both splits is refused, and every test run is
 logged with hashes of the corpus and the configuration (ADR-025 addendum).
+That log is the configuration's receipt: while a project's tuned policy
+(keywords, rules, factors, models or a `default_*` key) has no test
+measurement under it, `eos doctor` says so.
 
 `eos route --learn` prints proposals from the same join `--stats` makes —
 never writes `.eos/config.toml`. Two shapes: a (type, level, model, effort)

@@ -206,6 +206,64 @@ def test_test_split_prints_no_rows_and_is_recorded(tmp_path):
     assert test.returncode == (0 if test_result["gate"]["pass"] else 1)
 
 
+# --- L5: a routing configuration is accepted with a receipt -------------------------
+
+
+def _config_hash(tmp_path, name, table):
+    root = tmp_path / name
+    root.mkdir()
+    assert subprocess.run(EOS + ["init", str(root), "--no-ai"], capture_output=True).returncode == 0
+    path = root / ".eos" / "config.toml"
+    path.write_text(path.read_text(encoding="utf-8") + "\n" + table, encoding="utf-8")
+    return evaluate.config_hash(root)
+
+
+def test_every_decision_changing_key_is_in_the_config_hash(tmp_path):
+    bare = _config_hash(tmp_path, "a", "[model_routing]\n")
+    assert _config_hash(tmp_path, "b", '[model_routing]\ndefault_task_type = "normal_implementation"\n') == bare
+    assert _config_hash(tmp_path, "c", '[model_routing]\nhook = true\nbrief = "always"\n') == bare
+    changed = {_config_hash(tmp_path, "d", '[model_routing]\ndefault_task_type = "investigation"\n'),
+               _config_hash(tmp_path, "e", '[model_routing]\ndefault_model = "opus"\n'),
+               _config_hash(tmp_path, "f", '[model_routing]\ndefault_effort = "high"\n')}
+    assert bare not in changed and len(changed) == 3
+
+
+def test_a_test_measurement_records_its_engine_and_corpus(tmp_path):
+    root = _project(tmp_path, "[model_routing]\n")
+    path = _corpus(tmp_path, [("design the billing architecture", "", "", "opus", "test")])
+    subprocess.run(EOS + ["route", str(root), "--eval", str(path), "--split", "test"], capture_output=True)
+    entry = json.loads((root / ".eos" / "data" / "routing-eval.jsonl").read_text().splitlines()[0])
+    version = (REPO / "core" / "VERSION").read_text().strip()
+    assert entry["engine"] == version and entry["corpus_name"] == "corpus.tsv"
+    assert entry["config"] == evaluate.config_hash(root)
+
+
+def test_doctor_warns_while_a_custom_routing_config_has_no_receipt(tmp_path):
+    def doctor(root):
+        done = subprocess.run(EOS + ["doctor", str(root)], capture_output=True, text=True)
+        assert done.returncode == 0
+        return done.stdout
+
+    plain = _project(tmp_path, "[model_routing]\nhook = true\n")
+    assert "receipt" not in doctor(plain), "the engine's own policy needs no project receipt"
+    custom = tmp_path / "custom"
+    custom.mkdir()
+    assert subprocess.run(EOS + ["init", str(custom), "--no-ai"], capture_output=True).returncode == 0
+    config_file = custom / ".eos" / "config.toml"
+    config_file.write_text(config_file.read_text(encoding="utf-8")
+                           + '\n[model_routing]\n\n[model_routing.keywords]\ninvestigation = ["neden"]\n',
+                           encoding="utf-8")
+    assert "no receipt" in doctor(custom)
+    path = _corpus(tmp_path, [("design the billing architecture", "", "", "opus", "test")])
+    subprocess.run(EOS + ["route", str(custom), "--eval", str(path), "--split", "dev"], capture_output=True)
+    assert "no receipt" in doctor(custom), "a dev measurement is tuning, not a receipt"
+    subprocess.run(EOS + ["route", str(custom), "--eval", str(path), "--split", "test"], capture_output=True)
+    assert "no receipt" not in doctor(custom)
+    config_file.write_text(config_file.read_text(encoding="utf-8").replace('["neden"]', '["neden", "nasıl"]'),
+                           encoding="utf-8")
+    assert "no receipt" in doctor(custom), "a changed config needs its own receipt"
+
+
 def test_the_test_split_is_refused_while_a_label_is_pending_review(tmp_path):
     root = _project(tmp_path, "[model_routing]\n")
     path = tmp_path / "corpus.tsv"

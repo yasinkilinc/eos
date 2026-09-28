@@ -42,6 +42,12 @@ GATE = {"model_accuracy_min": 0.85, "under_routing_max": 0.03,
         "critical_to_cheapest_max": 0, "invalid_effort_max": 0}
 HIGH_LEVELS = {"HIGH", "CRITICAL"}
 RECORD = "routing-eval.jsonl"
+# `[model_routing]` defaults that change a decision; the rest (hook, brief,
+# recording, the hook's confidence floor) change what is done with one.
+DEFAULT_KEYS = ("default_model", "default_effort", "default_task_type")
+# The hash of a configuration that tunes nothing: the engine's own policy.
+_ENGINE_HASH = hashlib.sha256(json.dumps({"keywords": {}, "rules": {}, "factors": {}, "models": {}},
+                                         sort_keys=True).encode("utf-8")).hexdigest()[:16]
 
 
 def load(path: str | Path) -> list[dict]:
@@ -165,15 +171,63 @@ def run(project_root: str | Path | None, rows: list[dict], split: str | None = N
     return result
 
 
-def fingerprint(project_root, corpus: str | Path) -> dict:
-    """Hashes that identify one measurement: the corpus bytes and the routing config."""
+def config_hash(project_root) -> str:
+    """The routing configuration a decision is made under: every key that changes
+    one. A default key is hashed only when it differs from the engine's default,
+    so writing a default out changes nothing and a project that only switches the
+    hook or the brief on keeps the engine's own policy's hash."""
     from core.routing import config
 
     cfg = config.load(project_root)
-    config_text = json.dumps({"keywords": cfg.keywords, "rules": cfg.rules, "factors": cfg.factors,
-                              "models": cfg.models}, sort_keys=True, ensure_ascii=False, default=list)
+    fields = {"keywords": cfg.keywords, "rules": cfg.rules, "factors": cfg.factors, "models": cfg.models}
+    engine = config.RoutingConfig()
+    for key in DEFAULT_KEYS:
+        if getattr(cfg, key) != getattr(engine, key):
+            fields[key] = getattr(cfg, key)
+    text = json.dumps(fields, sort_keys=True, ensure_ascii=False, default=list)
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()[:16]
+
+
+def fingerprint(project_root, corpus: str | Path) -> dict:
+    """Hashes that identify one measurement: the corpus bytes and the routing config."""
     return {"corpus": hashlib.sha256(Path(corpus).read_bytes()).hexdigest()[:16],
-            "config": hashlib.sha256(config_text.encode("utf-8")).hexdigest()[:16]}
+            "config": config_hash(project_root)}
+
+
+def _measurements(project_root) -> list[dict]:
+    path = Path(project_root) / ".eos" / "data" / RECORD
+    entries = []
+    if path.is_file():
+        for line in path.read_text(encoding="utf-8").splitlines():
+            try:
+                entry = json.loads(line)
+            except ValueError:
+                continue
+            if isinstance(entry, dict):
+                entries.append(entry)
+    return entries
+
+
+def receipt_missing(project_root) -> str | None:
+    """Why this project's routing configuration is not yet accepted (L5), or None.
+
+    A project that tunes the policy -- keywords, rules, factors, models, a
+    default -- makes its own decisions, and the receipt for them is a test-split
+    measurement taken under exactly that configuration. The engine's own policy
+    needs none from the project, and a dev measurement is tuning, not a receipt."""
+    from core.routing import config
+
+    try:
+        cfg = config.load(project_root)
+        current = config_hash(project_root)
+    except (OSError, ValueError):
+        return None
+    if not cfg.configured or current == _ENGINE_HASH:
+        return None
+    if any(entry.get("config") == current for entry in _measurements(project_root)):
+        return None
+    return (f"routing configuration {current} has no receipt: no test-split measurement was taken "
+            "under it. `eos route <path> --eval <corpus> --split test` is the receipt (ADR-025, L5).")
 
 
 def record_test(project_root, corpus: str | Path, result: dict) -> int:
@@ -183,15 +237,11 @@ def record_test(project_root, corpus: str | Path, result: dict) -> int:
 
     prints = fingerprint(project_root, corpus)
     path = Path(project_root) / ".eos" / "data" / RECORD
-    earlier = []
-    if path.is_file():
-        for line in path.read_text(encoding="utf-8").splitlines():
-            try:
-                earlier.append(json.loads(line))
-            except ValueError:
-                continue
+    earlier = _measurements(project_root)
     different = sum(1 for e in earlier if e.get("corpus") == prints["corpus"] and e.get("config") != prints["config"])
-    entry = {"at": utc_now(), **prints, "accuracy": result["accuracy"], "under_routing": result["under_routing"],
+    engine = (Path(__file__).resolve().parents[1] / "VERSION").read_text(encoding="utf-8").strip()
+    entry = {"at": utc_now(), **prints, "corpus_name": Path(corpus).name, "engine": engine,
+             "accuracy": result["accuracy"], "under_routing": result["under_routing"],
              "critical_to_cheapest": result["critical_to_cheapest"]["count"],
              "invalid_effort": result["invalid_effort"], "gate": result["gate"]["pass"]}
     try:

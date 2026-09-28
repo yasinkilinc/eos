@@ -154,3 +154,25 @@ checks -- `eos verify --procedure <slug>` -- when it has any. Depth 0/1 change
 nothing, and a session with no routed decision at all (no open run, or a run
 with no `decided` event) sees the gate exactly as it did before this existed:
 the hint is additive to an already-fired gate, never a trigger of its own.
+
+## Addendum (2026-09-28, 1.36.0): a tuned policy is accepted with a receipt (L5)
+
+A project that tunes the policy -- `[model_routing]` keywords, rules, factors,
+models, or a `default_*` key -- makes decisions the engine's own tests never
+saw. Its receipt is a test-split measurement taken under exactly that
+configuration: the `routing-eval.jsonl` entry, which now also records the
+engine version and the corpus file name. `eos doctor` warns (never fails) while
+the current configuration's hash has none; a dev measurement is tuning and does
+not count. The hash now covers every key that changes a decision --
+`default_task_type`, `default_model` and `default_effort` were missing, so a
+changed fallback read as the same configuration. A default written out equal to
+the engine's hashes as if absent, so no existing receipt moves for a project
+that does not use them. A project with the table but nothing tuned runs the
+engine's policy and needs no receipt of its own.
+
+The engine's own numbers -- the gate's thresholds, the scorer's level
+boundaries, `VERIFY_DEPTH`, `route --learn`'s bars -- change only with a
+measurement on a labelled corpus and an addendum here naming it.
+`policy.adjust_for_history` still reads no outcome and `route --learn` still
+only prints: what a person accepts into the config is the only way history
+changes a decision.

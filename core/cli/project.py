@@ -326,6 +326,14 @@ def cmd_doctor(args: argparse.Namespace) -> int:
             print(f"  - {len(generated)} generated note(s) also stale; regenerate them, do not edit by hand")
         print("  Run `eos note audit` for the full list.")
 
+    # Not fatal either: a tuned routing policy with no test measurement under it
+    # is advice nobody has checked (L5), not a broken instance.
+    from core.routing import evaluate
+
+    missing = evaluate.receipt_missing(root)
+    if missing:
+        print(f"Warning: {missing}")
+
     _report_ledger(root)
     return 0
 
