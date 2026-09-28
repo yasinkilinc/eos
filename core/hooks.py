@@ -1298,7 +1298,38 @@ def _verify_gate(root: Path, hook: Hook, cfg: dict) -> tuple[str, str]:
     mark = verify.signature(found)
     if any(line.get("gated") == mark for line in _state(hook.session)):
         return "", ""
-    return verify.reason(scopes, found), mark
+    reason = verify.reason(scopes, found)
+    hint = _verify_depth2_hint(root, hook)
+    return (reason + "\n" + hint if hint else reason), mark
+
+
+def _verify_depth2_hint(root: Path, hook: Hook) -> str:
+    """A2: the routing envelope's `verify_depth` (ADR-025) gets its one
+    consumer here. Only additive to a gate that already fired for another
+    reason -- never a trigger of its own, and a session with no routed
+    decision (no open run, no `decided` event) gets nothing, so the gate is
+    never stricter than before A2 for it (task instruction). depth 0/1 add
+    nothing; depth 2 names the procedure's own read-only `## Success` checks,
+    when it has any, exactly as `eos verify --procedure` would run them."""
+    found = _open_run(root, hook.session)
+    if found is None:
+        return ""
+    try:
+        from core import executions, notes, routing, steps
+
+        execution, ledger = found
+        record = next((r for r in executions.load_path(ledger) if r.id == execution), None)
+        if record is None or not record.procedure:
+            return ""
+        if routing.verify_depth_of(record) != 2:
+            return ""
+        note = notes.find_procedure(root, record.procedure)
+        if note is None or not any(check.read_only for check in steps.success_command_checks(root, note)):
+            return ""
+        return (f"Routed at verify depth 2: {record.procedure} has read-only Success checks -- "
+                f"eos verify --procedure {record.procedure} runs them.")
+    except Exception:  # noqa: BLE001 - cannot tell, add nothing
+        return ""
 
 
 def _stop(root: Path, hook: Hook, cfg: dict, agent: str | None) -> str:
