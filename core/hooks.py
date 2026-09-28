@@ -95,6 +95,9 @@ WORKSPACE_PROMPT_LIMIT = 3
 # this stops the root plus three projects from quadrupling it.
 PROMPT_TOTAL_CHARS = 6000
 MAX_TASK_CHARS = 2000
+# A session's injection state (notes given, budget spent, task words) survives
+# SessionEnd for a resume; SessionEnd removes what no session touched this long.
+INJECT_STATE_DAYS = 14
 MAX_READ_BYTES = 8 * 1024 * 1024
 MAX_WATCHED = 64
 MAX_KEPT_FILES = 12
@@ -609,12 +612,13 @@ def _kept_lines(kept: dict) -> list[str]:
 def _session_start(root: Path, hook: Hook, cfg: dict, agent: str | None) -> str:
     parts = []
     if hook.source in ("compact", "clear") and hook.session:
-        # The context that held the delivered briefs is gone; the dedup that
-        # kept them from repeating would now keep them from arriving at all.
-        try:
-            _prompted_file(hook.session).unlink()
-        except OSError:
-            pass
+        # The context that held the delivered briefs and notes is gone; the
+        # dedup that kept them from repeating would now keep them from arriving.
+        for stale in (_prompted_file(hook.session), _state_dir() / f"{_safe(hook.session)}.inject.json"):
+            try:
+                stale.unlink()
+            except OSError:
+                pass
         _note_state(hook.session, reset=hook.source)
         if hook.source == "compact" and cfg["compact"]:
             lines = _kept_lines(_kept(root, hook.session))
@@ -1229,13 +1233,31 @@ def _session_end(root: Path, hook: Hook, cfg: dict, agent: str | None) -> str:
                                                                 str(line["gated"]))
                                                   for later in lines[index + 1:]))}
         _append_log(root, SESSIONS_FILE, entry)
-    for stale in (_state_file(hook.session), _prompted_file(hook.session),
-                  _state_dir() / f"{_safe(hook.session)}.inject.json") if hook.session else ():
+    for stale in (_state_file(hook.session), _prompted_file(hook.session)) if hook.session else ():
         try:
             stale.unlink()
         except OSError:
             pass
+    _sweep_inject_state()
     return ""
+
+
+def _sweep_inject_state() -> None:
+    """What a session was given and spent outlives its SessionEnd: a resumed
+    session keeps its id and its transcript, so the notes are still in context
+    and the budget still spent. Only state no session touched for
+    INJECT_STATE_DAYS goes."""
+    cutoff = time.time() - INJECT_STATE_DAYS * 86400
+    try:
+        paths = [*_state_dir().glob("*.inject.json"), *_state_dir().glob("*.task.json")]
+    except OSError:
+        return
+    for path in paths:
+        try:
+            if path.stat().st_mtime < cutoff:
+                path.unlink()
+        except OSError:
+            pass
 
 
 def _pre_agent(root: Path, hook: Hook, cfg: dict, agent: str | None) -> str:

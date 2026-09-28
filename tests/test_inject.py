@@ -6,8 +6,10 @@ directory holding a second checkout of one of them.
 import hashlib
 import io
 import json
+import os
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 import pytest
@@ -209,6 +211,49 @@ def test_inject_off_in_config_says_nothing(ws, monkeypatch, capsys):
     config = hub / ".eos" / "config.toml"
     config.write_text(config.read_text(encoding="utf-8") + "\n[hooks]\ninject = false\n", encoding="utf-8")
     assert _touch(monkeypatch, capsys, hub, "s8", svc / "src" / "pkg" / "Foo.java") == ""
+
+
+def _end(monkeypatch, capsys, hub, session):
+    payload = {"session_id": session, "cwd": str(hub), "hook_event_name": "SessionEnd", "reason": "other"}
+    monkeypatch.setattr(sys, "stdin", io.StringIO(json.dumps(payload)))
+    assert hooks.main(["session-end"]) == 0
+    capsys.readouterr()
+
+
+def test_a_resumed_session_keeps_what_it_was_given_and_spent(ws, monkeypatch, capsys):
+    # A session closed and resumed keeps its id and its transcript: the notes it
+    # was given are still in context, and the budget they spent is still spent.
+    _, hub, svc = ws
+    source = svc / "src" / "pkg" / "Foo.java"
+    given = {line for line in _touch(monkeypatch, capsys, hub, "r1", source).splitlines()
+             if line.startswith("- ") and "more on svc-a" not in line}
+    _end(monkeypatch, capsys, hub, "r1")
+    again = _touch(monkeypatch, capsys, hub, "r1", source).splitlines()
+    assert given and not given.intersection(again)
+
+
+@pytest.mark.parametrize("source", ["compact", "clear"])
+def test_a_compaction_or_clear_gives_the_notes_again(ws, monkeypatch, capsys, source):
+    # The context that held them is gone: the same notes arrive again.
+    _, hub, svc = ws
+    target = svc / "src" / "pkg" / "Foo.java"
+    first = _touch(monkeypatch, capsys, hub, "k1", target)
+    payload = {"session_id": "k1", "cwd": str(hub), "hook_event_name": "SessionStart", "source": source}
+    monkeypatch.setattr(sys, "stdin", io.StringIO(json.dumps(payload)))
+    assert hooks.main(["session-start"]) == 0
+    capsys.readouterr()
+    assert _touch(monkeypatch, capsys, hub, "k1", target) == first
+
+
+def test_session_end_sweeps_injection_state_left_by_old_sessions(ws, monkeypatch, capsys):
+    tmp, hub, svc = ws
+    _touch(monkeypatch, capsys, hub, "old", svc / "src" / "pkg" / "Foo.java")
+    _touch(monkeypatch, capsys, hub, "new", svc / "src" / "pkg" / "Foo.java")
+    old, new = (hooks._state_dir() / f"{s}.inject.json" for s in ("old", "new"))
+    aged = time.time() - (hooks.INJECT_STATE_DAYS + 1) * 86400
+    os.utime(old, (aged, aged))
+    _end(monkeypatch, capsys, hub, "new")
+    assert not old.exists() and new.exists()
 
 
 def test_the_session_budget_holds_across_touches():

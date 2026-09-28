@@ -82,13 +82,13 @@ them. Nothing here is guessed: "unmeasured" means no number exists yet.
 | 1 | F3 | done | one scorer; BM25F/RRF rejected (F3b); synonyms engine (N1) and on the host (H1). MMR not tried: the misses are near-duplicates, not top-3 redundancy |
 | 1 | F4 | done | -- |
 | 1 | F5 | done | collapse on read (N4); collapse on write refused (ADR-020, append-only) |
-| 1 | gate | re-measure | nexus per-store r@1 0.909 with synonyms (>= 0.80 met on that set); the host path and `eos note search` agreed on 135 of 137 before synonyms -- not re-measured since |
+| 1 | gate | done | re-measured 2026-09-28 on the host's 119 labelled queries (7 golden sets): nexus set r@1 host path 0.879, per-store 0.909 (>= 0.80 met on both); all sets r@1 0.765 / r@3 0.924 host, 0.840 / 0.958 per-store -- per-store unchanged since F3's synonym measurement, host one query lower on each (0.773 / 0.933 then; the corpus grew since), still above the pre-F3 0.748 / 0.916. The host path (store-scoped) and `eos note search` return the same top-3 on 117 of 119; the 2 that differ share top-1. Host query latency p50 423 ms, p95 437 ms |
 | 2 | M1 | done | forward (N2, N8), host migrated (H4) |
 | 2 | M2 | decided: later | counters stay on ok; revisit about 2026-10-10 with two weeks of labelled runs. `run finish --source` and event `step` fields absent |
 | 2 | M3 | not started | the generated store: the host's 402 generated notes (api-inventory, agents-md) move out of the authored stores |
 | 2 | M4 | not started | journey fan-out |
 | 2 | M6 | not started | priors from outcomes (F3 is done; needs M2's labelled runs) |
-| 2 | gate | part | provenance 861/862 (met); recall@1 >= 0.85 not met (host path 0.773); store size <= 300 depends on M3; injection p95 unmeasured |
+| 2 | gate | part | provenance 861/862 (met); recall@1 >= 0.85 met on the nexus set (host path 0.879, per-store 0.909, 2026-09-28; the earlier "0.773" was the all-sets figure); store size <= 300 depends on M3; injection p95 over the last 20 sessions 5,296 tokens (median 1,371) against <= 4,000 -- not met. Cause: SessionEnd deleted the session's injection state, so a session closed and resumed (same id, same transcript) got a fresh budget and the same notes again (416caac6: 7,071 tokens over 09-27 15:05 to 09-28 11:58). Fixed in 1.38.0; re-measure over 20 sessions on 1.38.0 |
 | 3 | C1 | done | one estimator, 2.22 chars/token (N3) |
 | 3 | C2 | done | kind and age (C2a), lessons' evidence (N10); stable ids left out on purpose |
 | 3 | C3 | done | touched-file injection narrows long findings to the latest prompt's words (1.36.0); host estimate: 112 of 165 scoped notes are long findings, ~33% fewer body characters over the dev prompts (derived) |
