@@ -132,3 +132,14 @@ refuse, and exits 0 on PASS, 1 on FAIL. The thresholds are constants
 in both splits is refused; the test split prints no rows and no suggestions,
 and every test measurement is logged with hashes of the corpus and of the
 routing configuration, so a test set measured again after tuning is visible.
+
+## Addendum (2026-09-28, 1.34.0): the no-signal type is a project's choice
+
+A task that no table matches -- built-in or configured -- has no evidence for any
+type, and `classify()` used to answer `normal_implementation` for it
+unconditionally. On one host's labelled corpus a third of the development prompts
+matched nothing, and their true types skewed elsewhere (mostly `investigation`).
+`[model_routing] default_task_type` names the fallback; unset, it stays
+`normal_implementation`. It changes only the no-match branch: confidence stays
+`NO_MATCH_CONFIDENCE`, no rule runs, level and model follow the scorer as before.
+Which value a project sets is decided on its own corpus's development split.

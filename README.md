@@ -1022,6 +1022,7 @@ Everything is optional and off in the brief until a project asks for it:
 enabled = true              # false: `eos route` still answers; the brief and MCP add nothing
 default_model = "auto"      # or a registry id / alias
 default_effort = "auto"     # or low | medium | high | xhigh | max
+default_task_type = "normal_implementation"  # the type a task gets when no keyword matches
 brief = "with-brief"        # "with-brief" | "always" | "never"
 hook = false                # true: route untyped subagents (the plugin's hook, or the file below)
 hook_dry_run = true         # plugin: record what the hook would set, set nothing
