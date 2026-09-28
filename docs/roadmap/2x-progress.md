@@ -98,7 +98,7 @@ them. Nothing here is guessed: "unmeasured" means no number exists yet.
 | 4 | A1 | part | corpus labelled (H3); tuned on dev and deployed (1.34.0 `default_task_type`, host keywords). Test, measured once after deploy: routing-a1 type 52.1% level 41.3% model 97.5%, gate PASS; routing-real type 59.1% model 95.5%, gate FAIL (1 of 5 under-routed, the same row as before). Report's test top-1 >= 0.75: met by model, not by type. `route --bench` absent |
 | 4 | A2 | done | the Stop verify gate is depth's one consumer, Day 4 (Q1) |
 | 4 | A3 | done | advised vs used vs outcome in `route --stats` (N5, RVb) |
-| 4 | A4 | part | six-state model (1.33.0); `healthy` is always `unknown` -- wiring it to live checks is a design decision |
+| 4 | A4 | done | six-state model (1.33.0); health read from the run ledger (1.37.0, user's choice (a) over live checks): the latest answered (exit 0) or wrapper-marked `unreachable` call within 8 h decides; other failures are not evidence -- measured on the host, every one of the failing streaks read came from a system that was up (usage refusals, a wrong name's 403, a test suite against a fake endpoint). The report's "264 guard overrides in 5 days below 50" is not re-measured here |
 | 4 | A5 | done | `route --learn`, Day 4 (Q2); keyword-level proposals left out (ADR-019, no keyword data recorded) |
 | 5 | E1 | part | recording done (N11, D1); the >= 95% gate unmet: 16/40 over 7 runs, too few -- re-measure once sessions on >= 1.32 accumulate |
 | 5 | E2, E3, E4 | done | E3: cite, hook checks, scope at finish (N6), depth 2 (1.33.0) |
