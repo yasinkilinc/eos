@@ -296,3 +296,52 @@ def test_gate_counts_under_routing_and_critical_on_the_cheapest(tmp_path):
     assert result["critical_to_cheapest"]["count"] == 1
     assert result["under_routing"] == {"rate": 1.0, "count": 2, "high_or_critical": 2}
     assert result["gate"]["pass"] is False and result["gate"]["thresholds"]["model_accuracy_min"] == 0.85
+
+
+def test_a_slow_policy_fails_the_latency_gate(tmp_path, monkeypatch):
+    import time
+
+    import core.routing as routing
+
+    root = _project(tmp_path, "[model_routing]\n")
+    path = _corpus(tmp_path, [("design the billing architecture", "", "", "opus", "")])
+    fast = evaluate.run(root, evaluate.load(path))
+    assert fast["gate"]["checks"]["latency_p95"] is (fast["latency_ms"]["p95"] <= 10)
+    original = routing.route
+
+    def slow(*args, **kwargs):
+        time.sleep(0.015)
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(routing, "route", slow)
+    result = evaluate.run(root, evaluate.load(path))
+    assert result["latency_ms"]["p95"] >= 15
+    assert result["gate"]["checks"]["latency_p95"] is False and result["gate"]["pass"] is False
+    assert result["gate"]["thresholds"]["latency_p95_ms_max"] == 10
+    assert "latency" in evaluate.render(result)
+
+
+def test_accuracy_is_reported_per_labelled_type(tmp_path):
+    root = _project(tmp_path, "[model_routing]\n")
+    path = _corpus(tmp_path, [("design the billing architecture", "architecture", "", "opus", ""),
+                              ("fix the typo in the readme", "architecture", "", "haiku", ""),
+                              ("rename the variable", "", "", "haiku", "")])
+    result = evaluate.run(root, evaluate.load(path))
+    by_type = result["by_type"]
+    assert set(by_type) == {"architecture"}
+    assert by_type["architecture"]["prompts"] == 2 and by_type["architecture"]["type"] == 0.5
+    assert "architecture" in evaluate.render(result)
+
+
+def test_a_miss_is_listed_whether_or_not_its_type_is_labelled(tmp_path):
+    root = _project(tmp_path, "[model_routing]\n")
+    path = _corpus(tmp_path, [("design the billing architecture", "trivial_edit", "", "haiku", ""),
+                              ("rename the variable", "", "", "*", "")])
+    result = evaluate.run(root, evaluate.load(path))
+    assert [miss["prompt"] for miss in result["misses"]] == ["design the billing architecture"]
+    assert result["by_type"]["trivial_edit"]["type"] == 0.0
+
+
+def test_the_latency_gate_compares_the_unrounded_p95():
+    assert evaluate._latency_ok([10.04]) is False
+    assert evaluate._latency_ok([10.0]) is True

@@ -333,6 +333,6 @@ def ledger_holding(workspace_root: str | Path, execution: str) -> Path | None:
         return None
     for project in projects:
         ledger = executions.path_for(project.root)
-        if ledger.is_file() and execution in {r.id for r in executions.load_path(ledger)}:
+        if ledger.is_file() and executions.load_path(ledger, only=execution):
             return ledger
     return None

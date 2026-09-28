@@ -103,7 +103,7 @@ def _open_run(project_root, session):
         execution, ledger = found
         if Path(ledger).resolve() != executions.path_for(project_root).resolve():
             return None
-        record = next((r for r in executions.load_path(ledger) if r.id == execution), None)
+        record = next(iter(executions.load_path(ledger, only=execution)), None)
         return record if record is not None and record.open else None
     except Exception:
         return None

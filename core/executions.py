@@ -364,7 +364,7 @@ def _success_source(project_root: str | Path, record: Record) -> tuple[str | Non
 
 
 def _open_in(ledger: Path, execution: str) -> bool:
-    record = {r.id: r for r in load_path(ledger)}.get(execution)
+    record = next(iter(load_path(ledger, only=execution)), None)
     return record is not None and record.outcome is None
 
 
@@ -424,7 +424,7 @@ def finish(project_root: str | Path, execution: str | None = None, *, outcome: s
         # holds it open: worktrees share a committed ledger, so the same id can be
         # open in two of them, and the caller means its own (second review).
         ledger = found[1]
-    elif execution not in {r.id for r in load_path(ledger)}:
+    elif not load_path(ledger, only=execution):
         # Routed to a workspace project by `run start` and finished by id from
         # the workspace root, in a session that holds no pointer to it (C5).
         from core import workspace
@@ -432,7 +432,7 @@ def finish(project_root: str | Path, execution: str | None = None, *, outcome: s
     project_root = _root_of(ledger) or project_root
     _checked(lesson, "lesson")
     _checked(next_time, "next time")
-    existing = {r.id: r for r in load_path(ledger)}.get(execution)
+    existing = next(iter(load_path(ledger, only=execution)), None)
     if existing is None:
         # A finish line for an id nobody started made a run out of nothing (F5).
         raise ValueError(f"{execution} was never started in {ledger}")
@@ -470,7 +470,7 @@ def finish(project_root: str | Path, execution: str | None = None, *, outcome: s
     if existing is not None and existing.procedure:
         notes.record_procedure_run(project_root, existing.procedure, outcome=outcome,
                                    execution=execution, at=at, lesson=lesson)
-    return {r.id: r for r in load_path(ledger)}[execution]
+    return load_path(ledger, only=execution)[0]
 
 
 # --- reading -----------------------------------------------------------------------
@@ -529,8 +529,11 @@ def _read_consistently(parts: list[Path], attempts: int = 8) -> list[str]:
         return texts
 
 
-def load_path(ledger: Path) -> list[Record]:
-    """Every execution in one ledger, in the order it was started."""
+def load_path(ledger: Path, *, only: str | None = None) -> list[Record]:
+    """Every execution in one ledger, in the order it was started; with `only`,
+    that one execution alone. A line that does not hold the id, quoted, is
+    skipped before it is decoded: a hook looking up the session's run folded
+    the whole ledger on every call (22 ms a routing decision at 3,700 events)."""
     parts = [rotated(ledger, index) for index in range(KEEP_ROTATED, 0, -1)] + [ledger]
     texts = _read_consistently(parts)
     if not texts:
@@ -545,9 +548,11 @@ def load_path(ledger: Path) -> list[Record]:
             records[execution] = record
         return record
 
+    # The writer keeps non-ASCII as is; an older or foreign line may escape it.
+    needles = {json.dumps(only, ensure_ascii=False), json.dumps(only)} if only is not None else None
     for line in text.splitlines():
         line = line.strip()
-        if not line:
+        if not line or (needles is not None and not any(needle in line for needle in needles)):
             continue
         try:
             data = json.loads(line)
@@ -586,6 +591,8 @@ def load_path(ledger: Path) -> list[Record]:
                 record.lesson = data.get("lesson")
                 record.commit_end = data.get("commit_end")
                 record.outcome_source = data.get("outcome_source")
+    if only is not None:
+        return [records[only]] if only in records else []
     return list(records.values())
 
 

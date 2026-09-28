@@ -44,6 +44,32 @@ def _helper(args, env):
 # --- the fold ------------------------------------------------------------------------
 
 
+def test_one_run_is_read_without_folding_the_others(project):
+    # A hook looks up the session's one open run on every call; folding a
+    # 3,700-event ledger for it cost the router 22 ms a decision.
+    ledger = executions.path_for(project)
+    ledger.parent.mkdir(parents=True, exist_ok=True)
+    lines = [{"type": "start", "id": "x-a", "title": "A", "at": "2026-09-24T09:00:00+00:00"},
+             {"type": "start", "id": "x-a-2", "title": "mentions \"x-a\" in its title",
+              "at": "2026-09-24T09:01:00+00:00"},
+             {"type": "event", "execution": "x-a", "at": "2026-09-24T09:02:00+00:00", "kind": "ran", "tool": "build"},
+             {"type": "event", "execution": "x-a-2", "at": "2026-09-24T09:03:00+00:00", "kind": "ran", "tool": "test"},
+             {"type": "finish", "id": "x-a-2", "outcome": "ok", "at": "2026-09-24T09:04:00+00:00"}]
+    ledger.write_text("".join(json.dumps(line) + "\n" for line in lines), encoding="utf-8")
+    full = {r.id: r for r in executions.load_path(ledger)}
+    assert executions.load_path(ledger, only="x-a") == [full["x-a"]]
+    assert executions.load_path(ledger, only="x-a-2") == [full["x-a-2"]]
+    assert executions.load_path(ledger, only="x-none") == []
+    # The writer keeps non-ASCII as is; an older line may carry the escape.
+    with ledger.open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps({"type": "start", "id": "x-ş", "title": "Ş", "at": "2026-09-24T09:05:00+00:00"},
+                                ensure_ascii=False) + "\n")
+        handle.write(json.dumps({"type": "finish", "id": "x-ş", "outcome": "ok",
+                                 "at": "2026-09-24T09:06:00+00:00"}) + "\n")
+    [record] = executions.load_path(ledger, only="x-ş")
+    assert record.title == "Ş" and record.outcome == "ok"
+
+
 def test_an_event_whose_start_line_was_lost_still_shows_the_run(project):
     ledger = executions.path_for(project)
     ledger.parent.mkdir(parents=True, exist_ok=True)

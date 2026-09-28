@@ -172,7 +172,7 @@ def for_subagent(project_root: str | Path, task: str, *, session: str | None = N
     found = executions.current(root, session) if session else None
     if found is not None:
         execution, ledger = found
-        title = next((r.title for r in executions.load_path(Path(ledger)) if r.id == execution), "")
+        title = next((r.title for r in executions.load_path(Path(ledger), only=execution)), "")
         lines.append(f"- parent run: {execution}" + (f" ({title})" if title else ""))
     corpus = notes.load_notes(root)
     procedure = best_procedure(root, task, corpus)

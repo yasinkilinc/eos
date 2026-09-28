@@ -575,7 +575,7 @@ def _kept(root: Path, session: str) -> dict:
         execution, ledger = found
         title, procedure = "", ""
         try:
-            for record in executions.load_path(Path(ledger)):
+            for record in executions.load_path(Path(ledger), only=execution):
                 if record.id == execution:
                     title, procedure = record.title or "", record.procedure or ""
         except Exception:  # noqa: BLE001
@@ -1371,7 +1371,7 @@ def _verify_depth2_hint(root: Path, hook: Hook) -> str:
         from core import executions, notes, routing, steps
 
         execution, ledger = found
-        record = next((r for r in executions.load_path(ledger) if r.id == execution), None)
+        record = next(iter(executions.load_path(ledger, only=execution)), None)
         if record is None or not record.procedure:
             return ""
         if routing.verify_depth_of(record) != 2:
@@ -1472,7 +1472,7 @@ def _close_reasons(root: Path, hook: Hook, cfg: dict) -> list[str]:
         pointed = executions.current(root, hook.session)
         if pointed and not any(run.id == pointed[0] for run in runs):
             # Opened here, recorded in a workspace project's ledger (C5).
-            runs += [run for run in executions.load_path(pointed[1]) if run.id == pointed[0] and run.open]
+            runs += [run for run in executions.load_path(pointed[1], only=pointed[0]) if run.open]
         _note_state(hook.session, held=len(held), open_runs=len(runs))
         lines = []
         if held:

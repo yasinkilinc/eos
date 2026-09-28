@@ -24,7 +24,10 @@ test set measured again after tuning is visible, not silent.
 loosen it): model accuracy >= 0.85; under-routing <= 0.03, a task labelled
 HIGH or CRITICAL sent to a model cheaper than every model its label accepts;
 0 CRITICAL tasks on the cheapest registered model; 0 efforts a model would
-refuse. Suggestions are for a person to accept into `[model_routing.*]`;
+refuse; p95 of one decision's wall time <= 10 ms (every prompt hook pays it).
+Accuracy is also given per labelled type (the label as written, so
+`a|b` is its own row), so a type the policy keeps missing is not hidden by the
+ones it gets right. Suggestions are for a person to accept into `[model_routing.*]`;
 nothing here changes a table (ADR-018).
 """
 from __future__ import annotations
@@ -32,6 +35,8 @@ from __future__ import annotations
 import csv
 import hashlib
 import json
+import math
+import time
 from collections import Counter
 from pathlib import Path
 
@@ -39,7 +44,7 @@ COLUMNS = ("type", "level", "model", "effort")
 SPLITS = ("dev", "test")
 SUGGESTIONS = 8
 GATE = {"model_accuracy_min": 0.85, "under_routing_max": 0.03,
-        "critical_to_cheapest_max": 0, "invalid_effort_max": 0}
+        "critical_to_cheapest_max": 0, "invalid_effort_max": 0, "latency_p95_ms_max": 10}
 HIGH_LEVELS = {"HIGH", "CRITICAL"}
 RECORD = "routing-eval.jsonl"
 # `[model_routing]` defaults that change a decision; the rest (hook, brief,
@@ -91,6 +96,19 @@ def _accepts(label: str, value: str) -> bool | None:
     return value in _options(label)
 
 
+def _percentile(values: list[float], share: float) -> float:
+    """Nearest rank: the smallest value at least `share` of the values do not exceed."""
+    if not values:
+        return 0.0
+    ordered = sorted(values)
+    return ordered[max(0, math.ceil(share * len(ordered)) - 1)]
+
+
+def _latency_ok(timings: list[float]) -> bool:
+    """The gate reads the measured p95, not the rounded one it prints."""
+    return _percentile(timings, 0.95) <= GATE["latency_p95_ms_max"]
+
+
 def run(project_root: str | Path | None, rows: list[dict], split: str | None = None) -> dict:
     import core.routing as routing
     from core.routing import classify, config, registry
@@ -111,8 +129,12 @@ def run(project_root: str | Path | None, rows: list[dict], split: str | None = N
     misses, unknown_words, invalid = [], Counter(), 0
     confusion: dict[str, Counter] = {}
     high_rows, under, critical_cheap = 0, 0, 0
+    timings: list[float] = []
+    by_type: dict[str, dict[str, list[int]]] = {}
     for row in chosen:
+        started = time.perf_counter()
         decision = routing.route(project_root, row["prompt"], record=False, fresh=True)
+        timings.append((time.perf_counter() - started) * 1000)
         values = {"type": decision.task_type, "level": decision.level,
                   "model": decision.model, "effort": decision.effort or "none"}
         spec = models.get(decision.model)
@@ -131,11 +153,17 @@ def run(project_root: str | Path | None, rows: list[dict], split: str | None = N
         if decision.model == cheapest and ("CRITICAL" in levels or decision.level == "CRITICAL"):
             critical_cheap += 1
         wrong = []
+        label_type = row.get("type", "")
+        group = by_type.setdefault(label_type, {column: [0, 0] for column in COLUMNS}) \
+            if label_type not in ("", "*") else None
         for column in COLUMNS:
             verdict = _accepts(row.get(column, ""), values[column])
             if verdict is None:
                 continue
             scored[column][1] += 1
+            if group is not None:
+                group[column][1] += 1
+                group[column][0] += int(verdict)
             if verdict:
                 scored[column][0] += 1
             else:
@@ -148,11 +176,16 @@ def run(project_root: str | Path | None, rows: list[dict], split: str | None = N
                 unknown_words.update(w for w in notes._words(row["prompt"]) if w not in known and len(w) > 3)
     accuracy = {column: (round(right / total, 3) if total else None) for column, (right, total) in scored.items()}
     under_rate = round(under / high_rows, 3) if high_rows else 0.0
+    latency = {"p50": round(_percentile(timings, 0.5), 1), "p95": round(_percentile(timings, 0.95), 1)}
+    types = {label: {"prompts": counts["type"][1],
+                     **{column: round(right / total, 3) for column, (right, total) in counts.items() if total}}
+             for label, counts in sorted(by_type.items())}
     checks = {
         "model_accuracy": accuracy["model"] is not None and accuracy["model"] >= GATE["model_accuracy_min"],
         "under_routing": under_rate <= GATE["under_routing_max"],
         "critical_to_cheapest": critical_cheap <= GATE["critical_to_cheapest_max"],
         "invalid_effort": invalid <= GATE["invalid_effort_max"],
+        "latency_p95": _latency_ok(timings),
     }
     blind = split == "test"
     result = {
@@ -163,6 +196,8 @@ def run(project_root: str | Path | None, rows: list[dict], split: str | None = N
         "under_routing": {"rate": under_rate, "count": under, "high_or_critical": high_rows},
         "critical_to_cheapest": {"count": critical_cheap, "cheapest": cheapest},
         "invalid_effort": invalid,
+        "latency_ms": latency,
+        "by_type": types,
         "gate": {"pass": all(checks.values()), "checks": checks, "thresholds": dict(GATE)},
         # Test is measured, never tuned against: no rows, no suggestions.
         "misses": [] if blind else misses,
@@ -249,7 +284,8 @@ def record_test(project_root, corpus: str | Path, result: dict) -> int:
     entry = {"at": utc_now(), **prints, "corpus_name": Path(corpus).name, "engine": engine,
              "accuracy": result["accuracy"], "under_routing": result["under_routing"],
              "critical_to_cheapest": result["critical_to_cheapest"]["count"],
-             "invalid_effort": result["invalid_effort"], "gate": result["gate"]["pass"]}
+             "invalid_effort": result["invalid_effort"], "latency_ms": result["latency_ms"],
+             "by_type": result["by_type"], "gate": result["gate"]["pass"]}
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
         with open(path, "a", encoding="utf-8") as handle:
@@ -271,6 +307,15 @@ def render(result: dict) -> str:
     cc = result["critical_to_cheapest"]
     lines.append(f"  CRITICAL -> cheapest model ({cc['cheapest']}): {cc['count']}")
     lines.append(f"  effort a model would refuse: {result['invalid_effort']}")
+    latency = result["latency_ms"]
+    lines.append(f"  latency per decision: p50 {latency['p50']} ms, p95 {latency['p95']} ms")
+    if result["by_type"]:
+        lines.append("")
+        lines.append("By labelled type (prompts, type / model accuracy):")
+        width = max(len(label) for label in result["by_type"])
+        for label, row in result["by_type"].items():
+            parts = [f"{column} {row[column]:.0%}" for column in ("type", "model") if column in row]
+            lines.append(f"  {label:<{width}} {row['prompts']:>3}  " + "  ".join(parts))
     if result["confusion"]:
         lines.append("")
         lines.append("Confusion (label -> model chosen):")
