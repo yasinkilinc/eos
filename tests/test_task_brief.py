@@ -355,3 +355,30 @@ def test_a_procedures_steps_say_nothing_about_a_workspace_without_one(project):
     _procedure(project)
     text = brief.build(project, task="Deploy a service to staging", task_only=True)
     assert "steps run from the workspace root" not in text
+
+
+def test_the_workspace_mark_line_cannot_blow_the_task_budget(project, monkeypatch):
+    """`WORKSPACE_MARK` was folded into the same budget-exemption set as
+    `RULE_MARK` (`_with_task`'s `exempt = line.startswith((..., RULE_MARK,
+    WORKSPACE_MARK) + ROUTE_MARKS)`), whole and never trimmed. The comment
+    right above that line says the exemption "cannot grow" because a rule is
+    "Bounded at write time (notes.RULES_MAX_CHARS)" -- 600 chars, enforced by
+    `notes/validate.py` before a procedure note is even written. The
+    workspace-root line carries `str(workspace.of(root))` instead, an
+    absolute filesystem path with no equivalent cap anywhere: `workspace.of`
+    just resolves `[workspace] root` and returns whatever Path comes out. A
+    workspace nested deeply enough (a real, if unusual, directory layout --
+    nothing here needs a symlink trick or a fabricated Path) produces a single
+    exempt line far bigger than a rules section could ever be, and the budget
+    loop lets it through in full regardless of `cap`, defeating the one job
+    `_with_task`'s budget has."""
+    monkeypatch.setattr("core.workspace.of", lambda root: __import__("pathlib").Path("/" + "x" * 5000))
+    _procedure(project)
+
+    text = brief.build(project, task="Deploy a service to staging", task_only=True)
+
+    cap = int(brief.TASK_BUDGET * brief.CHARS_PER_TOKEN)
+    assert len(text) <= cap, (
+        f"the workspace-root line alone ({len(text)} chars) blew past the task "
+        f"budget's cap ({cap} chars) -- RULE_MARK content is capped at "
+        f"{notes.RULES_MAX_CHARS} chars for exactly this reason, WORKSPACE_MARK is not")

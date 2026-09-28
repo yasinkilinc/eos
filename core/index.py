@@ -474,13 +474,25 @@ def is_stale(project_root: str | Path) -> bool | None:
     fixes it on its own.
 
     None when there is no readable index yet to compare against: "not built"
-    is not the same claim as "stale".
+    is not the same claim as "stale". Also None when the digest itself cannot
+    be computed -- a `[index] ticket_pattern`/`merge_branch_pattern` that does
+    not compile as a regex makes `_sources_digest` raise `IndexBuildError`
+    (right for `build()`/`refresh()`, which must refuse to write from a config
+    nobody can act on) but wrong for a pure read that only ever reports
+    staleness: a caller (`consolidate.report`) that folds this into a larger
+    report must not have one broken, unrelated config field take the whole
+    thing down (the same reasoning `cmd_query` already applies around
+    `refresh()`).
     """
     root = Path(project_root).expanduser().resolve()
     built_from = _built_from(db_path(root))
     if built_from is None:
         return None
-    return built_from != _sources_digest(root)
+    try:
+        sources = _sources_digest(root)
+    except IndexBuildError:
+        return None
+    return built_from != sources
 
 
 def _project(project_root: str | Path) -> Path:

@@ -55,6 +55,11 @@ RULE_MARK = "  RULE  "
 # its own cwd. Printed only when the project belongs to one (`workspace.of`);
 # exempt from the budget for the same reason a rule is.
 WORKSPACE_MARK = "  steps run from the workspace root: "
+# RULE_MARK's own content is bounded at write time (notes.RULES_MAX_CHARS);
+# WORKSPACE_MARK's is a filesystem path, never written through that guard, so
+# it needs its own cap -- an exemption from the budget with no bound at all
+# would let an unusually deep workspace path blow well past it (RVg).
+WORKSPACE_PATH_MAX_CHARS = 400
 # The routing decision's two lines (ADR-025). Exempt from the budget like a
 # procedure's rules: a model recommendation cut off is one that did not arrive.
 ROUTE_MARKS = ("ROUTE  ", "  Apply: ", "  Context: ")
@@ -512,7 +517,10 @@ def _task_sections(root: Path, task: str) -> tuple[list[list[str]], bool]:
 
         home = workspace.of(root)
         if home is not None:
-            head.append(f"{WORKSPACE_MARK}{home}")
+            path_text = str(home)
+            if len(path_text) > WORKSPACE_PATH_MAX_CHARS:
+                path_text = path_text[: WORKSPACE_PATH_MAX_CHARS - 1] + "…"
+            head.append(f"{WORKSPACE_MARK}{path_text}")
         # Whole, never clipped, never trimmed by the budget (`_with_task`).
         head += [f"{RULE_MARK}{rule}" for rule in notes.procedure_rules(procedure)]
         head += [f"  {n}. {_clip(step)}" for n, step in enumerate(notes.procedure_steps(procedure), start=1)]
