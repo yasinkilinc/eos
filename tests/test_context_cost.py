@@ -67,6 +67,63 @@ def test_an_image_is_charged_what_the_model_pays_not_its_base64_length(tmp_path)
     assert row["entered_tokens"] == context_cost.IMAGE_TOKENS + 100
 
 
+def _hook_item(event, tokens, kind="hook_success"):
+    text = "x" * round(tokens * context_cost.CHARS_PER_TOKEN)
+    return {"type": "attachment", "timestamp": "2026-09-20T10:00:00Z",
+            "attachment": {"type": kind, "hookEvent": event, "content": text}}
+
+
+def test_median_entered_tokens_is_per_session_not_a_flat_average(tmp_path):
+    """Two sessions carry `hook: UserPromptSubmit`, 1,000 and 3,000 tokens: the
+    median (1,000 and 3,000 -> 2,000) is what a baseline comparison needs, not
+    entered_tokens / sessions (which would give 2,000 here too by coincidence --
+    a third, uneven session must show the difference)."""
+    folder = tmp_path / "t"
+    folder.mkdir()
+    _session(folder / "s1.jsonl", [_assistant("m1", 10), _hook_item("UserPromptSubmit", 1000), _assistant("m2", 10)])
+    _session(folder / "s2.jsonl", [_assistant("m1", 10), _hook_item("UserPromptSubmit", 3000), _assistant("m2", 10)])
+    _session(folder / "s3.jsonl", [_assistant("m1", 10), _hook_item("UserPromptSubmit", 5000), _assistant("m2", 10)])
+    report = context_cost.report(tmp_path, transcripts=folder, since="2026-09-01")
+    [row] = [r for r in report["sources"] if r["source"] == "hook: UserPromptSubmit"]
+    assert row["sessions_with_source"] == 3
+    assert row["median_entered_tokens"] == 3000
+
+
+def test_a_mapped_source_carries_a_baseline_comparison(tmp_path):
+    folder = tmp_path / "t"
+    folder.mkdir()
+    _session(folder / "s1.jsonl", [_assistant("m1", 10), _hook_item("UserPromptSubmit", 1000), _assistant("m2", 10)])
+    report = context_cost.report(tmp_path, transcripts=folder, since="2026-09-01")
+    [row] = [r for r in report["sources"] if r["source"] == "hook: UserPromptSubmit"]
+    assert row["baseline"] is not None
+    assert row["baseline"]["current_median_tokens"] == 1000
+    assert row["baseline"]["saved"] is not None
+    assert row["baseline"]["provenance"] == "derived"
+
+
+def test_an_unmapped_source_carries_no_baseline(tmp_path):
+    folder = tmp_path / "t"
+    folder.mkdir()
+    _session(folder / "s1.jsonl", [
+        _assistant("m1", 1000, [{"type": "tool_use", "id": "t1", "name": "Read", "input": {"file_path": "a"}}]),
+        {"type": "user", "timestamp": "2026-09-20T10:00:01Z",
+         "message": {"content": [{"type": "tool_result", "tool_use_id": "t1", "content": "x" * 2220}]}},
+        _assistant("m2", 2000),
+    ])
+    report = context_cost.report(tmp_path, transcripts=folder, since="2026-09-01")
+    [row] = [r for r in report["sources"] if r["source"] == "tool: Read"]
+    assert row["baseline"] is None
+
+
+def test_render_prints_the_saved_vs_baseline_line(tmp_path):
+    folder = tmp_path / "t"
+    folder.mkdir()
+    _session(folder / "s1.jsonl", [_assistant("m1", 10), _hook_item("UserPromptSubmit", 1000), _assistant("m2", 10)])
+    report = context_cost.report(tmp_path, transcripts=folder, since="2026-09-01")
+    text = context_cost.render(report)
+    assert "vs baseline" in text
+
+
 def test_a_table_that_explains_more_than_the_reads_says_it_over_counts():
     data = {"sessions": 1, "calls": 2, "since": None, "cache_reads": 1000, "base_tokens": 600,
             "explained": 1.2, "transcripts": "t", "sources": [

@@ -77,6 +77,28 @@ def test_cost_context_is_covered_and_never_zero_for_unmeasured(tmp_path):
         assert row["share"] is None or row["share"] > 0
 
 
+def test_cost_context_baseline_row_is_covered(tmp_path):
+    """C7: a source row that carries a `baseline` comparison is covered too --
+    not just the common case of an empty report."""
+    folder = tmp_path / "transcripts"
+    folder.mkdir()
+    text = "x" * round(1000 * context_cost.CHARS_PER_TOKEN)
+    session = {"session": [
+        {"type": "assistant", "timestamp": "2026-09-20T10:00:00Z",
+         "message": {"id": "m1", "usage": {"cache_read_input_tokens": 10}, "content": []}},
+        {"type": "attachment", "timestamp": "2026-09-20T10:00:01Z",
+         "attachment": {"type": "hook_success", "hookEvent": "UserPromptSubmit", "content": text}},
+        {"type": "assistant", "timestamp": "2026-09-20T10:00:02Z",
+         "message": {"id": "m2", "usage": {"cache_read_input_tokens": 10}, "content": []}},
+    ]}
+    (folder / "s.jsonl").write_text(
+        "\n".join(json.dumps(e) for e in session["session"]) + "\n", encoding="utf-8")
+    report = context_cost.report(tmp_path, transcripts=folder, since="2026-09-01")
+    [row] = [r for r in report["sources"] if r["source"] == "hook: UserPromptSubmit"]
+    assert row["baseline"] is not None
+    _covered(report)
+
+
 def test_cost_sessions_is_covered(tmp_path):
     proj = _telemetry_project(tmp_path)
     report = session_cost.report(proj)
