@@ -116,6 +116,13 @@ MAX_PROGRAMS = 3
 # single Edit call; capped so one subtree squash cannot flood the ledger with
 # one event per file (2.x roadmap N11).
 BASH_CHANGED_LIMIT = 200
+# `_worktree_snapshot`: how many dirty paths one snapshot hashes (a fully
+# dirty repo must not make one Bash call hash hundreds of files) and the
+# largest file it reads to hash (a status change alone still tracks a huge
+# file; its content is just not compared) (2.x roadmap E1).
+WORKTREE_SNAPSHOT_LIMIT = 300
+WORKTREE_HASH_LIMIT_BYTES = 4 * 1024 * 1024
+WORKTREE_TIMEOUT = 3
 LOADED_FILE = "loaded.jsonl"
 SESSIONS_FILE = "sessions.jsonl"
 MAX_LOG_BYTES = 2 * 1024 * 1024
@@ -675,6 +682,30 @@ def _pre_read(root: Path, hook: Hook, cfg: dict, agent: str | None) -> str:
                       ensure_ascii=False)
 
 
+def _pre_tool_bash(root: Path, hook: Hook, cfg: dict, agent: str | None) -> str:
+    """Before a Bash call whose git verb mutates the working tree, a snapshot
+    of every dirty path's status and content hash -- so `_bash_worktree_changed`
+    (PostToolUse) can see what changed even when the call never moves HEAD
+    (`stash pop`, `checkout -- <path>`, `restore`, `reset --hard` to the same
+    HEAD, `clean`; 2.x roadmap E1). Never a permission decision -- this event
+    only ever records state, it must never block a call. The text parse of the
+    command (`capabilities.programs`) costs nothing; the git subprocess only
+    runs when that parse actually names a mutating git verb, so an ordinary
+    command's latency is unaffected."""
+    if hook.tool != "Bash" or not cfg["capture"] or not hook.session or not hook.tool_use_id:
+        return ""
+    from core import capabilities
+
+    if not any(program == "git" and capabilities.worth_recording(program, verb)
+               for program, verb in capabilities.programs(hook.command)):
+        return ""
+    snapshot = _worktree_snapshot(root)
+    if snapshot is None:
+        return ""
+    _note_state(hook.session, pretool_snapshot=hook.tool_use_id, snapshot=snapshot)
+    return ""
+
+
 def _user_prompt(root: Path, hook: Hook, cfg: dict, agent: str | None) -> str:
     prompt = hook.prompt.strip()[:MAX_TASK_CHARS]
     if not cfg["brief"] or not prompt or any(mark in prompt.lstrip()[:200] for mark in _NOTICE_MARKS):
@@ -760,7 +791,7 @@ def _git_head(root: Path) -> str | None:
     return result.stdout.strip() or None
 
 
-def _bash_changed(root: Path, hook: Hook, run, status: str) -> None:
+def _bash_changed(root: Path, hook: Hook, run, status: str) -> set[str]:
     """A git command that moves HEAD (checkout, merge, pull, subtree,
     cherry-pick, reset, rebase, stash pop...) commits or checks out files with
     no Edit/Write call, so EDIT_TOOLS's `changed` events never see them -- the
@@ -768,45 +799,136 @@ def _bash_changed(root: Path, hook: Hook, run, status: str) -> None:
     a subtree pull or a merge lands real files with zero `changed` events.
 
     The session's last-seen HEAD (kept in its state, alongside its other
-    per-session facts) is diffed against HEAD now; each file the diff names is
-    one `changed` event, `tool="bash"`. Silent, like every other capture path
-    here, when there is nothing to attach an event to, or nothing to diff yet
-    -- the first git call of a session only records today's HEAD as the
-    baseline, since there is no earlier one to compare it to (2.x roadmap N11,
-    decided without asking)."""
+    per-session facts, keyed by agent -- a main session and every subagent it
+    spawns share one session id, and without the key a subagent's first git
+    call could inherit the main session's baseline and misattribute the main
+    session's own commit to itself) is diffed against HEAD now; each file the
+    diff names is one `changed` event, `tool="bash"`. Silent, like every other
+    capture path here, when there is nothing to attach an event to, or
+    nothing to diff yet -- the first git call of a session (or of a given
+    agent within it) only records today's HEAD as the baseline, since there
+    is no earlier one to compare it to (2.x roadmap N11, decided without
+    asking). Returns the refs actually recorded, so a caller doing a second
+    pass (the working-tree diff) can skip them."""
     if run is None or not hook.session:
-        return
+        return set()
     head = _git_head(root)
     if head is None:
-        return
+        return set()
     baseline = None
     for line in reversed(_state(hook.session)):
-        if isinstance(line.get("git_head"), str):
+        if line.get("agent") == hook.actor and isinstance(line.get("git_head"), str):
             baseline = line["git_head"]
             break
-    _note_state(hook.session, git_head=head)
+    _note_state(hook.session, git_head=head, agent=hook.actor)
     if not baseline or baseline == head:
-        return
+        return set()
     import shutil
     import subprocess
 
     git = shutil.which("git")
     if not git:
-        return
+        return set()
     try:
         diff = subprocess.run([git, "-C", str(root), "diff", "--no-renames", "--name-only",
                               f"{baseline}..{head}"], capture_output=True, text=True, timeout=30)
     except (OSError, subprocess.TimeoutExpired):
-        return
+        return set()
     if diff.returncode != 0:
-        return
+        return set()
     files = [line.strip() for line in diff.stdout.splitlines() if line.strip()]
     # No `tool_use_id` to dedup by: the baseline just stored already makes a
     # repeated call for the same head-to-head transition a no-op above, the
     # same protection ADR-026's own double-registration hazard needs.
-    for ref in files[:BASH_CHANGED_LIMIT]:
+    recorded = files[:BASH_CHANGED_LIMIT]
+    for ref in recorded:
         _record(root, hook, run, kind="changed", tool="bash", ref=ref, status=status,
                 ms=hook.duration_ms)
+    return set(recorded)
+
+
+def _content_digest(path: Path) -> str:
+    try:
+        with open(path, "rb") as handle:
+            data = handle.read(WORKTREE_HASH_LIMIT_BYTES + 1)
+    except OSError:
+        return "-"
+    if len(data) > WORKTREE_HASH_LIMIT_BYTES:
+        return "-"  # too large to hash cheaply; the status code alone still tracks it
+    import hashlib as _hashlib
+
+    return _hashlib.sha1(data).hexdigest()
+
+
+def _worktree_snapshot(root: Path) -> dict[str, str] | None:
+    """Every dirty path's status and a content hash: `git status --porcelain=v1
+    -z` plus a read of each path it names. Cheap because only dirty paths are
+    ever touched, capped (`WORKTREE_SNAPSHOT_LIMIT`) so a fully-dirty repo
+    cannot make one Bash call hash hundreds of files. `None` on anything but a
+    clean git status call -- no git, no repo, a timeout, a failing process."""
+    import shutil
+    import subprocess
+
+    git = shutil.which("git")
+    if not git:
+        return None
+    try:
+        result = subprocess.run([git, "-C", str(root), "status", "--porcelain=v1", "-z"],
+                                capture_output=True, timeout=WORKTREE_TIMEOUT)
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    if result.returncode != 0:
+        return None
+    fields = result.stdout.decode("utf-8", errors="replace").split("\0")
+    snapshot: dict[str, str] = {}
+    index = 0
+    while index < len(fields):
+        entry = fields[index]
+        index += 1
+        if len(entry) < 4:
+            continue
+        code, path = entry[:2], entry[3:]
+        if code[0] in "RC" or code[1] in "RC":
+            index += 1  # a rename/copy's original path: a second -z field, not its own entry
+        if path and len(snapshot) < WORKTREE_SNAPSHOT_LIMIT:
+            snapshot[path] = f"{code}:{_content_digest(root / path)}"
+    return snapshot
+
+
+def _bash_worktree_changed(root: Path, hook: Hook, run, status: str, exclude: set[str]) -> None:
+    """Files the working tree itself shows changed around a mutating git Bash
+    call that never moved HEAD -- `git stash pop/apply`, `git checkout --
+    <path>`, `git restore <path>`, `git reset --hard` to the same HEAD, `git
+    clean` -- none of which `_bash_changed`'s HEAD-diff can structurally see
+    (2.x roadmap E1). Reads the snapshot `_pre_tool_bash` (PreToolUse) left
+    keyed by this call's `tool_use_id`; silent when there is none -- PreToolUse
+    never ran, the command was not a mutating git call, or a repo/timeout
+    failure -- so nothing here records without a real before-snapshot. `exclude`
+    is what `_bash_changed` already recorded this same call (the HEAD-diff
+    path), so a file both mechanisms would otherwise see twice is recorded
+    once; the combined total for one call still respects `BASH_CHANGED_LIMIT`."""
+    if run is None or not hook.session or not hook.tool_use_id:
+        return
+    before = None
+    for line in reversed(_state(hook.session)):
+        if line.get("pretool_snapshot") == hook.tool_use_id:
+            before = line.get("snapshot")
+            break
+    if not isinstance(before, dict):
+        return
+    after = _worktree_snapshot(root)
+    if after is None:
+        return
+    changed = sorted((set(before) | set(after)) - {p for p in set(before) & set(after) if before[p] == after[p]})
+    remaining = BASH_CHANGED_LIMIT - len(exclude)
+    count = 0
+    for path in changed:
+        if path in exclude:
+            continue
+        if count >= remaining:
+            break
+        _record(root, hook, run, kind="changed", tool="bash", ref=path, status=status, ms=hook.duration_ms)
+        count += 1
 
 
 def _post_tool(root: Path, hook: Hook, cfg: dict, agent: str | None, failed: bool = False) -> str:
@@ -895,8 +1017,12 @@ def _post_tool(root: Path, hook: Hook, cfg: dict, agent: str | None, failed: boo
     if any(program == "git" for program, _ in recordable) and not hook.tool_input.get("run_in_background"):
         # `worth_recording` already kept only git's mutating verbs (never log,
         # diff, status...); one of those can commit or check out files with no
-        # Edit/Write call at all (N11).
-        _bash_changed(root, hook, run, status)
+        # Edit/Write call at all (N11). Some of those never move HEAD either
+        # (`stash pop`, `checkout -- <path>`, `restore`, a `reset --hard` back
+        # to the same HEAD, `clean`) -- the HEAD-diff above cannot see them at
+        # all, only a working-tree snapshot taken before the call can (E1).
+        head_diff_files = _bash_changed(root, hook, run, status)
+        _bash_worktree_changed(root, hook, run, status, head_diff_files)
     if not recordable and (failed or status == "bypass"):
         head = capabilities.programs(command)
         recordable = head[:1] or [("bash", None)]
@@ -1312,6 +1438,7 @@ HANDLERS = {
     "session-end": _session_end,
     "pre-agent": _pre_agent,
     "pre-read": _pre_read,
+    "pre-tool": _pre_tool_bash,
     "pre-compact": _pre_compact,
     "post-compact": _post_compact,
 }

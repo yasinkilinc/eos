@@ -251,6 +251,180 @@ def test_bash_changed_events_are_capped(git_project, monkeypatch, capsys):
     assert len([e for e in _events(git_project) if e.kind == "changed"]) == 1
 
 
+# --- E1 working-tree capture: git commands that change files without moving HEAD -----
+
+
+def test_a_stash_pop_is_a_changed_event(git_project, monkeypatch, capsys):
+    # `git stash pop` never moves HEAD, so `_bash_changed`'s HEAD-diff sees
+    # nothing -- only a working-tree snapshot taken before the call can.
+    _open_run(git_project)
+    (git_project / "a.txt").write_text("2\n")
+    _git(git_project, "stash", "push", "-q")
+    payload = _payload(git_project, tool_name="Bash", tool_input={"command": "git stash pop"}, tool_use_id="t1")
+
+    _hook(monkeypatch, capsys, "pre-tool", payload)
+    _git(git_project, "stash", "pop", "-q")
+    _hook(monkeypatch, capsys, "post-tool", payload)
+
+    changed = {(e.tool, e.ref) for e in _events(git_project) if e.kind == "changed"}
+    assert changed == {("bash", "a.txt")}
+
+
+def test_a_checkout_of_a_path_is_a_changed_event(git_project, monkeypatch, capsys):
+    # `git checkout -- <path>` reverts a file without moving HEAD.
+    _open_run(git_project)
+    (git_project / "a.txt").write_text("dirty\n")
+    payload = _payload(git_project, tool_name="Bash",
+                       tool_input={"command": "git checkout -- a.txt"}, tool_use_id="t1")
+
+    _hook(monkeypatch, capsys, "pre-tool", payload)
+    _git(git_project, "checkout", "--", "a.txt")
+    _hook(monkeypatch, capsys, "post-tool", payload)
+
+    changed = {(e.tool, e.ref) for e in _events(git_project) if e.kind == "changed"}
+    assert changed == {("bash", "a.txt")}
+
+
+def test_a_restore_of_a_path_is_a_changed_event(git_project, monkeypatch, capsys):
+    _open_run(git_project)
+    (git_project / "a.txt").write_text("dirty\n")
+    payload = _payload(git_project, tool_name="Bash",
+                       tool_input={"command": "git restore a.txt"}, tool_use_id="t1")
+
+    _hook(monkeypatch, capsys, "pre-tool", payload)
+    _git(git_project, "checkout", "--", "a.txt")  # same effect as `git restore` here
+    _hook(monkeypatch, capsys, "post-tool", payload)
+
+    changed = {(e.tool, e.ref) for e in _events(git_project) if e.kind == "changed"}
+    assert changed == {("bash", "a.txt")}
+
+
+def test_a_worktree_change_already_seen_in_the_head_diff_is_not_recorded_twice(git_project, monkeypatch, capsys):
+    _open_run(git_project)
+    _hook(monkeypatch, capsys, "post-tool", _payload(
+        git_project, tool_name="Bash", tool_input={"command": "git tag baseline"}, tool_use_id="t0"))
+    (git_project / "b.txt").write_text("1\n")
+    _git(git_project, "add", "b.txt")
+    _git(git_project, "commit", "-q", "-m", "b")
+    payload = _payload(git_project, tool_name="Bash",
+                       tool_input={"command": "git reset --hard HEAD"}, tool_use_id="t1")
+
+    _hook(monkeypatch, capsys, "pre-tool", payload)
+    _git(git_project, "reset", "--hard", "HEAD")
+    _hook(monkeypatch, capsys, "post-tool", payload)
+
+    changed = [(e.tool, e.ref) for e in _events(git_project) if e.kind == "changed"]
+    # b.txt from the earlier commit was already recorded by the HEAD-diff step
+    # (t0->t1); the reset --hard to the same HEAD adds nothing new.
+    assert changed == [("bash", "b.txt")]
+
+
+def test_worktree_capture_is_capped_by_the_same_limit(git_project, monkeypatch, capsys):
+    # Two already-tracked files, so a plain `stash push` (no `-u`) covers both
+    # -- `-u` would also sweep up the untracked `.eos/` directory itself.
+    (git_project / "b.txt").write_text("1\n")
+    _git(git_project, "add", "b.txt")
+    _git(git_project, "commit", "-q", "-m", "b")
+    monkeypatch.setattr(hooks, "BASH_CHANGED_LIMIT", 1)
+    _open_run(git_project)
+    (git_project / "a.txt").write_text("2\n")
+    (git_project / "b.txt").write_text("2\n")
+    _git(git_project, "stash", "push", "-q")
+    payload = _payload(git_project, tool_name="Bash", tool_input={"command": "git stash pop"}, tool_use_id="t1")
+
+    _hook(monkeypatch, capsys, "pre-tool", payload)
+    _git(git_project, "stash", "pop", "-q")
+    _hook(monkeypatch, capsys, "post-tool", payload)
+
+    assert len([e for e in _events(git_project) if e.kind == "changed"]) == 1
+
+
+def test_worktree_capture_is_a_no_op_without_a_pretool_call(git_project, monkeypatch, capsys):
+    # Every existing test above calls `post-tool` alone; a session that never
+    # gets a PreToolUse hook (an older harness, or a non-Bash matcher) must
+    # not crash or misfire on the missing snapshot.
+    _open_run(git_project)
+    (git_project / "a.txt").write_text("2\n")
+    _git(git_project, "stash", "push", "-q")
+    _hook(monkeypatch, capsys, "post-tool", _payload(
+        git_project, tool_name="Bash", tool_input={"command": "git stash pop"}, tool_use_id="t1"))
+    assert [e for e in _events(git_project) if e.kind == "changed"] == []
+
+
+def test_worktree_capture_fails_closed_without_a_git_repo(project, monkeypatch, capsys):
+    _open_run(project)
+    payload = _payload(project, tool_name="Bash", tool_input={"command": "git stash pop"}, tool_use_id="t1")
+    pre = _hook(monkeypatch, capsys, "pre-tool", payload)
+    post = _hook(monkeypatch, capsys, "post-tool", payload)
+    assert pre.out == "" and pre.err == "" and post.err == ""
+    assert [e for e in _events(project) if e.kind == "changed"] == []
+
+
+def test_worktree_capture_fails_closed_without_git_installed(git_project, monkeypatch, capsys):
+    monkeypatch.setattr("shutil.which", lambda *_: None)
+    _open_run(git_project)
+    payload = _payload(git_project, tool_name="Bash", tool_input={"command": "git stash pop"}, tool_use_id="t1")
+    _hook(monkeypatch, capsys, "pre-tool", payload)
+    _hook(monkeypatch, capsys, "post-tool", payload)
+    assert [e for e in _events(git_project) if e.kind == "changed"] == []
+
+
+def test_worktree_capture_fails_closed_on_a_timeout(git_project, monkeypatch, capsys):
+    def boom(*args, **kwargs):
+        raise subprocess.TimeoutExpired(cmd="git", timeout=5)
+
+    _open_run(git_project)
+    payload = _payload(git_project, tool_name="Bash", tool_input={"command": "git stash pop"}, tool_use_id="t1")
+    monkeypatch.setattr(subprocess, "run", boom)
+    out = _hook(monkeypatch, capsys, "pre-tool", payload)
+    assert out.out == "" and out.err == ""
+
+
+def test_a_subagents_first_git_call_does_not_inherit_the_main_sessions_baseline(git_project, monkeypatch, capsys):
+    # The per-session git-HEAD baseline used to be shared by the main session
+    # and every subagent it spawns (same session id, no locking): a
+    # subagent's *first* git call had no baseline of its own, so without
+    # per-agent keying it silently inherited the main session's baseline and
+    # misattributed the main session's already-committed file to its own call.
+    _open_run(git_project)
+    _hook(monkeypatch, capsys, "post-tool", _payload(
+        git_project, tool_name="Bash", tool_input={"command": "git tag baseline"}, tool_use_id="m1"))
+    (git_project / "main.txt").write_text("1\n")
+    _git(git_project, "add", "main.txt")
+    _git(git_project, "commit", "-q", "-m", "main work")
+
+    _hook(monkeypatch, capsys, "post-tool", _payload(
+        git_project, tool_name="Bash", tool_input={"command": "git tag baseline_agent"},
+        tool_use_id="a1", agent_id="ag1", agent_type="Explore"))
+
+    assert [e for e in _events(git_project) if e.kind == "changed"] == []
+
+
+def test_main_and_subagent_git_baselines_track_independently(git_project, monkeypatch, capsys):
+    _open_run(git_project)
+    _hook(monkeypatch, capsys, "post-tool", _payload(
+        git_project, tool_name="Bash", tool_input={"command": "git tag baseline"}, tool_use_id="m1"))
+    _hook(monkeypatch, capsys, "post-tool", _payload(
+        git_project, tool_name="Bash", tool_input={"command": "git tag baseline2"},
+        tool_use_id="a1", agent_id="ag1", agent_type="Explore"))
+
+    (git_project / "main.txt").write_text("1\n")
+    _git(git_project, "add", "main.txt")
+    _git(git_project, "commit", "-q", "-m", "main work")
+    _hook(monkeypatch, capsys, "post-tool", _payload(
+        git_project, tool_name="Bash", tool_input={"command": "git merge --ff-only x"}, tool_use_id="m2"))
+
+    (git_project / "sub.txt").write_text("1\n")
+    _git(git_project, "add", "sub.txt")
+    _git(git_project, "commit", "-q", "-m", "sub work")
+    _hook(monkeypatch, capsys, "post-tool", _payload(
+        git_project, tool_name="Bash", tool_input={"command": "git merge --ff-only y"},
+        tool_use_id="a2", agent_id="ag1", agent_type="Explore"))
+
+    changed = {(e.tool, e.ref) for e in _events(git_project) if e.kind == "changed"}
+    assert changed == {("bash", "main.txt"), ("bash", "sub.txt")}
+
+
 def test_an_edit_is_a_changed_event_with_the_subagent_that_made_it(project, monkeypatch, capsys):
     _open_run(project)
     _hook(monkeypatch, capsys, "post-tool", _payload(
