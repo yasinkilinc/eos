@@ -75,6 +75,28 @@ def _normalized_ref(ref: str, project: Path) -> str | None:
     return path.as_posix()
 
 
+def _classify_commits(commits: list[str], commit_end: str, other_finish_commits: frozenset,
+                      subjects: dict[str, str], files: dict[str, set[str]]) -> set[str]:
+    """The own-vs-foreign-vs-squash rule `_foreign_files` and its batched
+    counterpart (`_batched_foreign`) both classify every commit in a run's
+    range by: `subjects`/`files` are per-commit lookups (a subtree-squash
+    commit's own message and its own, unprefixed file list)."""
+    own_files: set[str] = set()
+    foreign_files: set[str] = set()
+    for commit_hash in commits:
+        subject = subjects.get(commit_hash, "")
+        commit_files = files.get(commit_hash, set())
+        squash = _SQUASH.match(subject)
+        if squash:
+            prefix = squash.group(1).strip("/")
+            commit_files = {f"{prefix}/{f}" for f in commit_files}
+            is_foreign = True
+        else:
+            is_foreign = commit_hash != commit_end and commit_hash in other_finish_commits
+        (foreign_files if is_foreign else own_files).update(commit_files)
+    return foreign_files - own_files
+
+
 def _foreign_files(project_root: str | Path, commit_start: str | None, commit_end: str | None,
                    other_finish_commits: frozenset) -> set[str]:
     """Files inside a run's own commit range that no commit of the run's own
@@ -109,23 +131,192 @@ def _foreign_files(project_root: str | Path, commit_start: str | None, commit_en
         return set()
     if result.returncode != 0:
         return set()
-    own_files: set[str] = set()
-    foreign_files: set[str] = set()
+    commits: list[str] = []
+    subjects: dict[str, str] = {}
+    files: dict[str, set[str]] = {}
     for block in result.stdout.split("\x02"):
         if not block.strip():
             continue
         header, _, rest = block.partition("\n")
         commit_hash, _, subject = header.partition("\x1f")
-        files = {line.strip() for line in rest.splitlines() if line.strip()}
-        squash = _SQUASH.match(subject)
-        if squash:
-            prefix = squash.group(1).strip("/")
-            files = {f"{prefix}/{f}" for f in files}
-            is_foreign = True
-        else:
-            is_foreign = commit_hash != commit_end and commit_hash in other_finish_commits
-        (foreign_files if is_foreign else own_files).update(files)
-    return foreign_files - own_files
+        commits.append(commit_hash)
+        subjects[commit_hash] = subject
+        files[commit_hash] = {line.strip() for line in rest.splitlines() if line.strip()}
+    return _classify_commits(commits, commit_end, other_finish_commits, subjects, files)
+
+
+# --- batched: the same two computations above, over every finished run in one pass ----
+# (2.x roadmap Day 3, item D2). RVc measured one `git diff` (touched_files) plus one
+# `git log` (_foreign_files) subprocess per finished run at 3.46s on a synthetic
+# 300-run ledger -- process spawn, not git's own work, dominates that. Batched here
+# into a small, constant number of `git` invocations regardless of how many runs
+# `change_capture` folds, with identical results (tests/test_change_capture.py compares
+# the batched aggregate against the same per-run computation as ground truth).
+
+
+def _diff_tree_stdin(project_root: str | Path, pairs: list[tuple[str, str]]) -> list[set[str] | None]:
+    """One `git diff-tree --stdin` process for many two-tree comparisons --
+    the exact tree compare `git diff --no-renames --name-only A..B` makes
+    (`git diff-tree` given two tree-ish arguments is the same plain two-tree
+    diff, not a per-commit walk; `--stdin` lets many pairs share one process).
+
+    Every `pairs[i][0]` (the start) must be unique across the list --
+    `--stdin` prints nothing at all for a pair whose diff is empty, so two
+    pairs sharing a start could not otherwise be told apart from one of them
+    being empty (confirmed empirically before choosing this shape); the only
+    caller (`_batched_touched`) only ever sends pairs it has already checked
+    are unique and falls back to `touched_files` per pair for the rest.
+    `None` per pair on any git failure (no git, a timeout, a non-zero exit)."""
+    import shutil
+    import subprocess
+
+    if not pairs:
+        return []
+    git = shutil.which("git")
+    if not git:
+        return [None] * len(pairs)
+    stdin_text = "".join(f"{start} {end}\n" for start, end in pairs)
+    try:
+        result = subprocess.run(
+            [git, "-C", str(project_root), "diff-tree", "--stdin", "--no-renames", "--name-only", "-r"],
+            input=stdin_text, capture_output=True, text=True, timeout=60)
+    except (OSError, subprocess.TimeoutExpired):
+        return [None] * len(pairs)
+    if result.returncode != 0:
+        return [None] * len(pairs)
+    lines = result.stdout.splitlines()
+    starts = {start for start, _ in pairs}
+    output: list[set[str]] = [set() for _ in pairs]
+    li = 0
+    for i, (start, _end) in enumerate(pairs):
+        if li < len(lines) and lines[li] == start:
+            li += 1
+            found: set[str] = set()
+            while li < len(lines) and lines[li] not in starts:
+                found.add(lines[li])
+                li += 1
+            output[i] = found
+        # else: git printed nothing for this pair at all -- an empty diff,
+        # `output[i]` stays the empty set already there.
+    return output
+
+
+def _batched_touched(project_root: str | Path, ranges: list[tuple[str | None, str | None]]
+                     ) -> list[set[str] | None]:
+    """`touched_files` for every `(commit_start, commit_end)` pair in
+    `ranges`, in as few `git` processes as possible. Same result, pair for
+    pair, as calling `touched_files` once per entry."""
+    results: list[set[str] | None] = [None] * len(ranges)
+    candidates = [(i, s, e) for i, (s, e) in enumerate(ranges) if s and e and s != e]
+    if not candidates:
+        return results
+    from collections import Counter
+
+    start_counts = Counter(s for _, s, _ in candidates)
+    batchable = [(i, s, e) for i, s, e in candidates if start_counts[s] == 1]
+    singles = [(i, s, e) for i, s, e in candidates if start_counts[s] > 1]
+    if batchable:
+        diffs = _diff_tree_stdin(project_root, [(s, e) for _, s, e in batchable])
+        for (i, _s, _e), files in zip(batchable, diffs):
+            results[i] = files
+    for i, s, e in singles:
+        results[i] = touched_files(project_root, s, e)
+    return results
+
+
+def _commit_graph(project_root: str | Path, ends: list[str]) -> dict | None:
+    """Parents, subject and own changed files (vs. first parent -- the same
+    default `git log --name-only` already uses, so a merge commit's files
+    stay empty without `-m`, exactly matching `_foreign_files`'s existing
+    per-range behaviour) for every commit reachable from any of `ends` -- one
+    walk, deduplicated, in place of one `git log` per run's own range.
+
+    Safe to combine into a single positive-only query: combining several
+    `A..B` *ranges* in one `git log` call folds every range's exclusions into
+    one shared set and can silently drop a commit two ranges should each have
+    kept on their own (confirmed empirically before choosing this shape); a
+    plain union of positive refs with no exclusions at all has no such
+    ambiguity -- it is just git's ordinary multi-ref log, deduplicated.
+    `None` on any git failure -- the caller falls back to the per-range path."""
+    import shutil
+    import subprocess
+
+    if not ends:
+        return {"parents": {}, "subjects": {}, "files": {}}
+    git = shutil.which("git")
+    if not git:
+        return None
+    try:
+        result = subprocess.run(
+            [git, "-C", str(project_root), "log", "--no-renames", "--name-only",
+             "--format=%x02%H%x1f%P%x1f%s", *sorted(set(ends))],
+            capture_output=True, text=True, timeout=60)
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    if result.returncode != 0:
+        return None
+    parents: dict[str, list[str]] = {}
+    subjects: dict[str, str] = {}
+    files: dict[str, set[str]] = {}
+    for block in result.stdout.split("\x02"):
+        if not block.strip():
+            continue
+        header, _, rest = block.partition("\n")
+        commit_hash, _, tail = header.partition("\x1f")
+        parent_field, _, subject = tail.partition("\x1f")
+        parents[commit_hash] = parent_field.split() if parent_field else []
+        subjects[commit_hash] = subject
+        files[commit_hash] = {line.strip() for line in rest.splitlines() if line.strip()}
+    return {"parents": parents, "subjects": subjects, "files": files}
+
+
+def _range_commits(end: str, start: str | None, parents: dict[str, list[str]]) -> list[str]:
+    """Commits reachable from `end`, excluding every commit reachable from
+    `start` -- git's own definition of `start..end` (ancestors(end) minus
+    ancestors(start)), computed over an already-fetched parent graph instead
+    of a fresh `git log` per range."""
+    excluded: set[str] = set()
+    if start:
+        stack = [start]
+        while stack:
+            commit_hash = stack.pop()
+            if commit_hash in excluded:
+                continue
+            excluded.add(commit_hash)
+            stack.extend(parents.get(commit_hash, ()))
+    seen: set[str] = set()
+    ordered: list[str] = []
+    stack = [end]
+    while stack:
+        commit_hash = stack.pop()
+        if commit_hash in seen or commit_hash in excluded:
+            continue
+        seen.add(commit_hash)
+        ordered.append(commit_hash)
+        stack.extend(parents.get(commit_hash, ()))
+    return ordered
+
+
+def _batched_foreign(project_root: str | Path, ranges: list[tuple[str | None, str | None]],
+                     other_finish_commits: frozenset) -> list[set[str]]:
+    """`_foreign_files` for every `(commit_start, commit_end)` pair in
+    `ranges`: one `git log` (the parent graph, `_commit_graph`) plus a Python
+    graph walk per pair, in place of one `git log` subprocess per pair."""
+    results: list[set[str]] = [set() for _ in ranges]
+    if not other_finish_commits:
+        return results
+    candidates = [(i, s, e) for i, (s, e) in enumerate(ranges) if s and e and s != e]
+    if not candidates:
+        return results
+    graph = _commit_graph(project_root, [e for _, _, e in candidates])
+    if graph is None:
+        for i, s, e in candidates:
+            results[i] = _foreign_files(project_root, s, e, other_finish_commits)
+        return results
+    for i, start, end in candidates:
+        commits = _range_commits(end, start, graph["parents"])
+        results[i] = _classify_commits(commits, end, other_finish_commits, graph["subjects"], graph["files"])
+    return results
 
 
 def change_capture_for_run(project_root: str | Path, record,
@@ -196,7 +387,13 @@ def change_capture(project_root: str | Path, records: list | None = None) -> dic
     the capture share entirely (N12) -- such a run never had the harness's
     hook invoked at all, so a 0-captured score would blend "the hook missed a
     file" with "the hook was never there to try," understating the measured
-    gap. It is still counted, under its own reason, in `runs_unmeasurable`."""
+    gap. It is still counted, under its own reason, in `runs_unmeasurable`.
+
+    Reproduces `change_capture_for_run`'s own per-run computation exactly
+    (tests/test_change_capture.py checks the two against each other), but
+    batches every run's git work into a small, constant number of `git`
+    subprocesses instead of two per run (Day 3, item D2 -- RVc measured
+    3.46s at 300 runs, one `git diff` plus one `git log` subprocess each)."""
     from core import executions
 
     root = Path(project_root).expanduser().resolve()
@@ -208,20 +405,27 @@ def change_capture(project_root: str | Path, records: list | None = None) -> dic
     # run's foreign, real work (RVd).
     other_finish_commits = frozenset(r.commit_end for r in records
                                      if r.commit_end and r.commit_start != r.commit_end)
+    measurable = [r for r in records if r.outcome is not None]
+    ranges = [(r.commit_start, r.commit_end) for r in measurable]
+    touched_list = _batched_touched(root, ranges)
+    foreign_list = _batched_foreign(root, ranges, other_finish_commits)
+
     captured = touched = runs_with_commits = runs_unmeasurable = runs_no_hook_events = 0
-    for record in records:
-        if record.outcome is None:
-            continue
-        result = change_capture_for_run(root, record, other_finish_commits)
-        if result is None:
+    for record, touched_set, foreign_set in zip(measurable, touched_list, foreign_list):
+        if touched_set is None:
             runs_unmeasurable += 1
             continue
+        touched_set = touched_set - foreign_set
+        captured_refs = {
+            norm for e in record.events if e.kind == "changed" and e.ref
+            for norm in [_normalized_ref(e.ref, root)] if norm is not None
+        }
         if not _has_hook_event(record):
             runs_no_hook_events += 1
             continue
         runs_with_commits += 1
-        captured += result["captured"]
-        touched += result["touched"]
+        captured += len(captured_refs & touched_set)
+        touched += len(touched_set)
     share = (captured / touched) if touched else None
     return {"captured": captured, "touched": touched, "share": share,
             "runs_with_commits": runs_with_commits,
