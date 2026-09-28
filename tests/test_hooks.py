@@ -7,6 +7,7 @@ where the model takes one. Every path must exit 0 and stay silent on failure.
 """
 import io
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -60,6 +61,30 @@ def _open_run(root):
 
 def _events(root):
     return executions.load(root)[-1].events
+
+
+_GIT_ENV = {**os.environ, "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@t",
+            "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@t"}
+
+
+def _git(root, *args):
+    subprocess.run(["git", *args], cwd=root, check=True, capture_output=True, text=True, env=_GIT_ENV)
+
+
+def _head(root):
+    return subprocess.run(["git", "-C", str(root), "rev-parse", "HEAD"],
+                          capture_output=True, text=True).stdout.strip()
+
+
+@pytest.fixture
+def git_project(project):
+    """`project`, plus a real git history: N11's Bash-moves-HEAD capture needs
+    commits to diff, which `eos init` alone never makes."""
+    _git(project, "init", "-q")
+    (project / "a.txt").write_text("1\n")
+    _git(project, "add", "a.txt")
+    _git(project, "commit", "-q", "-m", "init")
+    return project
 
 
 def test_normalize_reads_claude_and_devin_field_names():
@@ -136,6 +161,94 @@ def test_an_interrupted_call_is_not_a_failure(project, monkeypatch, capsys):
         project, tool_name="Bash", tool_input={"command": "python3 build.py"}, tool_use_id="t1",
         error="interrupted", is_interrupt=True))
     assert _events(project) == []
+
+
+def test_a_bash_git_command_that_moves_head_is_a_changed_event_per_file(git_project, monkeypatch, capsys):
+    # N11: a subtree pull, a merge, a checkout -- any git command that commits
+    # or checks out files -- never goes through Edit/Write, so without this
+    # the ledger's own `changed` events see none of it.
+    _open_run(git_project)
+    _hook(monkeypatch, capsys, "post-tool", _payload(
+        git_project, tool_name="Bash", tool_input={"command": "git tag baseline"}, tool_use_id="t1"))
+    (git_project / "b.txt").write_text("1\n")
+    (git_project / "c.txt").write_text("1\n")
+    _git(git_project, "add", "b.txt", "c.txt")
+    _git(git_project, "commit", "-q", "-m", "subtree pull")
+
+    _hook(monkeypatch, capsys, "post-tool", _payload(
+        git_project, tool_name="Bash", tool_input={"command": "git merge --ff-only other"}, tool_use_id="t2"))
+
+    changed = {(e.tool, e.ref) for e in _events(git_project) if e.kind == "changed"}
+    assert changed == {("bash", "b.txt"), ("bash", "c.txt")}
+
+
+def test_a_bash_git_command_reported_twice_is_still_one_changed_event_per_file(git_project, monkeypatch, capsys):
+    # ADR-026's own known hazard: a harness that registers the hook twice
+    # fires PostToolUse twice for one call. There is no `tool_use_id` here to
+    # dedup by (one call names many files); the session's own last-seen HEAD
+    # already makes a repeat of the same head-to-head transition a no-op.
+    _open_run(git_project)
+    _hook(monkeypatch, capsys, "post-tool", _payload(
+        git_project, tool_name="Bash", tool_input={"command": "git tag baseline"}, tool_use_id="t1"))
+    (git_project / "b.txt").write_text("1\n")
+    (git_project / "c.txt").write_text("1\n")
+    _git(git_project, "add", "b.txt", "c.txt")
+    _git(git_project, "commit", "-q", "-m", "two files")
+    payload = _payload(git_project, tool_name="Bash",
+                       tool_input={"command": "git merge --ff-only other"}, tool_use_id="t2")
+
+    _hook(monkeypatch, capsys, "post-tool", payload)
+    _hook(monkeypatch, capsys, "post-tool", payload)
+
+    changed = {(e.tool, e.ref) for e in _events(git_project) if e.kind == "changed"}
+    assert changed == {("bash", "b.txt"), ("bash", "c.txt")}
+    assert len([e for e in _events(git_project) if e.kind == "changed"]) == 2
+
+
+def test_the_first_git_call_of_a_session_only_records_the_baseline(git_project, monkeypatch, capsys):
+    # Decided without asking (N11): there is no HEAD to diff from before the
+    # session's first git call, so that call's own commit is not seen -- only
+    # a later one is. A known, conservative limitation, not a crash.
+    _open_run(git_project)
+    (git_project / "b.txt").write_text("1\n")
+    _git(git_project, "add", "b.txt")
+    _git(git_project, "commit", "-q", "-m", "first")
+
+    _hook(monkeypatch, capsys, "post-tool", _payload(
+        git_project, tool_name="Bash", tool_input={"command": "git merge --ff-only other"}, tool_use_id="t1"))
+
+    assert [e for e in _events(git_project) if e.kind == "changed"] == []
+
+
+def test_a_bash_git_command_in_the_background_is_not_diffed(git_project, monkeypatch, capsys):
+    _open_run(git_project)
+    _hook(monkeypatch, capsys, "post-tool", _payload(
+        git_project, tool_name="Bash", tool_input={"command": "git tag baseline"}, tool_use_id="t1"))
+    (git_project / "b.txt").write_text("1\n")
+    _git(git_project, "add", "b.txt")
+    _git(git_project, "commit", "-q", "-m", "two")
+
+    _hook(monkeypatch, capsys, "post-tool", _payload(
+        git_project, tool_name="Bash",
+        tool_input={"command": "git merge --ff-only other", "run_in_background": True}, tool_use_id="t2"))
+
+    assert [e for e in _events(git_project) if e.kind == "changed"] == []
+
+
+def test_bash_changed_events_are_capped(git_project, monkeypatch, capsys):
+    monkeypatch.setattr(hooks, "BASH_CHANGED_LIMIT", 1)
+    _open_run(git_project)
+    _hook(monkeypatch, capsys, "post-tool", _payload(
+        git_project, tool_name="Bash", tool_input={"command": "git tag baseline"}, tool_use_id="t1"))
+    (git_project / "b.txt").write_text("1\n")
+    (git_project / "c.txt").write_text("1\n")
+    _git(git_project, "add", "b.txt", "c.txt")
+    _git(git_project, "commit", "-q", "-m", "two files")
+
+    _hook(monkeypatch, capsys, "post-tool", _payload(
+        git_project, tool_name="Bash", tool_input={"command": "git merge --ff-only other"}, tool_use_id="t2"))
+
+    assert len([e for e in _events(git_project) if e.kind == "changed"]) == 1
 
 
 def test_an_edit_is_a_changed_event_with_the_subagent_that_made_it(project, monkeypatch, capsys):

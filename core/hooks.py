@@ -111,6 +111,11 @@ SUBAGENT_MODELS = ("haiku", "sonnet", "opus", "fable")
 GENERIC_TYPES = ("", "general-purpose")
 EDIT_TOOLS = {"Edit": "edit", "Write": "write", "NotebookEdit": "notebook", "MultiEdit": "edit"}
 MAX_PROGRAMS = 3
+# A git command that moves HEAD (checkout, merge, pull, subtree, cherry-pick,
+# reset, rebase, stash pop...) can commit or check out far more files than any
+# single Edit call; capped so one subtree squash cannot flood the ledger with
+# one event per file (2.x roadmap N11).
+BASH_CHANGED_LIMIT = 200
 LOADED_FILE = "loaded.jsonl"
 SESSIONS_FILE = "sessions.jsonl"
 MAX_LOG_BYTES = 2 * 1024 * 1024
@@ -738,6 +743,72 @@ def _user_prompt(root: Path, hook: Hook, cfg: dict, agent: str | None) -> str:
     return "\n\n".join(blocks)
 
 
+def _git_head(root: Path) -> str | None:
+    import shutil
+    import subprocess
+
+    git = shutil.which("git")
+    if not git:
+        return None
+    try:
+        result = subprocess.run([git, "-C", str(root), "rev-parse", "HEAD"],
+                                capture_output=True, text=True, timeout=5)
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    if result.returncode != 0:
+        return None
+    return result.stdout.strip() or None
+
+
+def _bash_changed(root: Path, hook: Hook, run, status: str) -> None:
+    """A git command that moves HEAD (checkout, merge, pull, subtree,
+    cherry-pick, reset, rebase, stash pop...) commits or checks out files with
+    no Edit/Write call, so EDIT_TOOLS's `changed` events never see them -- the
+    single largest cause behind the ledger's E1 capture gap (2.x roadmap N11):
+    a subtree pull or a merge lands real files with zero `changed` events.
+
+    The session's last-seen HEAD (kept in its state, alongside its other
+    per-session facts) is diffed against HEAD now; each file the diff names is
+    one `changed` event, `tool="bash"`. Silent, like every other capture path
+    here, when there is nothing to attach an event to, or nothing to diff yet
+    -- the first git call of a session only records today's HEAD as the
+    baseline, since there is no earlier one to compare it to (2.x roadmap N11,
+    decided without asking)."""
+    if run is None or not hook.session:
+        return
+    head = _git_head(root)
+    if head is None:
+        return
+    baseline = None
+    for line in reversed(_state(hook.session)):
+        if isinstance(line.get("git_head"), str):
+            baseline = line["git_head"]
+            break
+    _note_state(hook.session, git_head=head)
+    if not baseline or baseline == head:
+        return
+    import shutil
+    import subprocess
+
+    git = shutil.which("git")
+    if not git:
+        return
+    try:
+        diff = subprocess.run([git, "-C", str(root), "diff", "--no-renames", "--name-only",
+                              f"{baseline}..{head}"], capture_output=True, text=True, timeout=30)
+    except (OSError, subprocess.TimeoutExpired):
+        return
+    if diff.returncode != 0:
+        return
+    files = [line.strip() for line in diff.stdout.splitlines() if line.strip()]
+    # No `tool_use_id` to dedup by: the baseline just stored already makes a
+    # repeated call for the same head-to-head transition a no-op above, the
+    # same protection ADR-026's own double-registration hazard needs.
+    for ref in files[:BASH_CHANGED_LIMIT]:
+        _record(root, hook, run, kind="changed", tool="bash", ref=ref, status=status,
+                ms=hook.duration_ms)
+
+
 def _post_tool(root: Path, hook: Hook, cfg: dict, agent: str | None, failed: bool = False) -> str:
     exit_code = None
     if failed:
@@ -821,6 +892,11 @@ def _post_tool(root: Path, hook: Hook, cfg: dict, agent: str | None, failed: boo
         return output
     recordable = [(program, verb) for program, verb in capabilities.programs(command)
                   if capabilities.worth_recording(program, verb)]
+    if any(program == "git" for program, _ in recordable) and not hook.tool_input.get("run_in_background"):
+        # `worth_recording` already kept only git's mutating verbs (never log,
+        # diff, status...); one of those can commit or check out files with no
+        # Edit/Write call at all (N11).
+        _bash_changed(root, hook, run, status)
     if not recordable and (failed or status == "bypass"):
         head = capabilities.programs(command)
         recordable = head[:1] or [("bash", None)]
