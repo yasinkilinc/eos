@@ -583,3 +583,46 @@ def test_change_capture_speed_on_a_larger_synthetic_ledger_stays_well_under_a_ge
     # for n=60 that would still fail loudly if batching regressed to the old
     # per-run shape (~0.7s at that rate) without being flaky on a slow CI box.
     assert elapsed < 5.0
+
+
+def test_diff_tree_stdin_cannot_tell_an_unresolvable_ref_from_an_empty_diff(tmp_path):
+    # `git diff --no-renames --name-only badref..end` fails (returncode 128),
+    # which is exactly how `touched_files` decides "unmeasurable" (None) for
+    # a rewritten/pruned commit (its own docstring names this case). But
+    # `git diff-tree --stdin` prints nothing at all for a pair it cannot
+    # resolve -- indistinguishable, in the stdout stream, from a pair whose
+    # diff is genuinely empty. Found in review (RVf): without `_resolvable`'s
+    # `git cat-file --batch-check` pass, `_batched_touched` folded this into
+    # `set()` ("0 files touched") instead of `None` ("unmeasurable").
+    root = _repo(tmp_path)
+    head = subprocess.run(["git", "-C", root, "rev-parse", "HEAD"],
+                          capture_output=True, text=True).stdout.strip()
+    bad_ref = "deadbeef" * 5
+
+    assert consolidate.touched_files(root, bad_ref, head) is None
+    assert consolidate._batched_touched(root, [(bad_ref, head)]) == [None]
+
+
+def test_change_capture_batched_matches_the_per_run_reference_on_an_unresolvable_ref(tmp_path):
+    # Same case as above, seen through the public aggregate: a run whose
+    # commit_start can no longer be resolved (a rewritten or pruned history)
+    # is "unmeasurable" per `change_capture_for_run` (the reference
+    # implementation `change_capture`'s batched path must match), and stays
+    # that way through `change_capture` too -- never counted as a fully
+    # measured run with 0 touched files.
+    root = _repo(tmp_path)
+    run = executions.start(root, "Deploy")
+    (root / "b.txt").write_text("1\n")
+    _git(root, "add", "b.txt")
+    _git(root, "commit", "-q", "-m", "one file")
+    executions.event(root, run.id, kind="changed", ref="b.txt", source="hook")
+    executions.finish(root, run.id, outcome="ok")
+
+    record = executions.load(root)[0]
+    record.commit_start = "deadbeef" * 5  # unresolvable: a rewritten/pruned commit
+
+    assert consolidate.change_capture_for_run(root, record) is None
+
+    result = consolidate.change_capture(root, [record])
+    assert result["runs_unmeasurable"] == 1
+    assert result["runs_with_commits"] == 0

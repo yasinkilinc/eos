@@ -201,20 +201,63 @@ def _diff_tree_stdin(project_root: str | Path, pairs: list[tuple[str, str]]) -> 
     return output
 
 
+def _resolvable(project_root: str | Path, refs: set[str]) -> set[str]:
+    """Which of `refs` name a real git object, via one `git cat-file
+    --batch-check` call instead of a `git rev-parse`/`git diff` per ref.
+    Empty (nothing proven resolvable) on any git failure -- a caller that
+    cannot prove a ref is good must treat it as bad, the same direction
+    `touched_files` already fails in for an unreachable ref."""
+    import shutil
+    import subprocess
+
+    if not refs:
+        return set()
+    git = shutil.which("git")
+    if not git:
+        return set()
+    ordered = sorted(refs)
+    try:
+        result = subprocess.run(
+            [git, "-C", str(project_root), "cat-file", "--batch-check=%(objectname) %(objecttype)"],
+            input="".join(f"{ref}\n" for ref in ordered), capture_output=True, text=True, timeout=30)
+    except (OSError, subprocess.TimeoutExpired):
+        return set()
+    if result.returncode != 0:
+        return set()
+    lines = result.stdout.splitlines()
+    if len(lines) != len(ordered):
+        return set()
+    return {ref for ref, line in zip(ordered, lines) if not line.endswith(" missing")}
+
+
 def _batched_touched(project_root: str | Path, ranges: list[tuple[str | None, str | None]]
                      ) -> list[set[str] | None]:
     """`touched_files` for every `(commit_start, commit_end)` pair in
     `ranges`, in as few `git` processes as possible. Same result, pair for
-    pair, as calling `touched_files` once per entry."""
+    pair, as calling `touched_files` once per entry.
+
+    `git diff-tree --stdin` (the batched primitive, `_diff_tree_stdin`)
+    prints nothing at all both for a pair whose diff is genuinely empty and
+    for a pair naming an unresolvable ref (a rewritten or pruned commit) --
+    unlike plain `git diff A..B`, which fails loudly (exit 128) for the
+    latter, exactly the distinction `touched_files` turns into `None`
+    ("unmeasurable") rather than an empty set. `_resolvable` checks every
+    ref first so that distinction survives batching: an unresolvable pair
+    is `None` here too, never silently folded into "0 files touched"."""
     results: list[set[str] | None] = [None] * len(ranges)
     candidates = [(i, s, e) for i, (s, e) in enumerate(ranges) if s and e and s != e]
     if not candidates:
         return results
+    good_refs = _resolvable(project_root, {ref for _, s, e in candidates for ref in (s, e)})
+    resolvable = [(i, s, e) for i, s, e in candidates if s in good_refs and e in good_refs]
+    unresolvable = [i for i, s, e in candidates if not (s in good_refs and e in good_refs)]
+    for i in unresolvable:
+        results[i] = None
     from collections import Counter
 
-    start_counts = Counter(s for _, s, _ in candidates)
-    batchable = [(i, s, e) for i, s, e in candidates if start_counts[s] == 1]
-    singles = [(i, s, e) for i, s, e in candidates if start_counts[s] > 1]
+    start_counts = Counter(s for _, s, _ in resolvable)
+    batchable = [(i, s, e) for i, s, e in resolvable if start_counts[s] == 1]
+    singles = [(i, s, e) for i, s, e in resolvable if start_counts[s] > 1]
     if batchable:
         diffs = _diff_tree_stdin(project_root, [(s, e) for _, s, e in batchable])
         for (i, _s, _e), files in zip(batchable, diffs):
