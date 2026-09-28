@@ -18,6 +18,94 @@ NEAR_DUPLICATE = 0.6          # below the add guard's 0.8: pairs worth a look, n
 OPEN_RUN_DAYS = 2
 
 
+def touched_files(project_root: str | Path, commit_start: str | None,
+                  commit_end: str | None) -> set[str] | None:
+    """Repo-relative paths git says changed between two commits, or None when
+    there is no real range to measure (E1, 2.x roadmap N9).
+
+    None -- "unmeasurable", never an empty set standing in for "0 files" --
+    when either commit is missing, when they are the same commit (a run that
+    made no commit at all: there is no range to diff, and reporting 0 would
+    read as a measurement rather than the absence of one), or when git cannot
+    resolve the range at all (a rewritten or pruned history).
+    """
+    import shutil
+    import subprocess
+
+    if not commit_start or not commit_end or commit_start == commit_end:
+        return None
+    git = shutil.which("git")
+    if not git:
+        return None
+    try:
+        result = subprocess.run(
+            [git, "-C", str(project_root), "diff", "--name-only", f"{commit_start}..{commit_end}"],
+            capture_output=True, text=True, timeout=30)
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    if result.returncode != 0:
+        return None
+    return {line.strip() for line in result.stdout.splitlines() if line.strip()}
+
+
+def _normalized_ref(ref: str, project: Path) -> str | None:
+    """A `changed` event's ref as a repo-relative posix path, the shape git's
+    own output takes -- so an absolute ref names the same file as a relative
+    one. None when an absolute ref falls outside the project (nothing git's
+    diff could have named)."""
+    path = Path(ref)
+    if path.is_absolute():
+        try:
+            path = path.relative_to(project)
+        except ValueError:
+            return None
+    return path.as_posix()
+
+
+def change_capture_for_run(project_root: str | Path, record) -> dict | None:
+    """For one finished run: how many of the files its commit range touched
+    were also named by a `changed` event -- the E1 acceptance measured (2.x
+    roadmap N9). A pure read: nothing here writes anything.
+
+    None ("unmeasurable") for an open run (no outcome to measure yet) or when
+    `touched_files` cannot place a real range for its commits.
+    """
+    if record.outcome is None:
+        return None
+    touched = touched_files(project_root, record.commit_start, record.commit_end)
+    if touched is None:
+        return None
+    project = Path(project_root).expanduser().resolve()
+    captured_refs = {
+        norm for e in record.events if e.kind == "changed" and e.ref
+        for norm in [_normalized_ref(e.ref, project)] if norm is not None
+    }
+    captured = captured_refs & touched
+    missed = touched - captured_refs
+    return {"captured": len(captured), "touched": len(touched), "missed": sorted(missed)}
+
+
+def change_capture(project_root: str | Path, records: list | None = None) -> dict:
+    """Aggregated E1 capture over every finished run with a commit range (N9)."""
+    from core import executions
+
+    root = Path(project_root).expanduser().resolve()
+    captured = touched = runs_with_commits = runs_unmeasurable = 0
+    for record in (records if records is not None else executions.load(root)):
+        if record.outcome is None:
+            continue
+        result = change_capture_for_run(root, record)
+        if result is None:
+            runs_unmeasurable += 1
+            continue
+        runs_with_commits += 1
+        captured += result["captured"]
+        touched += result["touched"]
+    share = (captured / touched) if touched else None
+    return {"captured": captured, "touched": touched, "share": share,
+            "runs_with_commits": runs_with_commits, "runs_unmeasurable": runs_unmeasurable}
+
+
 def report(project_root: str | Path) -> dict:
     from core import executions, notes, procedure_lint, work
 
@@ -63,6 +151,7 @@ def report(project_root: str | Path) -> dict:
     done = [r for r in records if r.outcome == "ok"]
     verified = sum(1 for r in done if r.outcome_source == "verified")
     claimed = sum(1 for r in done if r.outcome_source == "claimed")
+    capture = change_capture(root, records=records)
     return {
         "notes": len(corpus),
         "procedures": {"total": len(procedures), "failing": [p["procedure"] for p in failing],
@@ -76,6 +165,7 @@ def report(project_root: str | Path) -> dict:
         "open_runs_older": old_runs,
         "stale_work": [(item.id, item.title) for item in stale_work],
         "verified_rate": {"verified": verified, "claimed": claimed},
+        "change_capture": capture,
     }
 
 
@@ -131,6 +221,13 @@ def render(data: dict) -> str:
     if rate["verified"] + rate["claimed"]:
         share = rate["verified"] / (rate["verified"] + rate["claimed"])
         lines += ["", f"VERIFIED RATE  {rate['verified']} verified, {rate['claimed']} claimed ({share:.0%})"]
+    capture = data.get("change_capture") or {}
+    if capture.get("runs_with_commits", 0) + capture.get("runs_unmeasurable", 0):
+        from core.lib import honest
+
+        lines += ["", f"CHANGE CAPTURE  {capture['captured']}/{capture['touched']} files "
+                      f"({honest.show(capture['share'], spec='.0%')}) over {capture['runs_with_commits']} "
+                      f"runs with commits; {capture['runs_unmeasurable']} runs unmeasurable"]
     if len(lines) == 1:
         lines.append("Nothing needs attention.")
     return "\n".join(lines)
