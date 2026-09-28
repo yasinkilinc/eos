@@ -31,3 +31,10 @@ def test_planted_workspace_path_fails(tmp_path):
 
 def test_repository_itself_is_clean():
     assert _run(REPO).returncode == 0, "the repo still contains denylisted identifiers"
+
+
+def test_a_worktree_git_file_is_not_content(tmp_path):
+    # In a `git worktree`, .git is a file naming the main checkout's path.
+    (tmp_path / ".git").write_text("gitdir: /Volumes/Data/workspace/x/.git/worktrees/y\n", encoding="utf-8")
+    (tmp_path / "a.py").write_text("def handler():\n    return 1\n", encoding="utf-8")
+    assert _run(tmp_path).returncode == 0

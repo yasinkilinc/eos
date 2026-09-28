@@ -14,6 +14,7 @@ DENY='etiya|FEMBS|BSTP|etiyalabs|/Volumes/Data/workspace|fm-(crm|cpq|pcm|rim|ntf
 
 hits=$(grep -rEin "$DENY" "$TARGET" \
     --exclude-dir=.git \
+    --exclude=.git \
     --exclude-dir=node_modules \
     --exclude-dir=__pycache__ \
     --exclude-dir=.pytest_cache \
