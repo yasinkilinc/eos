@@ -37,7 +37,10 @@ def test_paths_that_are_not_local_absolute_paths_are_not_flagged(tmp_path):
     assert citations.wrong(text, [tmp_path]) == []
 
 
-def test_a_missing_path_is_reported_only_where_this_machine_could_have_it(tmp_path):
+def test_a_missing_path_is_reported_only_where_this_machine_could_have_it(tmp_path, monkeypatch):
+    # Home counts as "this machine", so pin it: on a GitHub Linux runner home IS
+    # /home/runner, and the path below would rightly be reported there.
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
     text = "/usr/src/app/x.py:3 /home/runner/work/r/y.py:9 /opt/tool/z.py:1 /var/lib/app/w.py:2"
     assert citations.wrong(text, [tmp_path]) == []
 
