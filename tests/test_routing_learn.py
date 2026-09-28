@@ -42,6 +42,18 @@ def test_nothing_recorded_says_so(project):
     assert learn.propose(project) == ["No proposal: nothing crossed the sample-size or rate thresholds yet."]
 
 
+def test_a_group_with_only_open_runs_is_too_few_not_silently_dropped(project):
+    """RVj (Day 4 review): a group whose routed runs are all still open has
+    `finished == 0` -- no outcome signal, but it must still be counted as
+    "too few runs", never silently left out of the proposals entirely."""
+    for i in range(3):
+        session = f"open{i}"
+        executions.start(project, f"task {i}", session=session)
+        routing.route(project, "fix a small typo", session=session, model="haiku")
+    lines = learn.propose(project)
+    assert any("too few runs" in line for line in lines)
+
+
 def test_a_handful_of_runs_is_too_few_for_a_rate(project):
     for i in range(3):
         _routed_run(project, i, outcome="failed")

@@ -52,9 +52,10 @@ def _failure_proposals(stats) -> list[str]:
     too_few = 0
     for (kind, level, model, effort), counts in stats:
         finished = counts["ok"] + counts["failed"] + counts["abandoned"]
-        if finished == 0:
-            continue
         if finished < MIN_RUNS:
+            # Including an all-open group (finished == 0): routed but with no
+            # outcome yet is still "too few runs for a rate", never a silent
+            # drop of the group entirely (RVj, Day 4 review).
             too_few += 1
             continue
         bad = counts["failed"] + counts["abandoned"]
