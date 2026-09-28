@@ -122,6 +122,16 @@ def cmd_capabilities(args: argparse.Namespace) -> int:
     except ValueError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
+    if getattr(args, "status", None) is not None:
+        found = capabilities.truth(args.path, args.status)
+        if args.format == "json":
+            print(json.dumps(found.to_dict() if found else None, indent=2, ensure_ascii=False))
+        elif found is None:
+            print(f"{args.status}: not catalogued (no such capability)")
+        else:
+            print(f"{found.name}: {found.state}  (health: {found.health})"
+                  + (f"\n  {found.detail}" if found.detail else ""))
+        return 0
     if args.raw is not None:
         found = capabilities.match(args.raw, declared)
         wrapper = capabilities.wrapper_in(args.raw, declared)

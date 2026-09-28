@@ -118,3 +118,89 @@ def test_a_capability_answered_by_a_harness_tool_is_never_mistaken_for_a_command
     assert capabilities.wrapper_in('git commit -m "Edit the file"', [edit]) is None
     assert capabilities.match("sed -i s/a/b/ README.md", [edit]).capability is edit
     assert capabilities.Capability(name="gh", run="gh pr view").program == "gh"
+
+
+# --- A4: the six-state truth model (report line 810/1545) ----------------------------------
+
+
+def test_an_undeclared_name_is_not_even_catalogued(project):
+    assert capabilities.truth(project, "nope") is None
+
+
+def test_a_capability_with_no_does_stops_at_registered(tmp_path):
+    root = tmp_path / "proj"
+    root.mkdir()
+    assert subprocess.run(EOS + ["init", str(root), "--no-ai"], capture_output=True).returncode == 0
+    (root / ".eos" / "knowledge").mkdir(parents=True, exist_ok=True)
+    (root / ".eos" / "knowledge" / "capabilities.toml").write_text(
+        '[[capability]]\nname = "bare"\nrun = "scripts/bare.sh"\n', encoding="utf-8")
+    found = capabilities.truth(root, "bare")
+    assert found.state == "registered" and found.health == "unknown"
+
+
+def test_a_documented_but_unreachable_capability_stops_at_configured(project):
+    # "tracker" is documented (has `does`) but scripts/tracker.sh does not exist here.
+    found = capabilities.truth(project, "tracker")
+    assert found.state == "configured"
+    assert "not on PATH" in found.detail or "script" in found.detail
+
+
+def test_a_reachable_capability_without_verify_before_use_is_authorized(project):
+    (project / "scripts").mkdir()
+    (project / "scripts" / "tracker.sh").write_text("#!/bin/sh\n", encoding="utf-8")
+    found = capabilities.truth(project, "tracker")
+    assert found.state == "authorized" and found.health == "unknown"
+
+
+def test_verify_before_use_holds_a_reachable_capability_below_authorized(tmp_path):
+    root = tmp_path / "proj"
+    root.mkdir()
+    assert subprocess.run(EOS + ["init", str(root), "--no-ai"], capture_output=True).returncode == 0
+    (root / ".eos" / "knowledge").mkdir(parents=True, exist_ok=True)
+    (root / ".eos" / "knowledge" / "capabilities.toml").write_text(
+        '[[capability]]\nname = "risky"\nrun = "scripts/risky.sh"\ndoes = "does a risky thing"\n'
+        'verify_before_use = true\n', encoding="utf-8")
+    (root / "scripts").mkdir()
+    (root / "scripts" / "risky.sh").write_text("#!/bin/sh\n", encoding="utf-8")
+    found = capabilities.truth(root, "risky")
+    assert found.state == "reachable" and found.health == "unknown"
+    assert "not authorized" in found.detail
+
+
+def test_a_program_on_path_is_reachable_with_no_project_file(tmp_path):
+    root = tmp_path / "proj"
+    root.mkdir()
+    assert subprocess.run(EOS + ["init", str(root), "--no-ai"], capture_output=True).returncode == 0
+    (root / ".eos" / "knowledge").mkdir(parents=True, exist_ok=True)
+    (root / ".eos" / "knowledge" / "capabilities.toml").write_text(
+        '[[capability]]\nname = "gitcli"\nrun = "git status"\ndoes = "reads status"\n', encoding="utf-8")
+    found = capabilities.truth(root, "gitcli")
+    assert found.state == "authorized"
+
+
+def test_verify_before_use_must_be_a_bool(project):
+    (project / ".eos" / "knowledge" / "capabilities.toml").write_text(
+        '[[capability]]\nname = "a"\nrun = "x"\nverify_before_use = "yes"\n', encoding="utf-8")
+    with pytest.raises(ValueError, match="verify_before_use"):
+        capabilities.load(project)
+
+
+def test_verify_before_use_marks_the_printed_line():
+    marked = capabilities.Capability(name="risky", run="scripts/risky.sh", does="risky",
+                                     verify_before_use=True)
+    plain = capabilities.Capability(name="safe", run="scripts/safe.sh", does="safe")
+    assert "verify before use" in marked.line()
+    assert "verify before use" not in plain.line()
+
+
+def test_the_cli_prints_the_status_of_one_capability(project):
+    done = subprocess.run(EOS + ["capabilities", str(project), "--status", "tracker"],
+                          capture_output=True, text=True)
+    assert done.returncode == 0
+    assert "configured" in done.stdout
+
+
+def test_the_cli_status_of_an_unknown_name_says_not_catalogued(project):
+    done = subprocess.run(EOS + ["capabilities", str(project), "--status", "nope"],
+                          capture_output=True, text=True)
+    assert "not catalogued" in done.stdout

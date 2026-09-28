@@ -34,10 +34,11 @@ from __future__ import annotations
 import dataclasses
 import re
 import shlex
+import shutil
 from pathlib import Path
 
 FILENAME = "capabilities.toml"
-_FIELDS = ("name", "run", "does", "words", "block", "hint")
+_FIELDS = ("name", "run", "does", "words", "block", "hint", "verify_before_use")
 # A task names a capability by at most this many of them; more is a menu.
 TASK_LIMIT = 3
 
@@ -50,6 +51,10 @@ class Capability:
     words: tuple[str, ...] = ()
     block: tuple[str, ...] = ()
     hint: tuple[str, ...] = ()
+    # A4: this capability's own claim that using it needs evidence of health
+    # first -- honoured by `truth()` below, which holds it under `authorized`
+    # until that evidence exists.
+    verify_before_use: bool = False
 
     @property
     def program(self) -> str:
@@ -64,7 +69,8 @@ class Capability:
         return ""
 
     def line(self) -> str:
-        return f"{self.name} → {self.run}" + (f"  {self.does}" if self.does else "")
+        return (f"{self.name} → {self.run}" + (f"  {self.does}" if self.does else "")
+                + ("  [verify before use]" if self.verify_before_use else ""))
 
 
 def path_for(project_root: str | Path) -> Path:
@@ -121,9 +127,13 @@ def load(project_root: str | Path) -> list[Capability]:
         does = entry.get("does", "")
         if not isinstance(does, str):
             raise ValueError(f"{where} ({name}): does must be a string")
+        verify_before_use = entry.get("verify_before_use", False)
+        if not isinstance(verify_before_use, bool):
+            raise ValueError(f"{where} ({name}): verify_before_use must be a bool")
         found.append(Capability(name=name.strip(), run=run.strip(), does=does.strip(),
                                 words=tuple(w.casefold() for w in lists["words"]),
-                                block=lists["block"], hint=lists["hint"]))
+                                block=lists["block"], hint=lists["hint"],
+                                verify_before_use=verify_before_use))
     return found
 
 
@@ -181,6 +191,70 @@ def remedy(found: Match) -> str:
     return (f"`{capability.name}` has a wrapper: {capability.run}"
             + (f" ({capability.does})" if capability.does else "")
             + " -- it keeps the output small and records the call on the run.")
+
+
+# --- A4: the six-state truth model (report §4.6, line 810/1545) ---------------------------
+#
+# catalogued / registered / configured / reachable / healthy / authorized. In
+# EOS, unlike the source system, there is exactly one place to declare a
+# capability (capabilities.toml, parsed whole by `load()`), so an entry that
+# loads at all is both catalogued and registered at once -- `truth()` reports
+# the pair as "registered", the more informative of the two names, rather
+# than inventing a distinction this engine has no second registry to draw.
+# `healthy` is never computed (the report's own "health defaulting to
+# unknown"): nothing here runs a capability to find out, and `truth()` is
+# read-only exactly like every other reader in this module. `authorized`,
+# the top rung, is reached once a capability is reachable -- unless its own
+# `verify_before_use` marker asks for evidence of health first, which this
+# engine cannot yet supply; that capability holds at `reachable` instead, a
+# named limitation rather than a guess.
+STATES = ("catalogued", "registered", "configured", "reachable", "healthy", "authorized")
+
+
+@dataclasses.dataclass(frozen=True)
+class Truth:
+    name: str
+    state: str
+    health: str = "unknown"
+    detail: str = ""
+
+    def to_dict(self) -> dict:
+        return dataclasses.asdict(self)
+
+
+def truth(project_root: str | Path, name: str) -> Truth | None:
+    """Where `name` stands on the six-state ladder; None when it is not even
+    catalogued (no such entry, or a broken registry -- both read the same:
+    there is nothing here to report a rung for)."""
+    try:
+        declared = load(project_root)
+    except ValueError:
+        return None
+    found = next((c for c in declared if c.name == name), None)
+    if found is None:
+        return None
+    if not found.does.strip():
+        return Truth(name=found.name, state="registered", detail="not configured: no `does`")
+    reachable, why = _reachable(project_root, found)
+    if not reachable:
+        return Truth(name=found.name, state="configured", detail=why)
+    if found.verify_before_use:
+        return Truth(name=found.name, state="reachable",
+                     detail="verify_before_use: no recorded health -- not authorized")
+    return Truth(name=found.name, state="authorized")
+
+
+def _reachable(project_root: str | Path, capability: Capability) -> tuple[bool, str]:
+    program = capability.program
+    if not program:
+        return True, ""  # not a command line at all (a harness tool) -- nothing to find on disk
+    if shutil.which(program):
+        return True, ""
+    from core import procedure_lint
+
+    if procedure_lint._script(Path(project_root).expanduser().resolve(), program) is not None:
+        return True, ""
+    return False, f"{program!r} is not on PATH and no script by that name exists in the project"
 
 
 # --- a command line, reduced to what the ledger may hold -------------------------

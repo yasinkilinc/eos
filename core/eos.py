@@ -657,6 +657,10 @@ def main(argv: list[str] | None = None) -> int:
                         help="Only the capabilities a task's words point at")
     caps_p.add_argument("--command", dest="raw", default=None,
                         help="Which capability, if any, covers this command line")
+    caps_p.add_argument("--status", dest="status", default=None,
+                        help="Where this one capability stands on the six-state truth "
+                             "ladder (A4): catalogued/registered/configured/reachable/"
+                             "healthy/authorized")
     caps_p.add_argument("--format", choices=("text", "json"), default="text")
 
     hook_p = sub.add_parser(
