@@ -330,6 +330,8 @@ def main(argv: list[str] | None = None) -> int:
     note_add_p.add_argument("--agent", help="The agent that wrote it (claude, devin, ...)")
     note_add_p.add_argument("--valid-until", help="YYYY-MM-DD: after this day search and briefs stop "
                                                   "offering it; `eos consolidate` lists it")
+    note_add_p.add_argument("--projects", help="In a workspace: comma-separated projects this note is about; "
+                                               "each reads it as its own (scope entries @project:<name>/<path>)")
 
     note_list_p = note_sub.add_parser("list", help="List notes")
     add_path(note_list_p)

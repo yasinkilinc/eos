@@ -79,6 +79,7 @@ def cmd_note_add(args: argparse.Namespace) -> int:
             provenance=args.provenance,
             agent=args.agent,
             valid_until=args.valid_until,
+            projects=_split_csv(args.projects),
         )
     except (ValueError, FileExistsError) as exc:
         print(f"error: {exc}", file=sys.stderr)
@@ -116,7 +117,7 @@ def cmd_note_show(args: argparse.Namespace) -> int:
     itself. It was.
     """
     # A generator's note too: `note search --generated` names it (M3).
-    recorded = notes.load_notes(args.path) + notes.load_generated(args.path)
+    recorded = notes.load_notes(args.path) + notes.shared_notes(args.path) + notes.load_generated(args.path)
     if not recorded:
         print(_no_notes_here(args.path))
         return 0

@@ -127,8 +127,12 @@ def add_note(
     provenance: str | None = None,
     agent: str | None = None,
     valid_until: str | None = None,
+    projects: list[str] | None = None,
 ) -> Path:
     """Write one note and return its path.
+
+    ``projects`` names the workspace projects a note in the workspace's own
+    store is about (M4, ADR-035); each of them reads it as its own.
 
     One file per note, named ``<YYYYMMDD>-<slug>``. A single shared store was
     the obvious alternative and is the wrong one: notes are committed, and
@@ -162,6 +166,7 @@ def add_note(
         _refuse_placeholder(evidence, "note evidence")
     provenance = _check_provenance(provenance, agent)
     valid_until = _check_valid_until(valid_until)
+    _check_projects(project_root, projects)
     content = _compose_body(kind, body, cause, solution, metric)
 
     found = _find_credential(f"{title}\n{content}\n{evidence or ''}")
@@ -245,6 +250,7 @@ def add_note(
             "provenance": provenance,
             "agent": agent,
             "valid_until": valid_until,
+            "projects": projects,
         }
     )
     path.write_text(f"{document}\n\n{content}\n", encoding="utf-8")
@@ -262,6 +268,23 @@ def _check_provenance(provenance: str | None, agent: str | None) -> str | None:
         raise ValueError(f"an agent name ({agent!r}) with provenance {provenance!r}; "
                          "an agent's note is provenance 'agent'")
     return provenance
+
+
+def _check_projects(project_root: str | Path, projects: list[str] | None) -> None:
+    """Every name one project of this workspace's projects.toml: a name nothing
+    resolves is a note no project would ever read."""
+    if not projects:
+        return
+    from core import workspace
+
+    known = {p.name for p in workspace.load(project_root)}
+    if not known:
+        raise ValueError(f"--projects names projects of a workspace; {project_root} has no "
+                         f".eos/{workspace.FILENAME} listing any")
+    unknown = [name for name in projects if name not in known]
+    if unknown:
+        raise ValueError(f"not a project of this workspace: {', '.join(unknown)} "
+                         f"(known: {', '.join(sorted(known))})")
 
 
 def _check_valid_until(valid_until: str | None) -> str | None:

@@ -98,7 +98,7 @@ def evaluate(project_root: str | Path, entries: list[GoldenEntry],
     Every scored query is in every denominator: a query search returned
     nothing for is a zero, not an absence (2.x roadmap F6).
     """
-    present = {note.path.name for note in notes.load_notes(project_root)}
+    present = {note.path.name for note in notes.load_notes(project_root) + notes.shared_notes(project_root)}
 
     def accepted(entry: GoldenEntry) -> list[str]:
         return [name.strip() for name in entry.expected.split("|") if name.strip()]

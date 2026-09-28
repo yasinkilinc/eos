@@ -15,7 +15,7 @@ from __future__ import annotations
 
 from core.notes.store import (
     DEFAULT_NOTES_DIR, notes_dir, note_synonyms, GENERATED_DIR, MOVED_FILE, generated_dir, load_generated,
-    belongs_in_generated, move_generated, PROVENANCES, expired, _slug, _front_matter, _SAFE_SCALAR, _scalar, KINDS,
+    belongs_in_generated, move_generated, PROJECT_PREFIX, shared_notes, PROVENANCES, expired, _slug, _front_matter, _SAFE_SCALAR, _scalar, KINDS,
     GENERATOR_SOURCES, BULK_INDEX_SOURCES, is_generated, is_bulk_index, _is_sensitive,
     _scope_anchor, _resolve_scope_entry, _hash_file, _one_note, superseded, Note,
     _unscalar, parse_note, _count, load_notes, load_dir, _WORD, stale_notes,

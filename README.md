@@ -686,6 +686,13 @@ show` finds it by name. `eos note move-generated` lists the generator notes
 still in the store (a bulk-index source counts whatever its front matter says);
 `--apply` moves them byte for byte and records each in `generated/moved.tsv`.
 
+In a workspace (`.eos/projects.toml`), one note can be about several of its
+projects: `eos note add <workspace> --projects a,b --scope @project:a/src/X.java`
+writes it once, in the workspace's store. Each named project whose config sets
+`[workspace] root` reads it as its own -- search, context, touched-file
+injection, `note show`, `note eval` -- with its `@project:<name>/` scope entries
+relative to it (ADR-035).
+
 A question asked in other words than the note's ("wiki" for a note about
 Confluence) is what no weighting finds. A project can name word groups that
 mean the same thing to it; each group then counts as one concept in search,

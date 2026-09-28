@@ -6,7 +6,7 @@ import re
 from pathlib import Path
 
 from core.notes.store import (
-    Note, _WORD, expired, is_bulk_index, load_generated, load_notes, note_synonyms, superseded,
+    Note, _WORD, expired, is_bulk_index, load_generated, load_notes, note_synonyms, shared_notes, superseded,
 )
 
 
@@ -215,7 +215,8 @@ def search_notes(project_root: str | Path, query: str, limit: int | None = None,
                  generated: bool = False) -> list[Note]:
     """Notes relevant to `query`, most relevant first, with the project's synonym
     groups; `generated` ranks the generator notes with them (M3)."""
-    corpus = load_notes(project_root) + (load_generated(project_root) if generated else [])
+    corpus = (load_notes(project_root) + shared_notes(project_root)
+              + (load_generated(project_root) if generated else []))
     return rank(corpus, query, limit, synonyms=note_synonyms(project_root))
 
 
@@ -315,8 +316,10 @@ def render_context_section(
     if query:
         candidates = search_notes(project_root, query)
     else:
-        candidates = [n for n in reversed(load_notes(project_root))
-                      if n.path.name not in superseded(load_notes(project_root)) and not expired(n)]
+        corpus = load_notes(project_root) + shared_notes(project_root)
+        replaced = superseded(corpus)
+        candidates = [n for n in sorted(corpus, key=lambda n: n.path.name, reverse=True)
+                      if n.path.name not in replaced and not expired(n)]
     if not candidates:
         return ""
 

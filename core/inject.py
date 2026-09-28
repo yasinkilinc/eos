@@ -128,7 +128,7 @@ def context_for(targets: list[tuple[str, Path, str, str, str]], seen: set, *, po
     true ones before this grouping). `pointer` is the command that reads the
     rest, formatted with `{path}` and `{words}`."""
     from core.context import dedup
-    from core.notes import is_bulk_index, load_notes
+    from core.notes import is_bulk_index, load_notes, shared_notes
     from core.notes.render import narrowed_body, word_terms
 
     prior = set(seen)
@@ -160,7 +160,8 @@ def context_for(targets: list[tuple[str, Path, str, str, str]], seen: set, *, po
     for name, relative in digests_by_target:
         if name not in corpus:
             try:
-                corpus[name] = [n for n in load_notes(roots[name][0]) if n.title]
+                root = roots[name][0]
+                corpus[name] = [n for n in load_notes(root) + shared_notes(root) if n.title]
             except Exception:  # noqa: BLE001 - one unreadable store costs its notes
                 corpus[name] = []
         notes = corpus[name]

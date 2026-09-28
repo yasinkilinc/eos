@@ -227,6 +227,9 @@ def _is_sensitive(path: Path) -> bool:
     return any(fnmatch.fnmatch(name, pattern) for pattern in SENSITIVE_PATTERNS)
 
 
+PROJECT_PREFIX = "@project:"
+
+
 def _scope_anchor(project: Path, entry: str) -> tuple[Path, Path] | None:
     """The (root, candidate) a scope entry resolves against.
 
@@ -248,6 +251,13 @@ def _scope_anchor(project: Path, entry: str) -> tuple[Path, Path] | None:
             return None
         root = links.resolve_link_path(project, link)
         return root, (root / relative).resolve()
+    if entry.startswith(PROJECT_PREFIX):
+        # A workspace note about a file in one of its projects (M4).
+        from core import workspace
+
+        name, _, relative = entry[len(PROJECT_PREFIX):].partition("/")
+        root = next((p.root for p in workspace.load_quiet(project) if p.name == name), None)
+        return None if root is None else (root, (root / relative).resolve())
     return project, (project / entry).resolve()
 
 
@@ -266,7 +276,9 @@ def _resolve_scope_entry(project: Path, entry: str) -> Path:
 
     anchor = _scope_anchor(project, entry)
     if anchor is None:
-        raise ValueError(f"Scope entry names an unconfigured parent link: {entry!r}")
+        what = "a project the workspace does not list" if entry.startswith(PROJECT_PREFIX) \
+            else "an unconfigured parent link"
+        raise ValueError(f"Scope entry names {what}: {entry!r}")
     root, candidate = anchor
     try:
         candidate.relative_to(root)
@@ -356,6 +368,16 @@ class Note:
     provenance: str | None = None
     agent: str | None = None
     valid_until: str | None = None
+    # The workspace projects a note in the workspace's store is about (M4,
+    # ADR-035): each reads it as its own (`shared_notes`).
+    projects: tuple[str, ...] = ()
+
+
+def _names(value) -> tuple[str, ...]:
+    """A list field a person may write as one scalar (`projects: svc-a`)."""
+    if isinstance(value, str):
+        return (value,) if value else ()
+    return tuple(value or ())
 
 
 def _unscalar(text: str) -> str:
@@ -421,6 +443,7 @@ def parse_note(path: Path) -> Note:
         provenance=meta.get("provenance") or None,
         agent=meta.get("agent") or None,
         valid_until=meta.get("valid_until") or None,
+        projects=_names(meta.get("projects")),
     )
 
 
@@ -451,6 +474,30 @@ def _count(value) -> int | None:
 def load_notes(project_root: str | Path) -> list[Note]:
     """Every note for this project, oldest first (filenames start with a date)."""
     return load_dir(notes_dir(project_root))
+
+
+def shared_notes(project_root: str | Path) -> list[Note]:
+    """The notes of this project's workspace (`workspace.of`) that name it in
+    `projects`, as this project reads them: its own `@project:<name>/` scope
+    entries relative to it, every other entry left out. The path stays the
+    workspace's file, where the note is amended."""
+    from core import workspace
+
+    project = Path(project_root).expanduser().resolve()
+    home = workspace.of(project)
+    if home is None:
+        return []
+    name = next((p.name for p in workspace.load_quiet(home) if p.root == project), None)
+    prefix = f"{PROJECT_PREFIX}{name}/"
+    views = []
+    for note in load_notes(home):
+        if name not in note.projects:
+            continue
+        mine = [(entry[len(prefix):], note.scope_hashes[i] if i < len(note.scope_hashes) else None)
+                for i, entry in enumerate(note.scope) if entry.startswith(prefix)]
+        views.append(dataclasses.replace(note, scope=[entry for entry, _ in mine],
+                                         scope_hashes=[digest for _, digest in mine]))
+    return views
 
 
 def load_dir(directory: str | Path) -> list[Note]:
