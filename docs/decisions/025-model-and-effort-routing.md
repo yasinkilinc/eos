@@ -143,3 +143,14 @@ matched nothing, and their true types skewed elsewhere (mostly `investigation`).
 `normal_implementation`. It changes only the no-match branch: confidence stays
 `NO_MATCH_CONFIDENCE`, no rule runs, level and model follow the scorer as before.
 Which value a project sets is decided on its own corpus's development split.
+
+## Addendum (2026-09-28, 1.35.0): `verify_depth`'s one consumer
+
+`verify_depth` (1.33.0) had no reader. The Stop verify gate (`[hooks] verify`)
+is now the one: when the gate has already fired for another reason (a changed
+scope with no passing check since), a run following a procedure routed at
+depth 2 gets one more line naming that procedure's own read-only `## Success`
+checks -- `eos verify --procedure <slug>` -- when it has any. Depth 0/1 change
+nothing, and a session with no routed decision at all (no open run, or a run
+with no `decided` event) sees the gate exactly as it did before this existed:
+the hint is additive to an already-fired gate, never a trigger of its own.
