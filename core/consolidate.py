@@ -477,7 +477,7 @@ def change_capture(project_root: str | Path, records: list | None = None) -> dic
 
 
 def report(project_root: str | Path) -> dict:
-    from core import executions, notes, procedure_lint, work
+    from core import executions, index, notes, procedure_lint, work
 
     root = Path(project_root).expanduser().resolve()
     corpus = notes.load_notes(root)
@@ -524,6 +524,14 @@ def report(project_root: str | Path) -> dict:
     verified = sum(1 for r in done if r.outcome_source == "verified")
     claimed = sum(1 for r in done if r.outcome_source == "claimed")
     capture = change_capture(root, records=records)
+    # L1 remainder item (a), Day 3: the one generated EOS artifact under
+    # `.eos/` with a declared, deterministic freshness key -- the index's own
+    # `inputs_sha256` vs. a freshly computed sources digest (`index.is_stale`).
+    # The brain/graph files a scan writes (graph.json, evidence.jsonl,
+    # AI_SUMMARY.md) fold into that same digest as *inputs*, but declare no
+    # freshness key of their own to compare against current source, so their
+    # own staleness is not reported here (not defined in the codebase).
+    stale_index = index.is_stale(root)
     return {
         "notes": len(corpus),
         "procedures": {"total": len(procedures), "failing": [p["procedure"] for p in failing],
@@ -539,6 +547,7 @@ def report(project_root: str | Path) -> dict:
         "verified_rate": {"verified": verified, "claimed": claimed},
         "change_capture": capture,
         "lessons_without_evidence": lessons_without_evidence,
+        "stale_index": stale_index,
     }
 
 
@@ -604,6 +613,10 @@ def render(data: dict) -> str:
                       f"({honest.show(capture['share'], spec='.0%')}) over {capture['runs_with_commits']} "
                       f"runs with commits; {capture['runs_unmeasurable']} runs unmeasurable "
                       f"({capture.get('runs_unmeasurable_no_hook_events', 0)} without hook events)"]
+    if data.get("stale_index"):
+        lines += ["", "STALE GENERATED ARTIFACT",
+                  "  .eos/data/eos.db was built from an older snapshot of its sources",
+                  "  (eos index . to rebuild)"]
     if len(lines) == 1:
         lines.append("Nothing needs attention.")
     return "\n".join(lines)

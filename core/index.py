@@ -466,6 +466,23 @@ def refresh(project_root: str | Path) -> BuildResult | None:
     return result
 
 
+def is_stale(project_root: str | Path) -> bool | None:
+    """Whether a rebuild would now write a different index than the one on
+    disk, without rebuilding it -- the same comparison `refresh()` makes
+    before deciding to write, exposed as a pure read for a caller
+    (`consolidate`, L1 2.x roadmap Day 3) that only reports staleness, never
+    fixes it on its own.
+
+    None when there is no readable index yet to compare against: "not built"
+    is not the same claim as "stale".
+    """
+    root = Path(project_root).expanduser().resolve()
+    built_from = _built_from(db_path(root))
+    if built_from is None:
+        return None
+    return built_from != _sources_digest(root)
+
+
 def _project(project_root: str | Path) -> Path:
     root = Path(project_root).expanduser().resolve()
     if not (root / ".eos").is_dir():

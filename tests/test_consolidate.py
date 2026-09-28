@@ -101,3 +101,37 @@ def test_a_note_citing_a_replaced_note_is_named(tmp_path):
     data = consolidate.report(root)
     assert data["cites_replaced"] == [("Cancel releases the number", "Retries use a fixed delay")]
     assert "NOTES CITING A REPLACED NOTE (1)" in consolidate.render(data)
+
+
+def test_no_index_built_yet_is_not_reported_as_stale(tmp_path):
+    """L1 remainder, item (a): a project that never ran `eos index`/`eos scan`
+    has nothing to compare a fresh digest against -- "not built" is not a claim
+    that the (nonexistent) index is stale."""
+    root = tmp_path / "proj"
+    root.mkdir()
+    assert subprocess.run(EOS + ["init", str(root), "--no-ai"], capture_output=True).returncode == 0
+    data = consolidate.report(root)
+    assert data["stale_index"] is None
+    assert "STALE" not in consolidate.render(data)
+
+
+def test_stale_index_is_named_after_a_source_changes_and_clears_after_a_rebuild(tmp_path):
+    """L1 remainder, item (a): the index's own declared freshness key
+    (`inputs_sha256` in its `meta` table vs. a freshly computed sources digest)
+    is the one generated EOS artifact under `.eos/` with a deterministic
+    staleness check -- consolidate reports it without rebuilding."""
+    from core import index
+
+    root = tmp_path / "proj"
+    root.mkdir()
+    assert subprocess.run(EOS + ["init", str(root), "--no-ai"], capture_output=True).returncode == 0
+    index.build(root)
+    assert consolidate.report(root)["stale_index"] is False
+
+    notes.add_note(root, "finding", "A new finding", BASE)
+    data = consolidate.report(root)
+    assert data["stale_index"] is True
+    assert "STALE" in consolidate.render(data)
+
+    index.build(root)
+    assert consolidate.report(root)["stale_index"] is False
