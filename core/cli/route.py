@@ -28,6 +28,13 @@ def cmd_route(args: argparse.Namespace) -> int:
             print(f"usage recorded for session {args.session}")
         return 0
 
+    if args.learn:
+        from core.routing import learn
+
+        for line in learn.propose(args.path):
+            print(line)
+        return 0
+
     if args.stats:
         recorded, sessions = len(trace.load(args.path)), len(usage.load(args.path))
         rows = trace.stats(args.path)

@@ -224,7 +224,7 @@ def advised_vs_used_outcome(project_root: str | Path) -> list[dict]:
         parts = decided.body.split()
         if len(parts) != 7:
             continue
-        advised_model = parts[2]
+        advised_level, advised_model = parts[1], parts[2]
         session = decided.session or record.session
         fold = usage_by_session.get(session or "")
         used_model = None
@@ -237,6 +237,7 @@ def advised_vs_used_outcome(project_root: str | Path) -> list[dict]:
             outcome_source, _ = executions.outcome_source(project_root, record)
         rows.append({
             "execution": record.id, "session": session, "advised_model": advised_model,
+            "advised_level": advised_level,
             "used_model": used_model, "outcome": record.outcome or "open",
             "outcome_source": outcome_source,
         })

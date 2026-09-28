@@ -440,6 +440,10 @@ def main(argv: list[str] | None = None) -> int:
     route_p.add_argument("--session", default=None, help="Session id; filled from the harness when omitted")
     route_p.add_argument("--stats", action="store_true",
                          help="Recorded decisions joined to their runs' outcomes; ignores the task")
+    route_p.add_argument("--learn", action="store_true",
+                         help="Proposals only, never written to config: a (type, level) that fails "
+                              "often, a level consistently overridden by the model actually used "
+                              "(A5); ignores the task")
     route_p.add_argument("--usage-from", default=None, metavar="TRANSCRIPT",
                          help="Fold a harness transcript into this session's model and token totals "
                               "(for a Stop hook); ignores the task")
