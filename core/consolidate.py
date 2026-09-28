@@ -162,16 +162,31 @@ def change_capture_for_run(project_root: str | Path, record,
     return {"captured": len(captured), "touched": len(touched), "missed": sorted(missed)}
 
 
+# Every `_record` call site in core/hooks.py opens the run through
+# `cfg["capture"]` (`_post_tool`, `_post_tool_failure`, `_subagent_start`,
+# `_subagent_stop`, `_stop_failure`, `_record_passes`) except one:
+# `_route_subagent`'s "decided" event always calls `_open_run` on its own,
+# so a subagent routing decision is recorded whether or not `capture` is on
+# (ADR-025 wants every decision kept for the roadmap's N5 advised-vs-used
+# report even in a project that has turned event capture off). A "decided"
+# event therefore proves only that the routing hook fired, never that the
+# capture-relevant hook (Edit/Write/Bash PostToolUse) ever had a chance to
+# record anything -- it must not count as evidence of real hook activity here.
+_NON_CAPTURE_HOOK_KINDS = frozenset({"decided"})
+
+
 def _has_hook_event(record) -> bool:
-    """Whether this run's own ledger carries at least one hook-recorded event.
+    """Whether this run's own ledger carries at least one hook-recorded event
+    that a capture-gated hook path could have written.
 
     `core/hooks.py`'s `_record` is the one place any hook event is written,
     and it always passes `source="hook"` (CLI and wrapper calls record
     `source="cli"`/`"wrapper"` or leave it unset) -- so the field reliably
     tells a run the harness's own hook fired for at all apart from a run it
     never fired for once (N12), the same distinction the ledger already
-    carries rather than a proxy over `changed`/tool events."""
-    return any(e.source == "hook" for e in record.events)
+    carries rather than a proxy over `changed`/tool events. `_NON_CAPTURE_HOOK_KINDS`
+    excludes the one kind that fires independently of `capture` (RVe)."""
+    return any(e.source == "hook" and e.kind not in _NON_CAPTURE_HOOK_KINDS for e in record.events)
 
 
 def change_capture(project_root: str | Path, records: list | None = None) -> dict:

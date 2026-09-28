@@ -361,6 +361,33 @@ def test_change_capture_only_folds_runs_that_did_have_a_hook_event(tmp_path):
                     "runs_unmeasurable_no_hook_events": 1}
 
 
+def test_change_capture_a_decided_only_routing_event_is_not_capture_hook_activity(tmp_path):
+    # RVe: every `_record` call site in core/hooks.py opens the run through
+    # `cfg["capture"]` except `_route_subagent`'s "decided" event, which
+    # records a subagent routing decision regardless of the `capture` setting
+    # (ADR-025 wants every routing decision kept for N5's advised-vs-used
+    # report even in a project that has turned event capture off). A run
+    # whose only hook-sourced event is "decided" therefore proves the routing
+    # hook fired, never that the capture-relevant hook (Edit/Write/Bash
+    # PostToolUse) had a chance to record anything -- it must still count as
+    # no hook events, the same as a run with no hook-sourced event at all.
+    root = _repo(tmp_path)
+    (root / ".eos").mkdir(exist_ok=True)
+    run = executions.start(root, "Routed subagent, capture off")
+    (root / "b.txt").write_text("1\n")
+    _git(root, "add", "b.txt")
+    _git(root, "commit", "-q", "-m", "one file, only a routing decision recorded")
+    executions.event(root, run.id, kind="decided", tool="route", ref="route:abc123",
+                     source="hook")
+    executions.finish(root, run.id, outcome="ok")
+
+    data = consolidate.change_capture(root)
+
+    assert data == {"captured": 0, "touched": 0, "share": None,
+                    "runs_with_commits": 0, "runs_unmeasurable": 1,
+                    "runs_unmeasurable_no_hook_events": 1}
+
+
 def test_report_prints_the_dash_when_nothing_is_measurable(tmp_path):
     root = _repo(tmp_path)
     (root / ".eos").mkdir(exist_ok=True)
