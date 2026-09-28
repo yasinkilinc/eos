@@ -11,9 +11,16 @@ from __future__ import annotations
 
 import datetime
 import itertools
+import re
 from pathlib import Path
 
 LIMIT = 5
+# `git subtree pull --squash` names itself this way: the squash commit's own
+# tree holds the subtree's bare content, never the `<prefix>/` it lands at in
+# the branch it merges into -- `git log --name-only` shows that commit's own
+# unprefixed paths, so the prefix has to come back out of its own message to
+# match anything `git diff` (a plain two-tree compare) ever names (N11).
+_SQUASH = re.compile(r"^Squashed '([^']+)' changes from")
 NEAR_DUPLICATE = 0.6          # below the add guard's 0.8: pairs worth a look, not a refusal
 OPEN_RUN_DAYS = 2
 
@@ -68,19 +75,74 @@ def _normalized_ref(ref: str, project: Path) -> str | None:
     return path.as_posix()
 
 
-def change_capture_for_run(project_root: str | Path, record) -> dict | None:
+def _foreign_files(project_root: str | Path, commit_start: str | None, commit_end: str | None,
+                   other_finish_commits: frozenset) -> set[str]:
+    """Files inside a run's own commit range that no commit of the run's own
+    made -- another run's own finish commit landing in the same range (two
+    sessions committing to one branch), or a subtree-pull squash -- named
+    "the dominant measurement noise" by N11's classification of the host's
+    18/454 gap. Only ever removes a file every commit naming it is foreign;
+    a file a run's own commit also touches is always kept, so this can only
+    shrink `touched`, never make a run's own work disappear from it.
+    """
+    import shutil
+    import subprocess
+
+    if not commit_start or not commit_end or commit_start == commit_end:
+        return set()
+    git = shutil.which("git")
+    if not git:
+        return set()
+    try:
+        result = subprocess.run(
+            [git, "-C", str(project_root), "log", "--no-renames", "--name-only",
+             "--format=%x02%H%x1f%s", f"{commit_start}..{commit_end}"],
+            capture_output=True, text=True, timeout=30)
+    except (OSError, subprocess.TimeoutExpired):
+        return set()
+    if result.returncode != 0:
+        return set()
+    own_files: set[str] = set()
+    foreign_files: set[str] = set()
+    for block in result.stdout.split("\x02"):
+        if not block.strip():
+            continue
+        header, _, rest = block.partition("\n")
+        commit_hash, _, subject = header.partition("\x1f")
+        files = {line.strip() for line in rest.splitlines() if line.strip()}
+        squash = _SQUASH.match(subject)
+        if squash:
+            prefix = squash.group(1).strip("/")
+            files = {f"{prefix}/{f}" for f in files}
+            is_foreign = True
+        else:
+            is_foreign = commit_hash != commit_end and commit_hash in other_finish_commits
+        (foreign_files if is_foreign else own_files).update(files)
+    return foreign_files - own_files
+
+
+def change_capture_for_run(project_root: str | Path, record,
+                           other_finish_commits: frozenset = frozenset()) -> dict | None:
     """For one finished run: how many of the files its commit range touched
     were also named by a `changed` event -- the E1 acceptance measured (2.x
     roadmap N9). A pure read: nothing here writes anything.
 
     None ("unmeasurable") for an open run (no outcome to measure yet) or when
     `touched_files` cannot place a real range for its commits.
+
+    `other_finish_commits` -- every other run's own `commit_end`, so a commit
+    that lands in this run's range only because another session committed to
+    the same branch in between is not counted as this run's to have missed
+    (N11); left empty (the default), nothing is excluded, exactly N9's number.
     """
     if record.outcome is None:
         return None
     touched = touched_files(project_root, record.commit_start, record.commit_end)
     if touched is None:
         return None
+    if other_finish_commits:
+        touched = touched - _foreign_files(project_root, record.commit_start, record.commit_end,
+                                           other_finish_commits)
     project = Path(project_root).expanduser().resolve()
     captured_refs = {
         norm for e in record.events if e.kind == "changed" and e.ref
@@ -92,15 +154,18 @@ def change_capture_for_run(project_root: str | Path, record) -> dict | None:
 
 
 def change_capture(project_root: str | Path, records: list | None = None) -> dict:
-    """Aggregated E1 capture over every finished run with a commit range (N9)."""
+    """Aggregated E1 capture over every finished run with a commit range (N9),
+    excluding another run's own commits from what each range "touched" (N11)."""
     from core import executions
 
     root = Path(project_root).expanduser().resolve()
+    records = records if records is not None else executions.load(root)
+    other_finish_commits = frozenset(r.commit_end for r in records if r.commit_end)
     captured = touched = runs_with_commits = runs_unmeasurable = 0
-    for record in (records if records is not None else executions.load(root)):
+    for record in records:
         if record.outcome is None:
             continue
-        result = change_capture_for_run(root, record)
+        result = change_capture_for_run(root, record, other_finish_commits)
         if result is None:
             runs_unmeasurable += 1
             continue

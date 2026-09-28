@@ -16,6 +16,39 @@ def _git(root, *args):
                    text=True, env=_GIT_ENV)
 
 
+def _head(root):
+    return subprocess.run(["git", "-C", str(root), "rev-parse", "HEAD"],
+                          capture_output=True, text=True).stdout.strip()
+
+
+def _fake_subtree_pull(root, prefix, filename, content):
+    """The two-commit shape a real `git subtree pull --squash` leaves: a
+    parentless squash commit whose own tree has no prefix, merged into the
+    branch at `prefix/` by a second commit -- `git log --name-only` on the
+    squash commit alone names a path the outer diff never will, exactly what
+    `_foreign_files`'s prefix-from-message reconstruction has to undo."""
+    branch = subprocess.run(["git", "-C", str(root), "branch", "--show-current"],
+                            capture_output=True, text=True).stdout.strip()
+    base = _head(root)
+    _git(root, "checkout", "-q", "--orphan", "tmp-squash-source")
+    _git(root, "rm", "-r", "-f", "-q", ".")
+    path = root / filename
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(content)
+    _git(root, "add", filename)
+    _git(root, "commit", "-q", "-m", f"Squashed '{prefix}/' changes from a..b")
+    squash = _head(root)
+    _git(root, "checkout", "-q", branch)
+    _git(root, "read-tree", f"--prefix={prefix}/", "-u", squash)
+    tree = subprocess.run(["git", "-C", str(root), "write-tree"],
+                          capture_output=True, text=True).stdout.strip()
+    merge = subprocess.run(["git", "-C", str(root), "commit-tree", tree, "-p", base, "-p", squash,
+                           "-m", "chore: subtree pull"], capture_output=True, text=True,
+                           env=_GIT_ENV).stdout.strip()
+    _git(root, "reset", "-q", "--hard", merge)
+    return merge
+
+
 def _repo(tmp_path):
     root = tmp_path / "repo"
     root.mkdir()
@@ -114,6 +147,73 @@ def test_change_capture_for_run_is_none_for_an_open_run(tmp_path):
     record = executions.load(root)[0]
     assert consolidate.change_capture_for_run(root, record) is None
     assert run.id == record.id
+
+
+def test_change_capture_for_run_excludes_a_concurrent_sessions_own_commit(tmp_path):
+    # N11: two sessions committing to the same branch put the other one's
+    # commit inside this run's own start..end range -- its files are not this
+    # run's to have missed.
+    root = _repo(tmp_path)
+    mine = executions.start(root, "Mine")
+    other = executions.start(root, "Other session")  # both start from the same commit
+    (root / "other.txt").write_text("1\n")
+    _git(root, "add", "other.txt")
+    _git(root, "commit", "-q", "-m", "other session's own commit")
+    executions.finish(root, other.id, outcome="ok")
+
+    (root / "mine.txt").write_text("1\n")
+    _git(root, "add", "mine.txt")
+    _git(root, "commit", "-q", "-m", "my own commit")
+    executions.event(root, mine.id, kind="changed", ref="mine.txt")
+    executions.finish(root, mine.id, outcome="ok")
+
+    records = {r.title: r for r in executions.load(root)}
+    other_finish_commits = frozenset(r.commit_end for r in records.values())
+
+    without = consolidate.change_capture_for_run(root, records["Mine"])
+    assert without == {"captured": 1, "touched": 2, "missed": ["other.txt"]}
+
+    result = consolidate.change_capture_for_run(root, records["Mine"], other_finish_commits)
+    assert result == {"captured": 1, "touched": 1, "missed": []}
+
+
+def test_a_file_a_run_own_commit_also_touches_is_never_excluded(tmp_path):
+    # The exclusion only ever removes a file every commit naming it is
+    # foreign; touched by the run's own commit too, it stays -- real work is
+    # never made to disappear by another session sharing the same file.
+    root = _repo(tmp_path)
+    mine = executions.start(root, "Mine")
+    other = executions.start(root, "Other session")  # both start from the same commit
+    (root / "shared.txt").write_text("1\n")
+    _git(root, "add", "shared.txt")
+    _git(root, "commit", "-q", "-m", "other session touches it first")
+    executions.finish(root, other.id, outcome="ok")
+
+    (root / "shared.txt").write_text("2\n")
+    _git(root, "add", "shared.txt")
+    _git(root, "commit", "-q", "-m", "my own commit touches it too")
+    executions.finish(root, mine.id, outcome="ok")
+
+    records = {r.title: r for r in executions.load(root)}
+    other_finish_commits = frozenset(r.commit_end for r in records.values())
+
+    result = consolidate.change_capture_for_run(root, records["Mine"], other_finish_commits)
+    assert result == {"captured": 0, "touched": 1, "missed": ["shared.txt"]}
+
+
+def test_a_subtree_squash_commits_own_files_are_excluded(tmp_path):
+    root = _repo(tmp_path)
+    run = executions.start(root, "Adopt upstream")
+    _fake_subtree_pull(root, "tools/eos", "core/VERSION", "1.0.0\n")
+    executions.finish(root, run.id, outcome="ok")
+
+    record = executions.load(root)[0]
+    assert consolidate.touched_files(root, record.commit_start, record.commit_end) == \
+        {"tools/eos/core/VERSION"}
+
+    result = consolidate.change_capture_for_run(root, record, frozenset({record.commit_end}))
+
+    assert result == {"captured": 0, "touched": 0, "missed": []}
 
 
 def test_report_aggregates_over_finished_runs_with_commits(tmp_path):
