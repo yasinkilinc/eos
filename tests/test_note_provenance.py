@@ -229,3 +229,38 @@ def test_a_metadata_only_amend_does_not_re_hash_or_refuse_on_a_changed_scope_fil
     # Scope is left exactly as recorded -- not re-hashed to the new content --
     # so a later `stale_notes` can still flag the real change.
     assert note.scope_hashes == original_hash
+
+
+# --- M1 migration: a metadata-only amend leaves every other byte alone --------------
+
+
+def test_a_metadata_only_amend_keeps_updated_and_session(tmp_path):
+    # Marking 862 existing notes with their provenance must not reset their
+    # age to today or claim them for the migrating session.
+    project = _project(tmp_path)
+    _raw(project, "20260901-wallet.md", "Wallet cache warms on boot",
+         extra="updated: 2026-09-05\nsession: s-original\n")
+    path = notes.notes_dir(project) / "20260901-wallet.md"
+    notes.amend_note(path, project, provenance="generated", session="s-migration")
+    raw = path.read_text(encoding="utf-8")
+    assert "updated: 2026-09-05\n" in raw
+    assert "session: s-original\n" in raw
+    assert notes.parse_note(path).provenance == "generated"
+
+
+def test_a_metadata_only_amend_changes_nothing_but_its_fields(tmp_path):
+    project = _project(tmp_path)
+    _raw(project, "20260901-wallet.md", "Wallet cache warms on boot", extra="source: api-inventory\n")
+    path = notes.notes_dir(project) / "20260901-wallet.md"
+    before = path.read_text(encoding="utf-8")
+    notes.amend_note(path, project, provenance="agent")
+    after = path.read_text(encoding="utf-8")
+    assert after.replace("provenance: agent\n", "") == before
+
+
+def test_a_body_amend_still_stamps_updated(tmp_path):
+    project = _project(tmp_path)
+    _raw(project, "20260901-wallet.md", "Wallet cache warms on boot", extra="updated: 2026-09-05\n")
+    path = notes.notes_dir(project) / "20260901-wallet.md"
+    notes.amend_note(path, project, body="Wallet cache warms on boot, measured again.")
+    assert f"updated: {datetime.date.today().isoformat()}\n" in path.read_text(encoding="utf-8")

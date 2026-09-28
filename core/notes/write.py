@@ -421,6 +421,26 @@ def amend_note(
     )
     effective_valid_until = _check_valid_until(valid_until) if valid_until is not None else note.valid_until
 
+    # `--agent` alone implies `provenance: agent`, so it writes both.
+    metadata = [key for key, given in (
+        ("provenance", provenance is not None or agent is not None),
+        ("agent", agent is not None), ("valid_until", valid_until is not None)) if given]
+    if metadata and body is None and reaffirm is None and scope is None:
+        # Who wrote a note and how long it holds are not a revision of it:
+        # `updated` keeps the day its content last changed and `session` the
+        # session that last wrote it, so a migration marking a whole store
+        # neither resets every note's age nor claims them all. Only the
+        # named fields change, every other byte stays (M1).
+        from core.lib import atomic, lock
+        from core.notes.store import _set_front
+
+        fields = {"provenance": effective_provenance, "agent": effective_agent,
+                  "valid_until": effective_valid_until}
+        with lock.locked(path):
+            raw = path.read_text(encoding="utf-8")
+            atomic.write_text(path, _set_front(raw, {key: fields[key] for key in metadata}))
+        return path
+
     if body is not None:
         if not body.strip():
             raise ValueError("amend body must not be empty or whitespace-only")
