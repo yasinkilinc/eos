@@ -115,7 +115,8 @@ def cmd_note_show(args: argparse.Namespace) -> int:
     loose matches and no body, and concluded the tool was contradicting
     itself. It was.
     """
-    recorded = notes.load_notes(args.path)
+    # A generator's note too: `note search --generated` names it (M3).
+    recorded = notes.load_notes(args.path) + notes.load_generated(args.path)
     if not recorded:
         print(_no_notes_here(args.path))
         return 0
@@ -187,7 +188,7 @@ def cmd_note_graph(args: argparse.Namespace) -> int:
 
 
 def cmd_note_search(args: argparse.Namespace) -> int:
-    matches = notes.search_notes(args.path, args.query, limit=args.limit)
+    matches = notes.search_notes(args.path, args.query, limit=args.limit, generated=args.generated)
     for note in matches:
         print(f"{note.path.name}\t{note.kind}\t{note.title}")
     if matches:
@@ -201,6 +202,25 @@ def cmd_note_search(args: argparse.Namespace) -> int:
     # apart re-derives from source what an earlier session already paid for.
     print(f"Searched {len(recorded)} note(s); none match {args.query!r}. "
           f"`eos note list {args.path}` lists every one of them.")
+    return 0
+
+
+def cmd_note_move_generated(args: argparse.Namespace) -> int:
+    try:
+        moves = notes.move_generated(args.path, apply=args.apply)
+    except FileExistsError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+    if not moves:
+        print(f"Nothing to move: no generator note in {notes.notes_dir(args.path)}.")
+        return 0
+    for old, new in moves:
+        print(f"{old.name}\t-> {new.parent.name}/{new.name}")
+    target = notes.generated_dir(args.path)
+    if args.apply:
+        print(f"moved {len(moves)} note(s) to {target}; recorded in {target / notes.MOVED_FILE}")
+    else:
+        print(f"{len(moves)} note(s) would move to {target}; --apply moves them")
     return 0
 
 
@@ -274,7 +294,9 @@ def cmd_note_amend(args: argparse.Namespace) -> int:
     print(f"Note amended: {path}")
     if body:
         # Reported, not refused (2.x roadmap M5): amend is the way out of other guards.
-        twin = notes.paraphrase_of(notes.load_notes(args.path), body, exclude=Path(path))
+        in_generated = Path(path).parent == notes.generated_dir(args.path)
+        corpus = (notes.load_generated if in_generated else notes.load_notes)(args.path)
+        twin = notes.paraphrase_of(corpus, body, exclude=Path(path))
         if twin is not None:
             print(f"warning: {twin.path} ({twin.title!r}) says this in other words; "
                   "consider keeping one of the two", file=sys.stderr)
@@ -378,6 +400,7 @@ def cmd_note(args: argparse.Namespace) -> int:
         "add": cmd_note_add,
         "list": cmd_note_list,
         "search": cmd_note_search,
+        "move-generated": cmd_note_move_generated,
         "show": cmd_note_show,
         "related": cmd_note_related,
         "graph": cmd_note_graph,

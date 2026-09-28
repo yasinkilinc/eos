@@ -283,6 +283,8 @@ class McpServer:
                     "properties": {
                         "query": {"type": "string"},
                         "limit": {"type": "integer", "minimum": 1, "maximum": 100},
+                        "generated": {"type": "boolean", "description": "Also rank what a generator wrote "
+                                      "(endpoint tables, imported AGENTS.md sections); off by default"},
                     },
                 },
                 "handler": lambda args: {
@@ -296,7 +298,8 @@ class McpServer:
                             "body": note.body,
                         }
                         for note in notes.search_notes(
-                            project_root, args["query"], limit=args.get("limit")
+                            project_root, args["query"], limit=args.get("limit"),
+                            generated=args.get("generated") is True,
                         )
                     ]
                 },

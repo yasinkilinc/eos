@@ -5,7 +5,9 @@ import math
 import re
 from pathlib import Path
 
-from core.notes.store import Note, _WORD, expired, is_bulk_index, load_notes, note_synonyms, superseded
+from core.notes.store import (
+    Note, _WORD, expired, is_bulk_index, load_generated, load_notes, note_synonyms, superseded,
+)
 
 
 # Similarity carried over from the one earlier iteration that actually ran a
@@ -209,9 +211,12 @@ def relevance(note: Note, query_words: set[str],
     )
 
 
-def search_notes(project_root: str | Path, query: str, limit: int | None = None) -> list[Note]:
-    """Notes relevant to `query`, most relevant first, with the project's synonym groups."""
-    return rank(load_notes(project_root), query, limit, synonyms=note_synonyms(project_root))
+def search_notes(project_root: str | Path, query: str, limit: int | None = None, *,
+                 generated: bool = False) -> list[Note]:
+    """Notes relevant to `query`, most relevant first, with the project's synonym
+    groups; `generated` ranks the generator notes with them (M3)."""
+    corpus = load_notes(project_root) + (load_generated(project_root) if generated else [])
+    return rank(corpus, query, limit, synonyms=note_synonyms(project_root))
 
 
 def rank(corpus: list[Note], query: str, limit: int | None = None,

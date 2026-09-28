@@ -50,6 +50,64 @@ def notes_dir(project_root: str | Path) -> Path:
     return (project / configured).resolve()
 
 
+# What a generator wrote -- an endpoint table, an imported AGENTS.md section --
+# is not something this project learned (2.x roadmap M3, ADR-028). It lives in
+# the store's `generated/` directory, which `load_dir` does not read: briefs,
+# injection, the audit and the duplicate guards see the memory alone, and
+# search offers generated notes only when asked (`generated=True`).
+GENERATED_DIR = "generated"
+# The move's record, beside what it moved: `from`, `to`, `sha256` per note.
+MOVED_FILE = "moved.tsv"
+
+
+def generated_dir(project_root: str | Path) -> Path:
+    return notes_dir(project_root) / GENERATED_DIR
+
+
+def load_generated(project_root: str | Path) -> list["Note"]:
+    return load_dir(generated_dir(project_root))
+
+
+def belongs_in_generated(note: "Note") -> bool:
+    """A generator's note: marked so by its writer, or a bulk index whatever
+    its front matter says (repo-topology notes were written as `agent`). A
+    journey note is prose a person wrote (see BULK_INDEX_SOURCES) and stays."""
+    return note.provenance == "generated" or is_bulk_index(note)
+
+
+def move_generated(project_root: str | Path, *, apply: bool = False) -> list[tuple[Path, Path]]:
+    """The (from, to) pairs of the generator notes still in the memory store;
+    with `apply`, moved byte for byte and appended to `generated/moved.tsv`.
+    A name already taken in `generated/` refuses the whole move before any file
+    moves. Run again, nothing is left to move."""
+    import hashlib
+
+    source, target = notes_dir(project_root), generated_dir(project_root)
+    moves = [(note.path, target / note.path.name) for note in load_dir(source) if belongs_in_generated(note)]
+    if not apply or not moves:
+        return moves
+    taken = [new.name for _, new in moves if new.exists()]
+    if taken:
+        raise FileExistsError(f"{target} already holds {', '.join(taken)}; nothing moved")
+    from core.lib import lock
+
+    target.mkdir(parents=True, exist_ok=True)
+    record = target / MOVED_FILE
+    # One row as each file moves, under the record's lock: a move cut short
+    # still says what it moved, and a second move waits for the first.
+    with lock.locked(record), open(record, "a", encoding="utf-8") as handle:
+        if handle.tell() == 0:
+            handle.write("from\tto\tsha256\n")
+        for old, new in moves:
+            if not old.exists():
+                continue  # a concurrent move took it first
+            digest = hashlib.sha256(old.read_bytes()).hexdigest()
+            old.rename(new)
+            handle.write(f"{old.name}\t{GENERATED_DIR}/{new.name}\t{digest}\n")
+            handle.flush()
+    return moves
+
+
 def note_synonyms(project_root: str | Path) -> object:
     """The ``[notes] synonyms`` table of a project's config, as written.
 

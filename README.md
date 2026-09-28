@@ -647,7 +647,8 @@ eos note add /path/to/project --kind defect --title "..." \
   --cause "..." --solution "..." --metric "..."
 eos note list /path/to/project [--tag a]
 eos note show /path/to/project "<file name or part of a title>"
-eos note search /path/to/project "query"
+eos note search /path/to/project "query" [--generated]
+eos note move-generated /path/to/project [--apply]
 eos note skip /path/to/project --reason "..." --session <id>
 eos note amend <note-file> /path/to/project [--body "..." | --reaffirm "..."] [--scope a,b]
 eos note audit /path/to/project
@@ -675,6 +676,15 @@ Notes live in `.eos/knowledge/` by default, or wherever `[knowledge] dir` in
 `.eos/config.toml` points — useful when the project's own repository isn't a
 good home for them (a workspace of repos that share one knowledge directory,
 for instance). Notes are never touched by `scan`, `clean` or `update`.
+
+What a generator wrote -- an endpoint table, an imported AGENTS.md section,
+anything added with `--provenance generated` -- lives in the store's
+`generated/` directory and is not memory (ADR-034): briefs, injection, the audit
+and the duplicate guards never read it. `eos note search --generated` (and the
+MCP `search_notes` tool's `generated: true`) ranks it with the notes; `eos note
+show` finds it by name. `eos note move-generated` lists the generator notes
+still in the store (a bulk-index source counts whatever its front matter says);
+`--apply` moves them byte for byte and records each in `generated/moved.tsv`.
 
 A question asked in other words than the note's ("wiki" for a note about
 Confluence) is what no weighting finds. A project can name word groups that

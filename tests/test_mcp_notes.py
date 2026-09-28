@@ -78,6 +78,22 @@ def test_search_notes_tool_finds_a_note_added_earlier(tmp_path):
     assert hits[0]["tags"] == ["pool", "database"]
 
 
+def test_search_notes_tool_offers_generated_notes_only_when_asked(tmp_path):
+    sys.path.insert(0, str(REPO))
+    from core import notes
+
+    project = tmp_path / "project"
+    _init(project)
+    notes.add_note(project, kind="finding", title="Deposit API map", body="| POST | /deposit |",
+                   source="api-inventory", provenance="generated")
+    responses = _mcp(project, [
+        _call("search_notes", {"query": "deposit"}, request_id=1),
+        _call("search_notes", {"query": "deposit", "generated": True}, request_id=2),
+    ])
+    plain, asked = (json.loads(r["result"]["content"][0]["text"])["notes"] for r in responses)
+    assert plain == [] and [n["title"] for n in asked] == ["Deposit API map"]
+
+
 def test_add_note_tool_reports_a_credential_body_as_a_tool_error(tmp_path):
     # The MCP boundary must surface core.notes' guard as a normal tool error
     # (isError: true), not let the exception escape as a transport failure or,

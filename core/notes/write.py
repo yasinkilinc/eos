@@ -6,8 +6,8 @@ import json
 from pathlib import Path
 
 from core.notes.store import (
-    PROVENANCES, _front_matter, _hash_file, _one_note, _resolve_scope_entry, _slug, load_notes,
-    notes_dir, parse_note,
+    PROVENANCES, _front_matter, _hash_file, _one_note, _resolve_scope_entry, _slug, generated_dir,
+    load_generated, load_notes, notes_dir, parse_note,
 )
 from core.notes.guards import (
     DuplicateNoteError, _duplicate_escape, _find_credential, body_digest,
@@ -171,7 +171,8 @@ def add_note(
             "Describe the value instead of pasting it."
         )
 
-    directory = notes_dir(project_root)
+    generated = provenance == "generated"
+    directory = generated_dir(project_root) if generated else notes_dir(project_root)
     directory.mkdir(parents=True, exist_ok=True)
 
     stamp = datetime.date.today().strftime("%Y%m%d")
@@ -179,7 +180,8 @@ def add_note(
     # can never introduce a path separator or a parent reference here.
     path = directory / f"{stamp}-{_slug(title)}.md"
 
-    existing = load_notes(project_root)
+    # A generator's note is compared with the generator notes, a note with the memory.
+    existing = load_generated(project_root) if generated else load_notes(project_root)
     replaced = None
     if supersedes:
         # A rewrite reads like the note it replaces: that one is not compared.
@@ -210,11 +212,15 @@ def add_note(
                 f"one and stay in that note. " + _duplicate_escape(session)
             )
 
-    if path.exists():
-        raise FileExistsError(
-            f"A note already exists at {path}. Notes are append-only; "
-            "edit that file directly or choose a different title."
-        )
+    # One name across the memory and generated/ (ADR-034): the index and
+    # `note show` know a note by its file name.
+    twin_path = (notes_dir(project_root) if generated else generated_dir(project_root)) / path.name
+    for taken in (path, twin_path):
+        if taken.exists():
+            raise FileExistsError(
+                f"A note already exists at {taken}. Notes are append-only; "
+                "edit that file directly or choose a different title."
+            )
 
     project = Path(project_root).expanduser().resolve()
     scope_hashes = (
@@ -465,7 +471,8 @@ def amend_note(
             # that keeps the brief's exemption bounded.
             _compose_body("procedure", body, None, None, None)
         new_digest = body_digest(body)
-        for other in load_notes(project_root):
+        in_generated = path.parent == generated_dir(project_root)
+        for other in (load_generated if in_generated else load_notes)(project_root):
             if other.path == path:
                 continue
             if body_digest(other.body) == new_digest:

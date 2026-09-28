@@ -878,9 +878,8 @@ def _sources_digest(root: Path) -> str:
     add("schema", SCHEMA_VERSION, _engine_version())
     directory = notes.notes_dir(root)
     add("notes", directory)
-    if directory.is_dir():
-        for path in sorted(directory.glob("*.md")):
-            add("note", path.name, _file_digest(path))
+    for path in sorted(directory.glob("*.md")) + sorted(notes.generated_dir(root).glob("*.md")):
+        add("note", path.parent.name, path.name, _file_digest(path))
     # The ledger is appended to far more often than notes are written, so it
     # is the input most likely to make an index stale -- and an index that
     # still shows an item as claimed after a session closed it would be worse
@@ -1002,13 +1001,15 @@ file_digest = _file_digest
 def _load_notes(build: BuildContext) -> Path:
     directory = notes.notes_dir(build.root)
     build.meta["notes_dir"] = str(directory)
-    if not directory.is_dir():
-        return directory
+    generated_dir = notes.generated_dir(build.root)
     # File by file, not notes.load_notes(): one unreadable or merge-conflicted
-    # note would abort that whole load.
+    # note would abort that whole load. A generator's note (M3, ADR-034) is
+    # `generated/<file>` with `generated` set whatever its front matter says,
+    # searchable as `generated` and outside the note graph.
     parsed = []
-    for path in sorted(directory.glob("*.md")):
-        name = path.name
+    for path in sorted(directory.glob("*.md")) + sorted(generated_dir.glob("*.md")):
+        in_generated = path.parent == generated_dir
+        name = f"{notes.GENERATED_DIR}/{path.name}" if in_generated else path.name
         try:
             raw, digest = build.read(path)
             note = notes.parse_note(path)
@@ -1024,7 +1025,7 @@ def _load_notes(build: BuildContext) -> Path:
             "INSERT INTO note(file, kind, title, created, updated, source, session, generated, body, sha256, "
             "supersedes) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (name, note.kind, note.title, note.created or None, updated, note.source, note.session,
-             int(notes.is_generated(note)), note.body, digest, note.supersedes),
+             int(in_generated or notes.is_generated(note)), note.body, digest, note.supersedes),
         )
         note_id = cursor.lastrowid
         build.conn.executemany(
@@ -1038,8 +1039,9 @@ def _load_notes(build: BuildContext) -> Path:
                 for ord_, entry in enumerate(note.scope)
             ],
         )
-        _add_search(build, "note", name, note.title, note.body)
-        parsed.append(note)
+        _add_search(build, "generated" if in_generated else "note", name, note.title, note.body)
+        if not in_generated:
+            parsed.append(note)
     from core import note_graph
 
     try:

@@ -352,6 +352,14 @@ def main(argv: list[str] | None = None) -> int:
     add_path(note_search_p)
     note_search_p.add_argument("query")
     note_search_p.add_argument("--limit", type=int, default=None)
+    note_search_p.add_argument("--generated", action="store_true",
+                               help="Also rank what a generator wrote (the store's generated/ directory)")
+    note_move_p = note_sub.add_parser(
+        "move-generated", help="Move generator notes (provenance generated, bulk indexes) out of the memory "
+                               "into generated/; lists them unless --apply")
+    add_path(note_move_p)
+    note_move_p.add_argument("--apply", action="store_true", help="Move them (byte for byte, recorded in "
+                                                                  "generated/moved.tsv)")
 
     note_eval_p = note_sub.add_parser(
         "eval", help="Score note search against a golden file of question/answer pairs")
