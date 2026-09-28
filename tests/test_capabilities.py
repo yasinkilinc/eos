@@ -287,6 +287,13 @@ def test_a_call_the_wrapper_marked_unreachable_names_when_and_where(project):
     assert "could not reach" in found.describe() and "env1" in found.describe()
 
 
+def test_a_call_that_exited_0_was_answered_whatever_it_marked(project):
+    # A wrapper that tolerated one optional request's silence (`fetch ... || true`)
+    # still got its answer: the mark says a request failed, the exit says the call did not.
+    _calls(project, ("tracker", 0, "unreachable", 1, None))
+    assert capabilities.health(project, _tracker(project)).state == "healthy"
+
+
 def test_a_later_call_that_exited_0_clears_unreachable(project):
     _calls(project, ("tracker", 1, "unreachable", 2, None), ("tracker", 0, None, 1, None))
     assert capabilities.health(project, _tracker(project)).state == "healthy"

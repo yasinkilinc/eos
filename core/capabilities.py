@@ -267,16 +267,17 @@ class Health:
 
         where = f" ({self.target})" if self.target else ""
         if self.state == "unreachable":
-            return f"its last call could not reach the system{where}, {work.ago(self.at, now)}"
-        return f"its last call was answered{where}, {work.ago(self.at, now)}"
+            return f"its last call could not reach the system {work.ago(self.at, now)}{where}"
+        return f"its last call was answered {work.ago(self.at, now)}{where}"
 
 
 def health(project_root: str | Path, capability: Capability, *, records=None, now=None) -> Health:
     """The capability's health, from the calls its wrapper recorded on runs.
 
     Two things are evidence, whichever is latest decides: a call that exited 0
-    (its system answered) and a call the wrapper marked `unreachable`. Any other
-    failure is not -- measured on one host, most failing streaks were a usage
+    (its system answered, whatever one optional request marked) and a failed
+    call the wrapper marked `unreachable`. Any other failure is not -- measured
+    on one host, most failing streaks were a usage
     refusal, a wrong name answered 403 or a search with no match, all from a
     system that was up. Nothing is run to find out.
     """
@@ -290,10 +291,12 @@ def health(project_root: str | Path, capability: Capability, *, records=None, no
         for event in record.events:
             if event.tool != tool:
                 continue
-            if event.status == "unreachable":
-                state = "unreachable"
-            elif event.exit_code == 0:
+            # Exit 0 first: a wrapper may tolerate one optional request's silence
+            # (`fetch ... || true`) and still have had its answer.
+            if event.exit_code == 0:
                 state = "healthy"
+            elif event.status == "unreachable":
+                state = "unreachable"
             else:
                 continue
             hours = work._age_hours(event.at, now)

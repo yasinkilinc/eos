@@ -962,9 +962,9 @@ eos capabilities . --status tracker              # its rung on the truth ladder,
 
 A wrapper that records its calls (`eos-event`) can say its system did not
 answer at all -- DNS, TLS, a refused connection, a timeout -- with
-`--status unreachable`. The latest such call, or the latest call that exited 0,
-within the last 8 hours is the capability's health; any other failure is an
-answer, not evidence either way. An unreachable wrapper gets a bracket on its
+`--status unreachable`. The latest failed call so marked, or the latest call
+that exited 0, within the last 8 hours is the capability's health; any other
+failure is an answer, not evidence either way. An unreachable wrapper gets a bracket on its
 line in the task brief.
 
 The task brief then carries a `WRAPPERS FOR THIS TASK` block when a task's

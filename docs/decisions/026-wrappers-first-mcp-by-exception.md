@@ -119,10 +119,12 @@ system that was up -- a usage refusal (exit 2), a wrong name answered 403, a
 search with no match, a test suite's deliberate refusals. So two things
 count, and the latest within `HEALTH_WINDOW_HOURS` (8) decides:
 
-- a call that exited 0: the system answered -- `healthy`;
-- a call the wrapper marked `unreachable` (`eos-event --status unreachable`):
-  DNS, TLS, a refused connection, a timeout -- which only the wrapper can tell
-  apart from an answer that was "no".
+- a call that exited 0: the system answered -- `healthy`, even when the
+  wrapper also marked it (one optional request it chose to tolerate did not
+  answer; review finding, 1.37.0);
+- a failed call the wrapper marked `unreachable` (`eos-event --status
+  unreachable`): DNS, TLS, a refused connection, a timeout -- which only the
+  wrapper can tell apart from an answer that was "no".
 
 Any other failure says nothing either way. `unreachable` holds a capability at
 `reachable` on the ladder and adds one bracket to its line in the task brief's
