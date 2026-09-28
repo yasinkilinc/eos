@@ -103,6 +103,21 @@ def test_a_non_lesson_note_refuses_evidence(project):
         notes.add_note(project, kind="finding", title="F", body="x", evidence="run x-1")
 
 
+# --- review RVc (N10): evidence skipped the guards body/source/title get ------------
+
+
+def test_a_credential_shaped_evidence_is_refused(project):
+    with pytest.raises(ValueError, match="credential"):
+        notes.add_note(project, kind="lesson", title="Registry was down", body=LESSON_BODY,
+                       evidence="AKIAABCDEFGHIJKLMNOP")
+
+
+def test_a_placeholder_evidence_is_refused(project):
+    with pytest.raises(ValueError, match="placeholder"):
+        notes.add_note(project, kind="lesson", title="Registry was down", body=LESSON_BODY,
+                       evidence="<the command, run id, or file:line>")
+
+
 def test_amending_a_lesson_keeps_the_run_that_taught_it(project, tmp_path):
     (project / "deploy.sh").write_text("v1\n")
     run = executions.start(project, "Deploy", session="s")

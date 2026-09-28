@@ -203,3 +203,29 @@ def test_the_cli_amends_provenance_and_validity_alone(tmp_path):
     assert result.returncode == 0, result.stderr
     note = notes.load_notes(project)[0]
     assert (note.provenance, note.agent, note.valid_until) == ("agent", "devin", until)
+
+
+# --- review RVc (N8): a metadata-only amend must not touch scope at all -------------
+
+
+def test_a_metadata_only_amend_does_not_re_hash_or_refuse_on_a_changed_scope_file(tmp_path):
+    # Before this fix, a metadata-only amend fell into the same scope re-hash
+    # path a --reaffirm-free --scope amend uses, and refused whenever the
+    # scoped file had changed for reasons this amend never claims about --
+    # even though the docstring says provenance/agent/valid-until "changes
+    # nothing the duplicate or stale-flag guards above care about".
+    project = _project(tmp_path)
+    scoped = project / "scoped.py"
+    scoped.write_text("v1\n")
+    path = _add(project, "Wallet cache warms on boot", scope=[str(scoped)])
+    original_hash = notes.parse_note(path).scope_hashes
+
+    scoped.write_text("v2\n")
+    until = (datetime.date.today() + datetime.timedelta(days=30)).isoformat()
+    notes.amend_note(path, project, valid_until=until)
+
+    note = notes.parse_note(path)
+    assert note.valid_until == until
+    # Scope is left exactly as recorded -- not re-hashed to the new content --
+    # so a later `stale_notes` can still flag the real change.
+    assert note.scope_hashes == original_hash

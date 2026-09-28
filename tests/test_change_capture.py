@@ -40,6 +40,22 @@ def test_touched_files_is_what_git_says_the_range_changed(tmp_path):
     assert consolidate.touched_files(root, start, end) == {"b.txt", "c.txt"}
 
 
+def test_touched_files_counts_a_rename_as_both_paths_regardless_of_diff_renames(tmp_path):
+    # RVc/N9: without --no-renames, a pure rename (no content change) collapses
+    # to just the new path whenever diff.renames is on -- a config this
+    # function does not control and must not be sensitive to.
+    root = _repo(tmp_path)
+    start = subprocess.run(["git", "-C", root, "rev-parse", "HEAD"],
+                           capture_output=True, text=True).stdout.strip()
+    _git(root, "mv", "a.txt", "b.txt")
+    _git(root, "commit", "-q", "-m", "rename")
+    end = subprocess.run(["git", "-C", root, "rev-parse", "HEAD"],
+                         capture_output=True, text=True).stdout.strip()
+    _git(root, "config", "diff.renames", "true")
+
+    assert consolidate.touched_files(root, start, end) == {"a.txt", "b.txt"}
+
+
 def test_touched_files_is_unmeasurable_without_a_real_range(tmp_path):
     root = _repo(tmp_path)
     head = subprocess.run(["git", "-C", root, "rev-parse", "HEAD"],

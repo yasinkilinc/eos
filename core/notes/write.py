@@ -154,11 +154,17 @@ def add_note(
     _refuse_scope(scope)
     if evidence is not None and kind != "lesson":
         raise ValueError(f"--evidence is only for a lesson note (ADR-024); kind {kind!r} refuses it")
+    if evidence is not None:
+        # Same two guards as body/source/title (N10 review): --evidence is
+        # prose a person reads, and it was going straight into the file
+        # unchecked -- a pasted credential or an unfilled placeholder would
+        # have been the one field on a lesson note nothing screened.
+        _refuse_placeholder(evidence, "note evidence")
     provenance = _check_provenance(provenance, agent)
     valid_until = _check_valid_until(valid_until)
     content = _compose_body(kind, body, cause, solution, metric)
 
-    found = _find_credential(f"{title}\n{content}")
+    found = _find_credential(f"{title}\n{content}\n{evidence or ''}")
     if found:
         raise ValueError(
             f"Refusing to write a note containing what looks like a credential: {found}. "
@@ -478,106 +484,117 @@ def amend_note(
             "Describe the value instead of pasting it."
         )
 
-    effective_scope = scope if scope is not None else note.scope
-    # A --body or --reaffirm in the same call is the human record that buys
-    # every transition below. A scope-only amend has to stand on the scope
-    # change alone, and there are things a scope change cannot buy.
-    records_a_reason = body is not None or reaffirm is not None
-    # Keyed by the entry STRING, not position: once --scope can replace the
-    # list wholesale, index i in the new list has no relationship to index i
-    # in the old one. A positional check refused a harmless reorder (claiming
-    # an entry had a recorded hash it never had), silently skipped checking
-    # every entry past the shortest of the two lists (b and c in [a,b,c] -> [a]
-    # were dropped with no check at all), and let a null-hash position wave
-    # through a new entry that resolves to nothing.
-    old_hash_by_entry = dict(zip(note.scope, note.scope_hashes))
+    if body is None and reaffirm is None and scope is None:
+        # A metadata-only amend (--provenance/--agent/--valid-until alone,
+        # N8): nothing about scope was asked to change, so it is not
+        # re-hashed or re-validated either. Falling into the block below
+        # would re-hash every scope entry regardless, and if one had changed
+        # for reasons this amend never claims about, it would refuse the
+        # whole call -- coupling a metadata edit to an unrelated scope guard
+        # the docstring above says a metadata-only amend does not touch.
+        effective_scope = note.scope
+        scope_hashes = note.scope_hashes
+    else:
+        effective_scope = scope if scope is not None else note.scope
+        # A --body or --reaffirm in the same call is the human record that buys
+        # every transition below. A scope-only amend has to stand on the scope
+        # change alone, and there are things a scope change cannot buy.
+        records_a_reason = body is not None or reaffirm is not None
+        # Keyed by the entry STRING, not position: once --scope can replace the
+        # list wholesale, index i in the new list has no relationship to index i
+        # in the old one. A positional check refused a harmless reorder (claiming
+        # an entry had a recorded hash it never had), silently skipped checking
+        # every entry past the shortest of the two lists (b and c in [a,b,c] -> [a]
+        # were dropped with no check at all), and let a null-hash position wave
+        # through a new entry that resolves to nothing.
+        old_hash_by_entry = dict(zip(note.scope, note.scope_hashes))
 
-    scope_hashes = None
-    if effective_scope:
-        scope_hashes = []
-        for entry in effective_scope:
-            new_hash = _hash_file(_resolve_scope_entry(project, entry))
-            old_hash = old_hash_by_entry.get(entry)
-            if old_hash is not None and new_hash is None:
-                raise ValueError(
-                    f"Scope entry {entry!r} no longer resolves to a file, though "
-                    "it had a recorded hash. Either the file was deleted or moved "
-                    "-- fix the note's `scope:` to point at its new location -- "
-                    "or --path names the wrong project root."
-                )
-            scope_hashes.append(new_hash)
+        scope_hashes = None
+        if effective_scope:
+            scope_hashes = []
+            for entry in effective_scope:
+                new_hash = _hash_file(_resolve_scope_entry(project, entry))
+                old_hash = old_hash_by_entry.get(entry)
+                if old_hash is not None and new_hash is None:
+                    raise ValueError(
+                        f"Scope entry {entry!r} no longer resolves to a file, though "
+                        "it had a recorded hash. Either the file was deleted or moved "
+                        "-- fix the note's `scope:` to point at its new location -- "
+                        "or --path names the wrong project root."
+                    )
+                scope_hashes.append(new_hash)
 
-    # stale_notes skips a null hash, so a note left with no non-null hash can
-    # never be flagged again. Reaching that state through `--scope` -- naming
-    # a class, a directory, a typo -- is the same permanent un-monitoring an
-    # empty `--scope` is refused for, with a `scope:` line as its only trace.
-    # A human-written reason buys the transition, because code a note
-    # described genuinely can be deleted; nothing else does. Notes that never
-    # had a resolving entry (five in the real corpus are scoped to class
-    # names) lose nothing here and are not refused.
-    was_monitored = any(hash_ is not None for hash_ in note.scope_hashes)
-    if (
-        not records_a_reason
-        and was_monitored
-        and not any(hash_ is not None for hash_ in scope_hashes or ())
-    ):
-        monitored = ", ".join(
-            repr(entry) for entry, hash_ in old_hash_by_entry.items() if hash_ is not None
-        )
-        raise ValueError(
-            "This amend would leave the note with no scope entry that resolves "
-            "to a file, so nothing could ever flag it stale again; today it is "
-            f"monitored through {monitored}. Point --scope at a file that exists, "
-            "or -- if the code this note described is gone -- record that with "
-            "--body or --reaffirm in the same call."
-        )
-
-    # One rule with two arms, and the last of the three because it is the
-    # least severe: a scope-only amend may not retire the stale flag of an
-    # entry that had a recorded hash, still resolves to a real file, and now
-    # hashes differently -- whether it KEEPS that entry (and re-hashes it in
-    # place, which appending one unrelated file to the scope was enough to
-    # reach) or DROPS it (the note quietly stops claiming to be about the file
-    # that moved under it). Both clear a flag and record nothing about the
-    # code. The dropping arm is the lesson `eos note skip` taught in phase 1:
-    # under gate pressure agents find the cheapest exit and the cheapest exit
-    # becomes the default, and "I am no longer about that file" costs one flag
-    # and says nothing. If a narrowing is genuine, the sentence explaining it
-    # is the sentence worth having in the note anyway.
-    #
-    # Dropping an entry whose file is GONE is the opposite: that is the
-    # maintenance --scope exists for (round 2 added it for exactly a deleted
-    # or moved file) and it stays free of any reason. So does dropping an
-    # entry that never resolved -- it was never monitored, so nothing retires.
-    if not records_a_reason:
-        for entry, old_hash in old_hash_by_entry.items():
-            if old_hash is None:
-                continue
-            try:
-                current = _hash_file(_resolve_scope_entry(project, entry))
-            except ValueError:
-                # An entry that cannot be resolved at all any more (an
-                # `@parent:` label the config no longer configures) is in the
-                # same position as a deleted file: there is nothing to compare
-                # and re-pointing away from it is the remedy, not an evasion.
-                # An entry the caller KEEPS still raises this, unchanged, from
-                # the hashing loop above.
-                continue
-            if current is None or current == old_hash:
-                continue
-            action = (
-                "re-hash it in place"
-                if entry in effective_scope
-                else "drop it from the scope"
+        # stale_notes skips a null hash, so a note left with no non-null hash can
+        # never be flagged again. Reaching that state through `--scope` -- naming
+        # a class, a directory, a typo -- is the same permanent un-monitoring an
+        # empty `--scope` is refused for, with a `scope:` line as its only trace.
+        # A human-written reason buys the transition, because code a note
+        # described genuinely can be deleted; nothing else does. Notes that never
+        # had a resolving entry (five in the real corpus are scoped to class
+        # names) lose nothing here and are not refused.
+        was_monitored = any(hash_ is not None for hash_ in note.scope_hashes)
+        if (
+            not records_a_reason
+            and was_monitored
+            and not any(hash_ is not None for hash_ in scope_hashes or ())
+        ):
+            monitored = ", ".join(
+                repr(entry) for entry, hash_ in old_hash_by_entry.items() if hash_ is not None
             )
             raise ValueError(
-                f"Scope entry {entry!r} changed since this note was recorded and "
-                f"the file still exists, so a scope-only amend cannot {action}: "
-                "that clears the stale flag while recording nothing about the "
-                "change. Add --reaffirm to say the note still holds, or --body to "
-                "revise what it claims. (Dropping an entry whose file is gone "
-                "needs no reason.)"
+                "This amend would leave the note with no scope entry that resolves "
+                "to a file, so nothing could ever flag it stale again; today it is "
+                f"monitored through {monitored}. Point --scope at a file that exists, "
+                "or -- if the code this note described is gone -- record that with "
+                "--body or --reaffirm in the same call."
             )
+
+        # One rule with two arms, and the last of the three because it is the
+        # least severe: a scope-only amend may not retire the stale flag of an
+        # entry that had a recorded hash, still resolves to a real file, and now
+        # hashes differently -- whether it KEEPS that entry (and re-hashes it in
+        # place, which appending one unrelated file to the scope was enough to
+        # reach) or DROPS it (the note quietly stops claiming to be about the file
+        # that moved under it). Both clear a flag and record nothing about the
+        # code. The dropping arm is the lesson `eos note skip` taught in phase 1:
+        # under gate pressure agents find the cheapest exit and the cheapest exit
+        # becomes the default, and "I am no longer about that file" costs one flag
+        # and says nothing. If a narrowing is genuine, the sentence explaining it
+        # is the sentence worth having in the note anyway.
+        #
+        # Dropping an entry whose file is GONE is the opposite: that is the
+        # maintenance --scope exists for (round 2 added it for exactly a deleted
+        # or moved file) and it stays free of any reason. So does dropping an
+        # entry that never resolved -- it was never monitored, so nothing retires.
+        if not records_a_reason:
+            for entry, old_hash in old_hash_by_entry.items():
+                if old_hash is None:
+                    continue
+                try:
+                    current = _hash_file(_resolve_scope_entry(project, entry))
+                except ValueError:
+                    # An entry that cannot be resolved at all any more (an
+                    # `@parent:` label the config no longer configures) is in the
+                    # same position as a deleted file: there is nothing to compare
+                    # and re-pointing away from it is the remedy, not an evasion.
+                    # An entry the caller KEEPS still raises this, unchanged, from
+                    # the hashing loop above.
+                    continue
+                if current is None or current == old_hash:
+                    continue
+                action = (
+                    "re-hash it in place"
+                    if entry in effective_scope
+                    else "drop it from the scope"
+                )
+                raise ValueError(
+                    f"Scope entry {entry!r} changed since this note was recorded and "
+                    f"the file still exists, so a scope-only amend cannot {action}: "
+                    "that clears the stale flag while recording nothing about the "
+                    "change. Add --reaffirm to say the note still holds, or --body to "
+                    "revise what it claims. (Dropping an entry whose file is gone "
+                    "needs no reason.)"
+                )
 
     document = _front_matter(
         {

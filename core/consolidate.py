@@ -38,8 +38,14 @@ def touched_files(project_root: str | Path, commit_start: str | None,
     if not git:
         return None
     try:
+        # --no-renames: without it, a renamed-with-no-content-change file is
+        # collapsed to its new path alone whenever the caller's (or repo's)
+        # `diff.renames` is on, silently dropping the old path from `touched`
+        # depending on a config this function never controls. Explicit here
+        # keeps the count the same on every machine.
         result = subprocess.run(
-            [git, "-C", str(project_root), "diff", "--name-only", f"{commit_start}..{commit_end}"],
+            [git, "-C", str(project_root), "diff", "--no-renames", "--name-only",
+             f"{commit_start}..{commit_end}"],
             capture_output=True, text=True, timeout=30)
     except (OSError, subprocess.TimeoutExpired):
         return None
