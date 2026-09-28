@@ -224,13 +224,14 @@ def test_change_capture_excludes_an_idle_runs_finish_commit_from_other_finish_co
     (root / "final.txt").write_text("1\n")
     _git(root, "add", "final.txt")
     _git(root, "commit", "-q", "-m", "my own final commit")
-    executions.event(root, mine.id, kind="changed", ref="final.txt")
+    executions.event(root, mine.id, kind="changed", ref="final.txt", source="hook")
     executions.finish(root, mine.id, outcome="ok")
 
     data = consolidate.change_capture(root)
 
     assert data == {"captured": 1, "touched": 2, "share": 0.5,
-                    "runs_with_commits": 1, "runs_unmeasurable": 1}
+                    "runs_with_commits": 1, "runs_unmeasurable": 1,
+                    "runs_unmeasurable_no_hook_events": 0}
 
 
 def test_a_subtree_squash_commits_own_files_are_excluded(tmp_path):
@@ -257,7 +258,7 @@ def test_report_aggregates_over_finished_runs_with_commits(tmp_path):
     (root / "c.txt").write_text("1\n")
     _git(root, "add", "b.txt", "c.txt")
     _git(root, "commit", "-q", "-m", "two files")
-    executions.event(root, measured.id, kind="changed", ref="b.txt")
+    executions.event(root, measured.id, kind="changed", ref="b.txt", source="hook")
     executions.finish(root, measured.id, outcome="ok")
 
     unmeasured = executions.start(root, "Look only")
@@ -268,9 +269,96 @@ def test_report_aggregates_over_finished_runs_with_commits(tmp_path):
     assert data["change_capture"] == {
         "captured": 1, "touched": 2, "share": 0.5,
         "runs_with_commits": 1, "runs_unmeasurable": 1,
+        "runs_unmeasurable_no_hook_events": 0,
     }
     text = consolidate.render(data)
-    assert "CHANGE CAPTURE  1/2 files (50%) over 1 runs with commits; 1 runs unmeasurable" in text
+    assert ("CHANGE CAPTURE  1/2 files (50%) over 1 runs with commits; 1 runs unmeasurable "
+            "(0 without hook events)") in text
+
+
+def test_change_capture_excludes_a_run_with_commits_but_no_hook_events(tmp_path):
+    # N12: a run whose harness never invoked the EOS hook at all still made
+    # real commits (e.g. a CLI-only backfilled session) -- it has nothing a
+    # hook could have captured, so it must not drag the share to 0/t; it is
+    # reported separately, under its own reason, never blended into
+    # captured/touched.
+    root = _repo(tmp_path)
+    (root / ".eos").mkdir(exist_ok=True)
+    run = executions.start(root, "CLI-only session")
+    (root / "b.txt").write_text("1\n")
+    (root / "c.txt").write_text("1\n")
+    _git(root, "add", "b.txt", "c.txt")
+    _git(root, "commit", "-q", "-m", "two files, no hook ever ran")
+    executions.finish(root, run.id, outcome="ok")
+
+    data = consolidate.change_capture(root)
+
+    assert data == {"captured": 0, "touched": 0, "share": None,
+                    "runs_with_commits": 0, "runs_unmeasurable": 1,
+                    "runs_unmeasurable_no_hook_events": 1}
+
+
+def test_change_capture_an_event_with_no_source_is_not_a_hook_event(tmp_path):
+    # A `changed` event recorded with no `source` at all (the field predates
+    # N12; only `core/hooks.py`'s `_record` ever sets `source="hook"`) is not
+    # proof the hook ran -- it is treated the same as a CLI-only run.
+    root = _repo(tmp_path)
+    (root / ".eos").mkdir(exist_ok=True)
+    run = executions.start(root, "No source on the event")
+    (root / "b.txt").write_text("1\n")
+    _git(root, "add", "b.txt")
+    _git(root, "commit", "-q", "-m", "one file")
+    executions.event(root, run.id, kind="changed", ref="b.txt")  # no source=
+    executions.finish(root, run.id, outcome="ok")
+
+    data = consolidate.change_capture(root)
+
+    assert data == {"captured": 0, "touched": 0, "share": None,
+                    "runs_with_commits": 0, "runs_unmeasurable": 1,
+                    "runs_unmeasurable_no_hook_events": 1}
+
+
+def test_change_capture_a_run_with_a_wrapper_or_cli_event_but_no_hook_event_is_excluded(tmp_path):
+    # A run can carry real events -- a `ran` event from `run start`/`run
+    # finish` themselves (source="cli") -- and still have had no hook fire for
+    # it; that is still "no hook event."
+    root = _repo(tmp_path)
+    (root / ".eos").mkdir(exist_ok=True)
+    run = executions.start(root, "CLI events only")
+    executions.event(root, run.id, kind="ran", tool="git", source="cli")
+    (root / "b.txt").write_text("1\n")
+    _git(root, "add", "b.txt")
+    _git(root, "commit", "-q", "-m", "one file")
+    executions.finish(root, run.id, outcome="ok")
+
+    data = consolidate.change_capture(root)
+
+    assert data["runs_unmeasurable_no_hook_events"] == 1
+    assert data["captured"] == 0 and data["touched"] == 0
+
+
+def test_change_capture_only_folds_runs_that_did_have_a_hook_event(tmp_path):
+    root = _repo(tmp_path)
+    (root / ".eos").mkdir(exist_ok=True)
+
+    with_hook = executions.start(root, "Had the hook")
+    (root / "b.txt").write_text("1\n")
+    _git(root, "add", "b.txt")
+    _git(root, "commit", "-q", "-m", "hooked run")
+    executions.event(root, with_hook.id, kind="changed", ref="b.txt", source="hook")
+    executions.finish(root, with_hook.id, outcome="ok")
+
+    without_hook = executions.start(root, "No hook at all")
+    (root / "c.txt").write_text("1\n")
+    _git(root, "add", "c.txt")
+    _git(root, "commit", "-q", "-m", "unhooked run")
+    executions.finish(root, without_hook.id, outcome="ok")
+
+    data = consolidate.change_capture(root)
+
+    assert data == {"captured": 1, "touched": 1, "share": 1.0,
+                    "runs_with_commits": 1, "runs_unmeasurable": 1,
+                    "runs_unmeasurable_no_hook_events": 1}
 
 
 def test_report_prints_the_dash_when_nothing_is_measurable(tmp_path):
@@ -285,6 +373,8 @@ def test_report_prints_the_dash_when_nothing_is_measurable(tmp_path):
     assert data["change_capture"] == {
         "captured": 0, "touched": 0, "share": None,
         "runs_with_commits": 0, "runs_unmeasurable": 1,
+        "runs_unmeasurable_no_hook_events": 0,
     }
     text = consolidate.render(data)
-    assert "CHANGE CAPTURE  0/0 files (—) over 0 runs with commits; 1 runs unmeasurable" in text
+    assert ("CHANGE CAPTURE  0/0 files (—) over 0 runs with commits; 1 runs unmeasurable "
+            "(0 without hook events)") in text

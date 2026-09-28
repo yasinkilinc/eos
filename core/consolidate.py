@@ -162,9 +162,26 @@ def change_capture_for_run(project_root: str | Path, record,
     return {"captured": len(captured), "touched": len(touched), "missed": sorted(missed)}
 
 
+def _has_hook_event(record) -> bool:
+    """Whether this run's own ledger carries at least one hook-recorded event.
+
+    `core/hooks.py`'s `_record` is the one place any hook event is written,
+    and it always passes `source="hook"` (CLI and wrapper calls record
+    `source="cli"`/`"wrapper"` or leave it unset) -- so the field reliably
+    tells a run the harness's own hook fired for at all apart from a run it
+    never fired for once (N12), the same distinction the ledger already
+    carries rather than a proxy over `changed`/tool events."""
+    return any(e.source == "hook" for e in record.events)
+
+
 def change_capture(project_root: str | Path, records: list | None = None) -> dict:
     """Aggregated E1 capture over every finished run with a commit range (N9),
-    excluding another run's own commits from what each range "touched" (N11)."""
+    excluding another run's own commits from what each range "touched" (N11),
+    and excluding a run with real commits but zero hook events of its own from
+    the capture share entirely (N12) -- such a run never had the harness's
+    hook invoked at all, so a 0-captured score would blend "the hook missed a
+    file" with "the hook was never there to try," understating the measured
+    gap. It is still counted, under its own reason, in `runs_unmeasurable`."""
     from core import executions
 
     root = Path(project_root).expanduser().resolve()
@@ -176,7 +193,7 @@ def change_capture(project_root: str | Path, records: list | None = None) -> dic
     # run's foreign, real work (RVd).
     other_finish_commits = frozenset(r.commit_end for r in records
                                      if r.commit_end and r.commit_start != r.commit_end)
-    captured = touched = runs_with_commits = runs_unmeasurable = 0
+    captured = touched = runs_with_commits = runs_unmeasurable = runs_no_hook_events = 0
     for record in records:
         if record.outcome is None:
             continue
@@ -184,12 +201,17 @@ def change_capture(project_root: str | Path, records: list | None = None) -> dic
         if result is None:
             runs_unmeasurable += 1
             continue
+        if not _has_hook_event(record):
+            runs_no_hook_events += 1
+            continue
         runs_with_commits += 1
         captured += result["captured"]
         touched += result["touched"]
     share = (captured / touched) if touched else None
     return {"captured": captured, "touched": touched, "share": share,
-            "runs_with_commits": runs_with_commits, "runs_unmeasurable": runs_unmeasurable}
+            "runs_with_commits": runs_with_commits,
+            "runs_unmeasurable": runs_unmeasurable + runs_no_hook_events,
+            "runs_unmeasurable_no_hook_events": runs_no_hook_events}
 
 
 def report(project_root: str | Path) -> dict:
@@ -318,7 +340,8 @@ def render(data: dict) -> str:
 
         lines += ["", f"CHANGE CAPTURE  {capture['captured']}/{capture['touched']} files "
                       f"({honest.show(capture['share'], spec='.0%')}) over {capture['runs_with_commits']} "
-                      f"runs with commits; {capture['runs_unmeasurable']} runs unmeasurable"]
+                      f"runs with commits; {capture['runs_unmeasurable']} runs unmeasurable "
+                      f"({capture.get('runs_unmeasurable_no_hook_events', 0)} without hook events)"]
     if len(lines) == 1:
         lines.append("Nothing needs attention.")
     return "\n".join(lines)
