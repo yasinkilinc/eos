@@ -286,3 +286,135 @@ the release commit.
 - RVg(1): the fix lives inside `index.is_stale()`, not in `consolidate.report()` or `cmd_consolidate` -- `is_stale()`'s own docstring already promised a pure read that only ever answers `None`/bool, so the bug was that function breaking its own contract, not a missing catch at some call site; fixing it there means every future caller (not just `consolidate`) inherits the safety, rather than each one needing to remember to guard it individually the way `cmd_query`/`cmd_impact` each separately guard `index.refresh()`.
 - RVg(1): degrades silently (no stderr warning) rather than mirroring `cmd_query`'s "warning: answering from a possibly stale index" line -- `consolidate` already has an established idiom for a section that cannot be measured (`runs_unmeasurable`, `stale_notes` from an unreadable note, etc. all fold into counts or are simply absent, never a printed warning about *why*), and `is_stale` returning `None` already reads identically to "index never built," a case `consolidate` already treats as unremarkable. Adding a new warning channel for this one case alone would be new scope, not the fix the finding asked for.
 - RVg(2): `WORKSPACE_PATH_MAX_CHARS = 400` truncates with an ellipsis rather than refusing to print the line at all -- a truncated-but-present path still tells a session "your steps run from somewhere other than here," which is most of the value; refusing outright on an edge case this unlikely (a real path over 400 characters) would lose that for no gain. 400 was picked generously above any realistic real-world path (typical OS ceilings run 1,024-4,096 bytes for the *whole* path, and a workspace root is rarely nested anywhere near that deep) while still being far below the task budget itself, so it can never be the dominant cost of a brief.
+
+## Day 3b (2026-09-28) -- branch `eos-2x-day3b` (from `main` 9fcc993)
+
+Four items from §17's remaining rows: E3 depth 2 (a procedure's `## Success`
+checks run by EOS itself, when explicitly marked read-only), A2 (`verify_depth`
+on the routing envelope), A4 (the six-state capability truth model), and C4/C7
+measured against the report with no behaviour change. Same rules as Day 3: tests
+first, full suite and `tools/check-clean.sh` green before every commit (exit
+code kept), push after every commit, a fresh-agent review after items 1-2 and
+again after 3-4, each finding fixed with a test before the release commit.
+
+| Step | What | Status | Commits / notes |
+|---|---|---|---|
+| P1 | E3 depth 2: EOS itself runs a procedure's `## Success` checks -- only the ones provably read-only. `eos verify --procedure <slug>` | DONE | 7f1126d. `core/steps.py::success_command_checks` parses an explicit `(read-only)` marker on the bullet's own prose (never inside a backticked command -- fixed by RVh, see below); a check without it is only ever listed. `core/verification.py::run_depth2` is the one narrow, named exception to the module's own "EOS does not execute anything": `subprocess.run` on the parsed argv (never `shell=True`), a bounded timeout (120s default), and a `verified` execution-ledger event on completion (`status="ok"`/`"error"`) with the same (tool, ref) shape a wrapper's own event uses, so the existing verified/claimed labelling (E3d) sees a self-run check exactly as it would a person's. `eos verify`'s existing `code`/`--outcome`/`--command` mode (recording a behaviour-code adapter run) is unchanged; `--procedure` is a second, mutually exclusive mode on the same subcommand, and its own `--output` means "write the report file" (destination), distinct from the manual mode's `--output` ("digest this log file", source) -- the same flag, two modes, documented rather than given a second name, since the two modes never run together (RVh confirmed no ambiguity at the argparse level) |
+| P2 | A2: the routing envelope's `verify_depth` (0/1/2), printed by `eos route` | DONE | 1428bb4. `Decision.verify_depth`, derived deterministically from `level` alone via `policy.VERIFY_DEPTH` (LOW 0, MEDIUM 1, HIGH/CRITICAL 2) -- not from task type, which already raised the level's own requirement (`requirement()`) for a coding- or reasoning-heavy task, so a second axis on the same signal would double-count it. Printed in `eos route`'s text (`Verify:      depth N`) and rides along in `--format json` automatically (a dataclass field). A decision reused inside an open run (`_decided`, not on the ledger's fixed seven-token wire line) recomputes it from the reused level rather than defaulting to 0. Nothing else consumes it yet, matching the task's own instruction -- no existing consumer was named in the report |
+| RVh | Review of P1 (7f1126d) and P2 (1428bb4) | DONE | 6 findings; the marker-scope one fixed with a test, four more (session flag, docstring, output digest, two test gaps) fixed, one left as documented cosmetic. Commit below |
+| P3 | A4: the six-state capability truth model (catalogued/registered/configured/reachable/healthy/authorized) and `verifyBeforeUse`, report line 810/1545 | DONE | 0b2a745. `capabilities.truth(root, name)`: read-only throughout, never executes a capability to find out. `catalogued` and `registered` coincide in this engine (`capabilities.toml` is the only place to declare one -- there is no second registry to draw a distinction from, unlike the source system); `configured` needs `does` (a description) set; `reachable` checks `shutil.which` and the project's own script directories (reusing `procedure_lint._script`); `healthy` always reads `"unknown"` (report: "health defaulting to unknown" -- EOS records no live signal for a capability today, and inventing one was out of scope); `authorized`, the top rung, is reached once reachable unless the capability's own new `verify_before_use` marker (`capabilities.toml`) asks for evidence of health first, in which case it holds at `reachable` -- a named limitation (nothing yet supplies that evidence), not a guess. `eos capabilities --status <name>` is the reader's CLI surface (the one "surface that already reads capability status" this repo has); `Capability.line()` marks `verify_before_use` capabilities `[verify before use]` |
+| P4 | C4/C7 measured against the report, no behaviour change; results below | DONE | Read-only throughout, including on the nexus host. See "C4/C7 measurement" below; nothing in `core/` changed for this row |
+| RVi | Review of P3 (0b2a745) and P4 (doc-only) | IN PROGRESS | |
+
+### C4/C7 measurement (P4)
+
+**C4** (report line 1950, "Session dedup incl. loaded files"): a digest set
+covering the brief, the injection and the harness's own always-loaded files
+(`CLAUDE.md`, `MEMORY.md`, skills), read from a declared `.eos/config.toml
+[ai] loaded` list, re-delivering only diffs; `core/ai/templates/prompt_submit.py`,
+`core/context/dedup.py`. Checked against the code as it stands:
+
+- ADR-027 (accepted 2026-09-26, ext. ADR-026) covers a different axis: *when*
+  content leaves the context (pre-compact/post-compact/session-start "kept
+  across compaction" lines, a `/clear` hint after a large call) and re-reads of
+  files the *agent itself* chose to read (the `pre-read` outline denial, a
+  reading task's `Context:` line, the `post-tool` mtime hint on a file changed
+  on disk). None of it dedups EOS's own delivered content against what the
+  harness separately loads.
+- What already exists, narrower than C4 and unrelated to ADR-027: `core/ai/
+  templates/prompt_submit.py` keeps a per-session SHA-256 digest of exactly
+  what *EOS itself* printed and skips an identical repeat in the same session
+  (`_already_delivered`/`_remember`) -- EOS content against EOS's own prior
+  output only, never against the always-loaded files. `core/hooks.py`'s
+  `instructions-loaded` handler passively records, to `.eos/data/loaded.jsonl`,
+  which instruction file the harness reports loading and why -- a one-way
+  observation with no consumer that reads it back to skip or diff anything.
+- Not present at all: no `core/context/dedup.py` module; no `.eos/config.toml
+  [ai] loaded` key anywhere in the codebase (`[ai] surface`, ADR-021, is the
+  only `[ai]` key that exists). The report's vision -- one digest set spanning
+  brief, injection and the harness's own loaded files, re-delivering only the
+  diff -- is unbuilt; what exists is a narrower, adjacent pair (self-repeat
+  suppression of EOS's own output; passive recording with no reader).
+
+**C7** (the roadmap's own note: "the saved-vs-baseline column needs the host's
+baseline sessions"). Confirmed live, read-only, against nexus: `eos cost
+<nexus> --sessions --format json` and `--context --format json` print no
+`saved`/`baseline` field anywhere in either schema today -- the column does not
+exist. The host does have a baseline record: `docs/eos-evals/claude-baseline.md`
+(Faz 0, 2026-09-26) and `context-budget-baseline.md` (B-03, 2026-09-24), both
+read in full.
+
+- `claude-baseline.md` §1 is not stale trivia: its measured 2.22 chars/token
+  (p25-p75 1.97-2.46, 536 turns) is the exact number `core/context/budget.py`
+  (N3, this branch's own earlier work) adopted as the engine's estimator --
+  confirmed by direct comparison, not assumed.
+- `claude-baseline.md` §5 already contains one true same-tool before/after
+  pair, untouched by anything in this pass: after the session injection budget
+  (4,000 tok + 24 titles) landed, a replay of 54 recorded sessions moved
+  `note_inject`'s own p95 11,597 -> 4,433 tokens/session (-62%), median 2,835 ->
+  1,150 (-59%), total -55%.
+- A genuine "saved vs baseline" column for `eos cost --sessions`/`--context`
+  specifically needs a join this pass did not build: the baseline's channel
+  labels (`PostToolBatch`, `SessionStart additionalContext`, `UserPromptSubmit`
+  -- computed by nexus's own host script, `automation/context-budget.sh`) do
+  not correspond row for row to `core/context_cost.py`'s current source labels
+  (`first-call context`, `tool: Bash (raw|wrapper)`, `tool input: X`,
+  `attachment: Y` -- confirmed by reading the module: its taxonomy is
+  attachment/tool-type based, not channel-based). Deciding which attachment
+  types roll up into which baseline channel is a real design choice and a
+  behaviour change; per the task's own instruction this pass measured, it did
+  not decide that mapping.
+- What was measured instead, side by side, read-only, on the host
+  (2026-09-28): `eos cost --sessions .` lists 157 recorded sessions;
+  `eos cost --context --since 2026-09-17 --format json` reports 100 sessions,
+  16,090 calls, cache reads 4,597,037,887 tokens, 94.5% explained by the source
+  table (first-call context ~18.6%, raw Bash ~14.1%, Bash tool input ~12.1%,
+  wrapper Bash ~10.1%, Read ~8.4%, ...); the text form's own line: "EOS share
+  of new context over the 37 session(s) both sides measured: ~2.2%." Both
+  baseline docs predate several days of 2.x work (Night 2, Day 3, Day 3b), so
+  this is presented as the current reading beside the baseline's own numbers,
+  not folded into a fabricated single "% saved" figure.
+
+### Decided without asking
+
+- P1: `(read-only)` marks a bullet's *prose*, never a backticked command's own
+  text -- RVh found the first version searched the whole bullet including
+  inside the backticks, so a command whose own arguments happened to contain
+  that literal string ran unattended. Fixed to strip every backtick span
+  before searching; the marker must sit outside all of them.
+- P1: a check's captured output is never stored in full -- only a SHA-256
+  digest (always) and, only when the check did not pass, the last 500
+  characters (`DEPTH2_TAIL_CHARS`) for a diagnostic. A passing check's output
+  answers nothing a person would read; an unbounded ledger entry for a verbose
+  build tool would cost real space for no offsetting benefit (RVh).
+- P1: `eos verify --procedure` reuses the existing `--output` flag with a
+  second meaning (destination, not source) rather than adding a differently
+  named flag -- the two modes are mutually exclusive at parse time (`code`/
+  `--outcome`/`--command` vs. `--procedure`), so there is no call where the
+  flag's meaning is ambiguous, and the alternative (`code` required, `--output`
+  frozen to its first meaning forever) would have blocked the depth-2 mode
+  from reusing the same subcommand at all.
+- P2: `verify_depth` depends on `level` alone, never `task_type` -- a
+  coding-heavy or reasoning-heavy type already raised the level's own minimum
+  requirement (`requirement()`); deriving depth from type too would double-
+  count a signal the level already carries, not add a second one.
+- P3: `catalogued` and `registered` are reported as one state ("registered")
+  rather than two -- in this engine, unlike the source system's separate
+  catalog and runtime registry, `capabilities.toml` is parsed whole by one
+  function (`load()`), so an entry that loads at all has always already
+  cleared both checks at once; inventing a distinction with nothing to
+  distinguish would be decoration, not information.
+- P3: `healthy` always reads `"unknown"` -- wiring it to `eos verify`'s
+  behaviour-code records or to P1's depth-2 checks was considered and left
+  undone: neither ties a capability *by name* to a health outcome today (a
+  behaviour-code record's `command` is the test that was run, not the
+  capability's own `run` line; P1's checks are scoped to one procedure, not a
+  registry-wide health signal), and building that link is a real design
+  decision the report does not specify, not a measurement this pass's scope
+  covers.
+- P4: measured only, wrote no code, per the task's own instruction. Where a
+  real design decision would be needed to go further -- which attachment
+  types roll up into which baseline channel (C7); whether digest-dedup should
+  extend to the harness's own always-loaded files, and how EOS would even
+  observe their *content* rather than just a load event (C4) -- left named,
+  not guessed at.
