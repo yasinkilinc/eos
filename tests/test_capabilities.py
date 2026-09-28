@@ -178,6 +178,36 @@ def test_a_program_on_path_is_reachable_with_no_project_file(tmp_path):
     assert found.state == "authorized"
 
 
+def test_a_harness_tool_capability_is_reachable_with_nothing_to_find_on_disk(tmp_path):
+    """program == "" (run = "Edit tool", not a command line) -- nothing to
+    check on PATH or in the project, so it is always reachable."""
+    root = tmp_path / "proj"
+    root.mkdir()
+    assert subprocess.run(EOS + ["init", str(root), "--no-ai"], capture_output=True).returncode == 0
+    (root / ".eos" / "knowledge").mkdir(parents=True, exist_ok=True)
+    (root / ".eos" / "knowledge" / "capabilities.toml").write_text(
+        '[[capability]]\nname = "edit"\nrun = "Edit tool"\ndoes = "edits a file"\n', encoding="utf-8")
+    found = capabilities.truth(root, "edit")
+    assert found.state == "authorized"
+
+
+def test_truth_degrades_on_a_broken_registry_rather_than_crashing(project, monkeypatch):
+    """RV (day3b, item 3-4): truth()'s own docstring promises None for 'a
+    broken registry' -- but it only caught ValueError, while capabilities.toml
+    reads through core.lib.config_io.ConfigIO.read_toml's plain `open()`,
+    which can raise OSError (permission denied, a path that stopped being a
+    file). Every other caller of capabilities.load() in this codebase
+    (procedure_lint.lint, context_cost.report) already catches Exception for
+    exactly this reason."""
+    from core.lib.config_io import ConfigIO
+
+    def _broken(path):
+        raise OSError("permission denied")
+
+    monkeypatch.setattr(ConfigIO, "read_toml", staticmethod(_broken))
+    assert capabilities.truth(project, "tracker") is None
+
+
 def test_verify_before_use_must_be_a_bool(project):
     (project / ".eos" / "knowledge" / "capabilities.toml").write_text(
         '[[capability]]\nname = "a"\nrun = "x"\nverify_before_use = "yes"\n', encoding="utf-8")

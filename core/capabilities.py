@@ -228,8 +228,8 @@ def truth(project_root: str | Path, name: str) -> Truth | None:
     there is nothing here to report a rung for)."""
     try:
         declared = load(project_root)
-    except ValueError:
-        return None
+    except Exception:  # noqa: BLE001 - a broken registry declares nothing (matches every
+        return None    # other caller of load(): procedure_lint.lint, context_cost.report
     found = next((c for c in declared if c.name == name), None)
     if found is None:
         return None
