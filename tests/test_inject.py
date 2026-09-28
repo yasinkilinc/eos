@@ -116,6 +116,25 @@ def test_the_workspace_roots_own_files_have_its_own_notes(ws, monkeypatch, capsy
     assert "### Known about scripts/deploy.sh" in text and "Commit first." in text
 
 
+# --- C4: dedup against the harness's own always-loaded files (Day 4) -------------------
+
+
+def test_a_body_already_in_an_always_loaded_file_is_left_out(ws, monkeypatch, capsys):
+    _, hub, svc = ws
+    (svc / "CLAUDE.md").write_text(
+        "The retry queue drains itself on boot, never call drain() by hand.\n", encoding="utf-8")
+    (svc / ".eos" / "config.toml").write_text(
+        (svc / ".eos" / "config.toml").read_text(encoding="utf-8") + '\n[ai]\nloaded = ["CLAUDE.md"]\n',
+        encoding="utf-8")
+    source = svc / "src" / "pkg" / "Retry.java"
+    source.parent.mkdir(parents=True)
+    source.write_text("class Retry {}\n", encoding="utf-8")
+    _note(svc, "20260906-retry.md", "Retry queue self-drains", ["src/pkg/Retry.java"],
+          body="The retry queue drains itself on boot, never call drain() by hand.")
+    text = _touch(monkeypatch, capsys, hub, "s8", source)
+    assert "never call drain() by hand." not in text
+
+
 def test_inject_off_in_config_says_nothing(ws, monkeypatch, capsys):
     _, hub, svc = ws
     config = hub / ".eos" / "config.toml"

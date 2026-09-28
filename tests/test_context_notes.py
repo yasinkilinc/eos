@@ -210,3 +210,51 @@ def test_a_journey_note_is_not_sorted_with_the_endpoint_tables(tmp_path):
         "the journey note carries what someone learned; the table does not"
     assert notes.is_generated(notes.parse_note(directory / "20260901-journey.md")), \
         "it is still generated: hand-editing it is still the wrong repair"
+
+
+# --- C4: dedup against the harness's own always-loaded files (Day 4) -------------------
+
+
+def test_a_note_already_in_an_always_loaded_file_is_left_out(tmp_path):
+    project = tmp_path / "proj"
+    directory = notes.notes_dir(project)
+    directory.mkdir(parents=True)
+    (project / "CLAUDE.md").write_text(
+        "Never force push to main without asking first, and always run the tests before committing.\n",
+        encoding="utf-8")
+    (project / ".eos" / "config.toml").write_text('[ai]\nloaded = ["CLAUDE.md"]\n', encoding="utf-8")
+
+    (directory / "20260901-a.md").write_text(
+        "---\nkind: rule\ntitle: Never force push\ncreated: 2026-09-01\n---\n\n"
+        "Never force push to main without asking first, and always run the tests before committing.\n",
+        encoding="utf-8")
+    (directory / "20260902-b.md").write_text(
+        "---\nkind: finding\ntitle: Something else entirely\ncreated: 2026-09-02\n---\n\n"
+        "This body says something the always-loaded file does not.\n",
+        encoding="utf-8")
+
+    section = notes.render_context_section(project, query=None, max_chars=10_000)
+
+    assert "Something else entirely" in section
+    assert "Never force push" not in section
+    assert "1 note(s) left out: already in an always-loaded file" in section
+
+
+def test_without_the_loaded_key_nothing_is_left_out(tmp_path):
+    project = tmp_path / "proj"
+    directory = notes.notes_dir(project)
+    directory.mkdir(parents=True)
+    (project / "CLAUDE.md").write_text(
+        "Never force push to main without asking first, and always run the tests before committing.\n",
+        encoding="utf-8")
+    # No .eos/config.toml [ai] loaded -- byte-identical to before C4.
+
+    (directory / "20260901-a.md").write_text(
+        "---\nkind: rule\ntitle: Never force push\ncreated: 2026-09-01\n---\n\n"
+        "Never force push to main without asking first, and always run the tests before committing.\n",
+        encoding="utf-8")
+
+    section = notes.render_context_section(project, query=None, max_chars=10_000)
+
+    assert "Never force push" in section
+    assert "left out" not in section
