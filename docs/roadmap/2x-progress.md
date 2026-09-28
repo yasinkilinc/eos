@@ -70,48 +70,43 @@ deletion; the nexus `mac` checkout and the global `eos` CLI are not touched.
 | C5c | Hooks once at the root, host hooks as engine templates, a project's way back to its workspace: the root's session and prompt briefs cover its live and named projects (commands relocated); notes injected on a touch (`post-batch`); the opt-in note gate (`[hooks] notes`); `worktrees` in projects.toml; `[hooks] start_command`/`prompt_command`/`notes_pointer` for a host's own lines; `[workspace] root` in a project's config | DONE | releases 1.27.0-1.28.0. The host dropped its five hook scripts and 13 per-service hook trios; one small host script supplies its own lines (memory lint, unsaved notes, service guide). Measured on the host: start 0.46 s, prompt 0.69 s, post-batch 0.12 s. Service-directory resume eval (host record): from a service directory, both halves were answered from 3,936 characters of hook context before any command. Open: procedure steps stay relative to the workspace, and the header names the store, not where the steps run |
 | M2 | Counters moved only by verified outcomes | DECIDED: NO (for now) | 2026-09-27: counters stay on ok; `procedure show` prints `of the ok: verified N, claimed M` beside them and `runs_verified`/`runs_claimed` in JSON (1.24.0). The host's 60 ok runs all finished on 1.5.1 and carry no label -- revisit after about two weeks of labelled runs |
 
-## What is left of §17 (checked against the code at 65aade8)
+## What is left of §17 (re-checked 2026-09-28 against 1.33.1 and the host)
 
-The research report is now in this repo (`docs/plans/eos-2x-architecture-research.md`).
-Read item by item against the code, no phase is closed and no phase gate is met: the
-overnight run took Phase 1 most of the way and pieces of Phases 2, 3, 5 and 6; Phase 4
-has barely started. "Absent" below means the name the report gives does not occur in
-`core/` or `bin/`.
+The research report is in this repo (`docs/plans/eos-2x-architecture-research.md`).
+The table below replaces the one written at 65aade8; rows name the step that closed
+them. Nothing here is guessed: "unmeasured" means no number exists yet.
 
-| Phase | Item | State | What is missing |
+| Phase | Item | State | What is left |
 |---|---|---|---|
-| 1 | F2 | done | F2b below; every rewrite through `core/lib/atomic.py` and the index swap are checked first |
-| 1 | F3 | one scorer done; BM25F/RRF measured and rejected (F3b) | `synonyms` (absent) -- needs held-out queries to judge; MMR not tried (misses are near-duplicates, not redundancy in the top 3) |
-| 1 | F4 | done | `core/notes/` split by F4b below |
-| 1 | F5 | part | `count` collapsing of identical consecutive events (deferred above) |
-| 1 | gate | not met | nexus recall@1 0.667 against >= 0.80; same top-3 from `eos-query.sh notes` and `eos note search` |
-| 2 | M1 | done | forward (N2, N8) and migrated on the host (H4, 1.33.1) |
-| 2 | M2 | part | `outcome_source` labels exist; `run finish --source` and event `status`/`source`/`step` fields do not; the counter rule was decided against for now (counters stay on ok, the split is shown) |
-| 2 | M3, M4, M6 | not started | generated store and migration, journey fan-out, priors (M6 needs F3) |
-| 2 | gate | not met | provenance >= 95%, notes store <= 300 files, recall@1 >= 0.85, injection p95 <= 4,000 |
-| 3 | C1 | not started | `core/context/budget.py`; the estimator is a decision (2.22 measured vs 3.5 in the report) |
-| 3 | C2 | part | kind and age shipped; stable ids left out on purpose; the lessons' `evidence:` flag |
-| 3 | C3 | engine done | C3a and C3b below; the host's injection hook narrowing bodies is host work |
-| 3 | C4 | unclear | the context diet on `main` (ADR-027) may cover part; not measured against the item |
-| 3 | C5 | done | read-only ELSEWHERE, `work --across`, `projects.toml` with the alias blocker, run routing to the named ledger (C5b); hooks once at the root, host hooks as engine templates, project to workspace (C5c); the service-directory resume eval passed (host record) |
-| 3 | C6 | done | corrected: hook events carry `agent` (the subagent's type) and land in the session's open run, which is the parent's |
-| 3 | C7 | engine done | `cost --context` and C7b `cost --sessions` below; the saved-vs-baseline column needs the host's baseline sessions |
-| 4 | A1 | part | corpus done on the host (H3, 236 labelled prompts, dev baseline measured); `route --bench` absent, tuning on dev not started |
-| 4 | A2, A3 | not started | the envelope (`verify_depth` absent); advised-vs-used-vs-outcome report; only `hook_dry_run` exists |
-| 4 | A4 | part | `capabilities.toml` predates 2.x; the six-state truth model and `verifyBeforeUse` |
-| 4 | A5 | part | `route --eval` suggestions, not the report's `route --learn` from outcomes |
-| 5 | E1 | part | hook events and change records exist; the >= 95% capture acceptance is unmeasured |
-| 5 | E2 | done | corrected: `procedure lint` already checks step tools against `capabilities.toml` |
-| 5 | E3 | part | `eos cite` and the hook checks; `eos verify --output`, changed files within the procedure scope, depth 2 (running `## Success`) |
-| 5 | E4 | done | corrected: the engine's own Stop hook (`[hooks] close`) already asks about held work and open runs together |
-| 5 | E5 | not needed | measured on a copy without git history; `index --shadow` absent |
-| 5 | E6 | part | `graph.json` not split |
-| 6 | L1 | part | priors, keyword proposals, routing accuracy, advised-vs-used, stale generated artifacts |
-| 6 | L2 | done | ADR-032 accepted 2026-09-28: EOS's graph; the host stops building Graphify's |
-| 6 | L3, L4, L5 | L3, L4 done; L5 open | L3 and L4 below; recalibration receipts (L5) need A1's corpus |
-| host | cross-phase | open | M3/M4 moves, `projects.toml` and `capability.toml`, the routing corpus, hook scripts to templates, the service-directory resume eval, generators that rewrite always-loaded files |
-
-Next without a decision (engine only): none left after F3b. F3's `synonyms` waits on held-out queries (a synonym list written from the golden set's own misses can only pass it); everything else waits on C1's estimator, M1/M3's migration, A1's corpus or host work.
+| 1 | F2 | done | -- |
+| 1 | F3 | done | one scorer; BM25F/RRF rejected (F3b); synonyms engine (N1) and on the host (H1). MMR not tried: the misses are near-duplicates, not top-3 redundancy |
+| 1 | F4 | done | -- |
+| 1 | F5 | done | collapse on read (N4); collapse on write refused (ADR-020, append-only) |
+| 1 | gate | re-measure | nexus per-store r@1 0.909 with synonyms (>= 0.80 met on that set); the host path and `eos note search` agreed on 135 of 137 before synonyms -- not re-measured since |
+| 2 | M1 | done | forward (N2, N8), host migrated (H4) |
+| 2 | M2 | decided: later | counters stay on ok; revisit about 2026-10-10 with two weeks of labelled runs. `run finish --source` and event `step` fields absent |
+| 2 | M3 | not started | the generated store: the host's 402 generated notes (api-inventory, agents-md) move out of the authored stores |
+| 2 | M4 | not started | journey fan-out |
+| 2 | M6 | not started | priors from outcomes (F3 is done; needs M2's labelled runs) |
+| 2 | gate | part | provenance 861/862 (met); recall@1 >= 0.85 not met (host path 0.773); store size <= 300 depends on M3; injection p95 unmeasured |
+| 3 | C1 | done | one estimator, 2.22 chars/token (N3) |
+| 3 | C2 | done | kind and age (C2a), lessons' evidence (N10); stable ids left out on purpose |
+| 3 | C3 | engine done | the host's injection hook narrowing note bodies |
+| 3 | C4 | open | measured (Day 3b): ADR-027 suppresses EOS repeating itself; dedup against the harness's always-loaded files does not exist |
+| 3 | C5, C6 | done | -- |
+| 3 | C7 | engine done | the saved-vs-baseline column needs a channel-to-source mapping (Day 3b measured it) |
+| 4 | A1 | in progress | corpus labelled (H3); tuning on dev under way; `route --bench` absent |
+| 4 | A2 | part | `verify_depth` on the decision (1.33.0); nothing consumes it yet |
+| 4 | A3 | done | advised vs used vs outcome in `route --stats` (N5, RVb) |
+| 4 | A4 | part | six-state model (1.33.0); `healthy` is always `unknown` -- wiring it to live checks is a design decision |
+| 4 | A5 | open | `route --learn` from outcomes absent; `route --eval` suggestions exist |
+| 5 | E1 | part | recording done (N11, D1); the >= 95% gate unmet: 16/40 over 7 runs, too few -- re-measure once sessions on >= 1.32 accumulate |
+| 5 | E2, E3, E4 | done | E3: cite, hook checks, scope at finish (N6), depth 2 (1.33.0) |
+| 5 | E5 | not needed | measured |
+| 5 | E6 | open | EOS's own `graph.json` is not split (Graphify's is gone, L2) |
+| 6 | L1 | part | keyword proposals in `consolidate`: no config surface names a routing corpus (D3); priors wait on M6 |
+| 6 | L2, L3, L4 | done | -- |
+| 6 | L5 | open | recalibration receipts, after A1's tuning |
 
 | Step | What | Status | Commits / notes |
 |---|---|---|---|
