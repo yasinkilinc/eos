@@ -86,6 +86,19 @@ def test_no_match_at_all_is_a_normal_implementation_with_low_confidence():
     assert result.matched == ()
 
 
+def test_no_match_honours_a_configured_fallback_type():
+    result = classify.classify("quarterly synergy", no_signal_type="investigation")
+    assert result.type == "investigation"
+    assert result.confidence == classify.NO_MATCH_CONFIDENCE
+    assert result.matched == ()
+
+
+def test_a_real_match_ignores_the_configured_fallback_type():
+    # The fallback is for zero signal only; any table match still wins normally.
+    result = classify.classify("fix the typo in the readme", no_signal_type="investigation")
+    assert result.type == "trivial_edit"
+
+
 def test_the_same_text_classifies_identically_twice():
     task = "refactor the payment adapter and extract the retry logic"
     assert classify.classify(task) == classify.classify(task)

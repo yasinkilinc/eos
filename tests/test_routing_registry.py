@@ -174,10 +174,18 @@ def test_a_malformed_routing_table_is_refused_with_the_key_named(tmp_path):
     for table, word in (('[model_routing]\ndefault_effort = "extreme"\n', "default_effort"),
                         ('[model_routing]\nbrief = "sometimes"\n', "brief"),
                         ('[model_routing]\nenable = true\n', "enable"),
+                        ('[model_routing]\ndefault_task_type = "guessing"\n', "default_task_type"),
                         ('[model_routing.keywords]\nfixing = ["x"]\n', "fixing")):
         root = _project(tmp_path / word, table)
         with pytest.raises(ValueError, match=word):
             config.load(root)
+
+
+def test_default_task_type_is_normal_implementation_unless_configured(tmp_path):
+    assert config.load(_project(tmp_path)).default_task_type == "normal_implementation"
+
+    root = _project(tmp_path / "configured", '[model_routing]\ndefault_task_type = "investigation"\n')
+    assert config.load(root).default_task_type == "investigation"
 
 
 def test_keywords_in_config_are_kept_lower_case_by_type(tmp_path):

@@ -175,6 +175,12 @@ def test_identical_inputs_give_identical_decisions(tmp_path):
         assert routing.route(root, "refactor the auth flow and update tests", record=False) == first
 
 
+def test_a_configured_default_task_type_reaches_a_no_signal_decision(tmp_path):
+    decision = _route(tmp_path, "quarterly synergy",
+                      table='[model_routing]\ndefault_task_type = "investigation"\n')
+    assert decision.task_type == "investigation"
+
+
 def test_the_decision_carries_a_hash_not_the_task(tmp_path):
     decision = _route(tmp_path, "refactor the zanzibar adapter")
     assert "zanzibar" not in repr(decision.to_dict()["task_hash"])

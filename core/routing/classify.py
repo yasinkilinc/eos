@@ -163,8 +163,14 @@ def _rule_words(rules: dict | None, name: str, built_in: tuple[str, ...]) -> tup
     return built_in + tuple((rules or {}).get(name, ()))
 
 
-def classify(task: str, keywords: dict | None = None, rules: dict | None = None) -> TaskClass:
-    """The task's type, how sure the tables are, and the words that decided it."""
+def classify(task: str, keywords: dict | None = None, rules: dict | None = None,
+             no_signal_type: str = "normal_implementation") -> TaskClass:
+    """The task's type, how sure the tables are, and the words that decided it.
+
+    `no_signal_type` is what a task gets when no table -- built-in or
+    configured -- matches a single word of it: no evidence, so no rule runs
+    either (`normal_implementation` unless `[model_routing] default_task_type`
+    says otherwise, ADR-025 addendum)."""
     text = normalise(task)
     scores: dict[str, float] = {}
     hits: dict[str, tuple[str, ...]] = {}
@@ -180,7 +186,7 @@ def classify(task: str, keywords: dict | None = None, rules: dict | None = None)
     ranked = sorted(TASK_TYPES, key=lambda t: (-scores[t], TASK_TYPES.index(t)))
     best, second = ranked[0], ranked[1]
     if scores[best] <= 0:
-        return TaskClass("normal_implementation", NO_MATCH_CONFIDENCE, ())
+        return TaskClass(no_signal_type, NO_MATCH_CONFIDENCE, ())
     confidence = min(MAX_CONFIDENCE, scores[best] / (scores[best] + scores[second] + 1.0))
     chosen = TaskClass(best, round(confidence, 4), hits[best])
 

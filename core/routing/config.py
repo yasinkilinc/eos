@@ -19,8 +19,9 @@ from core.routing.types import AUTO, EFFORTS, TASK_TYPES
 
 TABLE = "model_routing"
 BRIEF_MODES = ("with-brief", "always", "never")
-_KEYS = ("enabled", "default_model", "default_effort", "brief", "hook", "hook_dry_run",
-         "hook_min_confidence", "record_prompts", "models", "keywords", "rules", "factors")
+_KEYS = ("enabled", "default_model", "default_effort", "default_task_type", "brief", "hook",
+         "hook_dry_run", "hook_min_confidence", "record_prompts", "models", "keywords", "rules",
+         "factors")
 # A stem (`word*`) shorter than this matches too much to mean anything.
 MIN_STEM = 3
 
@@ -31,6 +32,10 @@ class RoutingConfig:
     enabled: bool = True
     default_model: str = AUTO
     default_effort: str = AUTO
+    # What `classify()` returns when no table -- built-in or configured -- matches a
+    # single word of the task. `normal_implementation` (ADR-025) unless a project's
+    # own corpus shows its unmatched tasks skew toward one type more than another.
+    default_task_type: str = "normal_implementation"
     brief: str = "with-brief"
     hook: bool = False
     # With `hook`, record what the subagent hook would set instead of setting
@@ -94,6 +99,10 @@ def parse(table: object) -> RoutingConfig:
     if default_effort != AUTO and default_effort not in EFFORTS:
         raise ValueError(f"[{TABLE}] default_effort must be \"auto\" or one of "
                          f"{', '.join(EFFORTS)}; got {default_effort!r}")
+    default_task_type = table.get("default_task_type", "normal_implementation")
+    if default_task_type not in TASK_TYPES:
+        raise ValueError(f"[{TABLE}] default_task_type must be one of "
+                         f"{', '.join(TASK_TYPES)}; got {default_task_type!r}")
     brief = table.get("brief", "with-brief")
     if brief not in BRIEF_MODES:
         raise ValueError(f"[{TABLE}] brief must be one of {', '.join(BRIEF_MODES)}; got {brief!r}")
@@ -110,7 +119,8 @@ def parse(table: object) -> RoutingConfig:
     factors = _word_table(table.get("factors", {}), "factors", tuple(FACTOR_LISTS), "factor")
 
     return RoutingConfig(configured=True, enabled=enabled, default_model=default_model.strip(),
-                         default_effort=default_effort, brief=brief, hook=hook,
+                         default_effort=default_effort, default_task_type=default_task_type,
+                         brief=brief, hook=hook,
                          hook_dry_run=hook_dry_run, hook_min_confidence=float(hook_min_confidence),
                          record_prompts=record_prompts, models=dict(models), keywords=cleaned,
                          rules=rules, factors=factors)

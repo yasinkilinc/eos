@@ -62,7 +62,7 @@ def route(project_root: str | Path | None, task: str, *, files=(), session: str 
         if previous is not None:
             return previous
 
-    task_class = classify.classify(task, cfg.keywords, cfg.rules)
+    task_class = classify.classify(task, cfg.keywords, cfg.rules, no_signal_type=cfg.default_task_type)
     complexity = score.score(task, task_class, files=tuple(files or ()), project_root=project_root,
                              factor_words=cfg.factors)
     model_value, model_source = _resolved(model, MODEL_ENV, cfg.default_model)
