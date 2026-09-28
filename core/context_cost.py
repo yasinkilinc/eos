@@ -44,6 +44,13 @@ _SKIPPED_ATTACHMENTS = {"prompt_snapshot", "environment", "model", "date", "sess
 # `hook: SessionStart` label with no way to tell them apart after the fact,
 # so comparing a merged number against either baseline row alone would
 # misstate one of them (Decided without asking, C7).
+#
+# RVk (Day 4 review): a "saved" percentage from one or two sessions claims a
+# reliability the sample cannot back -- `median_entered_tokens` still shows,
+# but `saved` stays None (and `render()` prints no `vs baseline` line) below
+# this floor. Matches A5's own `MIN_RUNS` (core/routing/learn.py) as the
+# project's one small-sample convention, not a second number invented here.
+BASELINE_MIN_SESSIONS = 5
 BASELINE_SOURCE = {
     "hook: PostToolBatch": {"median_tokens": 3496, "sessions": 56, "as_of": "2026-09-26",
                             "doc": "claude-baseline.md §5"},
@@ -210,9 +217,13 @@ def _source_row(source: str, resident_value: float, entered_value: float, explai
     base = BASELINE_SOURCE.get(source)
     if base is not None and row["median_entered_tokens"] is not None and base["median_tokens"]:
         current = row["median_entered_tokens"]
+        enough = row["sessions_with_source"] >= BASELINE_MIN_SESSIONS
         row["baseline"] = {**base, "current_median_tokens": current,
-                           "saved": round(1 - current / base["median_tokens"], 4),
+                           "saved": round(1 - current / base["median_tokens"], 4) if enough else None,
                            "provenance": "derived"}
+        if not enough:
+            row["baseline"]["note"] = (f"too few sessions ({row['sessions_with_source']} < "
+                                       f"{BASELINE_MIN_SESSIONS}) for a confident percentage")
     return row
 
 
@@ -232,7 +243,7 @@ def render(data: dict, limit: int = 15) -> str:
         lines.append(f"  {row['source'][:40]:<40}{share:>7}{'~' + format(row['resident_tokens'] / 1e6, '.1f'):>11}M"
                      f"{'~' + format(row['entered_tokens'] / 1e3, '.0f'):>10}k")
         baseline = row.get("baseline")
-        if baseline is not None:
+        if baseline is not None and baseline["saved"] is not None:
             direction = "saved" if baseline["saved"] >= 0 else "grew"
             lines.append(f"    vs baseline ({baseline['as_of']}, {baseline['doc']}): "
                          f"{baseline['median_tokens']} -> ~{baseline['current_median_tokens']} tok/session, "

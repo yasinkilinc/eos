@@ -92,13 +92,31 @@ def test_median_entered_tokens_is_per_session_not_a_flat_average(tmp_path):
 def test_a_mapped_source_carries_a_baseline_comparison(tmp_path):
     folder = tmp_path / "t"
     folder.mkdir()
-    _session(folder / "s1.jsonl", [_assistant("m1", 10), _hook_item("UserPromptSubmit", 1000), _assistant("m2", 10)])
+    for i in range(context_cost.BASELINE_MIN_SESSIONS):
+        _session(folder / f"s{i}.jsonl",
+                [_assistant("m1", 10), _hook_item("UserPromptSubmit", 1000), _assistant("m2", 10)])
     report = context_cost.report(tmp_path, transcripts=folder, since="2026-09-01")
     [row] = [r for r in report["sources"] if r["source"] == "hook: UserPromptSubmit"]
     assert row["baseline"] is not None
     assert row["baseline"]["current_median_tokens"] == 1000
     assert row["baseline"]["saved"] is not None
     assert row["baseline"]["provenance"] == "derived"
+
+
+def test_below_the_minimum_sample_no_confident_percentage_is_printed(tmp_path):
+    """A single session's own number is not "N% saved" -- that claims a
+    reliability one session cannot back. median_entered_tokens still shows;
+    `saved` stays None until BASELINE_MIN_SESSIONS is reached."""
+    folder = tmp_path / "t"
+    folder.mkdir()
+    _session(folder / "s1.jsonl", [_assistant("m1", 10), _hook_item("UserPromptSubmit", 1000), _assistant("m2", 10)])
+    report = context_cost.report(tmp_path, transcripts=folder, since="2026-09-01")
+    [row] = [r for r in report["sources"] if r["source"] == "hook: UserPromptSubmit"]
+    assert row["median_entered_tokens"] == 1000
+    assert row["baseline"] is not None
+    assert row["baseline"]["saved"] is None
+    assert "too few sessions" in row["baseline"]["note"]
+    assert "vs baseline" not in context_cost.render(report)
 
 
 def test_an_unmapped_source_carries_no_baseline(tmp_path):
@@ -118,7 +136,9 @@ def test_an_unmapped_source_carries_no_baseline(tmp_path):
 def test_render_prints_the_saved_vs_baseline_line(tmp_path):
     folder = tmp_path / "t"
     folder.mkdir()
-    _session(folder / "s1.jsonl", [_assistant("m1", 10), _hook_item("UserPromptSubmit", 1000), _assistant("m2", 10)])
+    for i in range(context_cost.BASELINE_MIN_SESSIONS):
+        _session(folder / f"s{i}.jsonl",
+                [_assistant("m1", 10), _hook_item("UserPromptSubmit", 1000), _assistant("m2", 10)])
     report = context_cost.report(tmp_path, transcripts=folder, since="2026-09-01")
     text = context_cost.render(report)
     assert "vs baseline" in text
