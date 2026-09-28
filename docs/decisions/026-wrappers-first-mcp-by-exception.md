@@ -105,3 +105,29 @@ third.
 MCP is not deprecated. `--surface mcp` remains for a project that wants it,
 and the resources and prompt make that surface cheaper to keep. What changed is
 the default reasoning: an integration has to show why it cannot be a wrapper.
+
+## Addendum (1.37.0): a capability's health, read from the ledger (2.x A4)
+
+The six-state truth model (`eos capabilities --status`) left `healthy` at
+`unknown`. It is now read from calls that already happened, never by running
+a capability to find out: a live check per capability would put network time
+and credentials behind a brief that is built on every prompt.
+
+An exit code alone is not evidence. On one host's ledger, 30 streaks of three or
+more consecutive non-zero exits across seven wrappers: every one read came from a
+system that was up -- a usage refusal (exit 2), a wrong name answered 403, a
+search with no match, a test suite's deliberate refusals. So two things
+count, and the latest within `HEALTH_WINDOW_HOURS` (8) decides:
+
+- a call that exited 0: the system answered -- `healthy`;
+- a call the wrapper marked `unreachable` (`eos-event --status unreachable`):
+  DNS, TLS, a refused connection, a timeout -- which only the wrapper can tell
+  apart from an answer that was "no".
+
+Any other failure says nothing either way. `unreachable` holds a capability at
+`reachable` on the ladder and adds one bracket to its line in the task brief's
+`WRAPPERS FOR THIS TASK` block; `healthy` is not printed there (it is the
+expectation). A `verify_before_use` capability reaches `authorized` once an
+answered call is on record. A host gets health only where its wrappers mark
+transport failures; one that marks none sees `healthy` or `unknown`, never a
+false alarm.

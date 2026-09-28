@@ -1,11 +1,13 @@
 """capabilities.toml: what a project offers instead of a raw command (ADR-026)."""
+import json
 import subprocess
 import sys
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
 
-from core import brief, capabilities
+from core import brief, capabilities, executions
 
 REPO = Path(__file__).resolve().parents[1]
 EOS = [sys.executable, str(REPO / "core" / "eos.py")]
@@ -234,3 +236,136 @@ def test_the_cli_status_of_an_unknown_name_says_not_catalogued(project):
     done = subprocess.run(EOS + ["capabilities", str(project), "--status", "nope"],
                           capture_output=True, text=True)
     assert "not catalogued" in done.stdout
+
+
+# --- A4 (a): health read from the run ledger -------------------------------------------
+#
+# A wrapper's exit code alone does not say whether its system is up: on the host
+# most failing streaks were a usage refusal (exit 2), a wrong name answered 403,
+# or a search with no match. Two things are evidence: a call that exited 0 (the
+# system answered) and a call the wrapper itself marked `unreachable`.
+
+
+def _calls(root, *calls, run="x-1"):
+    """Wrapper events on one run: (tool, exit code, status, hours ago, target)."""
+    now = datetime.now(timezone.utc)
+    lines = [{"type": "start", "id": run, "title": f"work {run}"}]
+    for tool, code, status, hours, target in calls:
+        lines.append({"type": "event", "execution": run, "kind": "called", "tool": tool,
+                      "at": (now - timedelta(hours=hours)).isoformat(timespec="seconds"),
+                      "target": target, "exit_code": code, "status": status, "source": "wrapper"})
+    ledger = executions.path_for(root)
+    ledger.parent.mkdir(parents=True, exist_ok=True)
+    with ledger.open("a", encoding="utf-8") as handle:
+        handle.writelines(json.dumps(line) + "\n" for line in lines)
+
+
+def _tracker(root):
+    return next(c for c in capabilities.load(root) if c.name == "tracker")
+
+
+def _reachable_tracker(root):
+    (root / "scripts").mkdir(exist_ok=True)
+    (root / "scripts" / "tracker.sh").write_text("#!/bin/sh\n", encoding="utf-8")
+
+
+def test_health_is_unknown_with_no_recorded_call(project):
+    assert capabilities.health(project, _tracker(project)).state == "unknown"
+
+
+def test_a_recent_call_that_exited_0_is_evidence_of_health(project):
+    _calls(project, ("tracker", 0, None, 1, None))
+    assert capabilities.health(project, _tracker(project)).state == "healthy"
+
+
+def test_a_call_the_wrapper_marked_unreachable_names_when_and_where(project):
+    _calls(project, ("tracker", 0, None, 3, None), ("tracker", 1, "unreachable", 1, "env1"))
+
+    found = capabilities.health(project, _tracker(project))
+
+    assert (found.state, found.target) == ("unreachable", "env1")
+    assert "could not reach" in found.describe() and "env1" in found.describe()
+
+
+def test_a_later_call_that_exited_0_clears_unreachable(project):
+    _calls(project, ("tracker", 1, "unreachable", 2, None), ("tracker", 0, None, 1, None))
+    assert capabilities.health(project, _tracker(project)).state == "healthy"
+
+
+@pytest.mark.parametrize("code", [1, 2, 128])
+def test_a_failed_call_the_wrapper_did_not_mark_says_nothing_about_health(project, code):
+    _calls(project, ("tracker", code, None, 1, None))
+    assert capabilities.health(project, _tracker(project)).state == "unknown"
+    _calls(project, ("tracker", 0, None, 2, None), ("tracker", code, None, 1, None), run="x-2")
+    assert capabilities.health(project, _tracker(project)).state == "healthy"
+
+
+def test_evidence_older_than_the_window_is_unknown(project):
+    _calls(project, ("tracker", 1, "unreachable", capabilities.HEALTH_WINDOW_HOURS + 1, None))
+    assert capabilities.health(project, _tracker(project)).state == "unknown"
+
+
+def test_the_latest_call_decides_whatever_order_the_runs_are_in(project):
+    # The run started first holds the latest call: the fold groups events by run.
+    _calls(project, ("tracker", 0, None, 1, None), run="x-early")
+    _calls(project, ("tracker", 1, "unreachable", 2, None), run="x-late")
+    assert capabilities.health(project, _tracker(project)).state == "healthy"
+
+
+def test_another_tools_calls_are_not_this_capabilitys_health(project):
+    _calls(project, ("db", 1, "unreachable", 1, None))
+    assert capabilities.health(project, _tracker(project)).state == "unknown"
+
+
+def test_a_harness_tool_capability_has_no_recorded_health(project):
+    edit = capabilities.Capability(name="edit", run="Edit tool", does="edits a file")
+    _calls(project, ("edit", 0, None, 1, None))
+    assert capabilities.health(project, edit).state == "unknown"
+
+
+def test_an_unreachable_capability_holds_below_healthy_on_the_ladder(project):
+    _reachable_tracker(project)
+    _calls(project, ("tracker", 1, "unreachable", 1, "env0"))
+
+    found = capabilities.truth(project, "tracker")
+
+    assert (found.state, found.health) == ("reachable", "unreachable")
+    assert "could not reach" in found.detail
+
+
+def test_a_healthy_capability_is_authorized_and_says_so(project):
+    _reachable_tracker(project)
+    _calls(project, ("tracker", 0, None, 1, None))
+    found = capabilities.truth(project, "tracker")
+    assert (found.state, found.health) == ("authorized", "healthy")
+
+
+def test_verify_before_use_is_authorized_once_health_is_recorded(project):
+    (project / ".eos" / "knowledge" / "capabilities.toml").write_text(
+        '[[capability]]\nname = "tracker"\nrun = "scripts/tracker.sh"\ndoes = "issue"\n'
+        'verify_before_use = true\n', encoding="utf-8")
+    _reachable_tracker(project)
+    _calls(project, ("tracker", 0, None, 1, None))
+    assert capabilities.truth(project, "tracker").state == "authorized"
+
+
+def test_the_task_brief_says_when_a_wrappers_last_call_could_not_reach_it(project):
+    _calls(project, ("tracker", 1, "unreachable", 1, "env1"))
+    text = brief.build(project, task="find the ticket PROJ-12 in the tracker", task_only=True)
+    line = next(l for l in text.splitlines() if "tracker → scripts/tracker.sh" in l)
+    assert "could not reach" in line and "env1" in line
+
+
+def test_the_task_brief_says_nothing_of_a_healthy_wrapper(project):
+    _calls(project, ("tracker", 0, None, 1, None))
+    text = brief.build(project, task="find the ticket PROJ-12 in the tracker", task_only=True)
+    line = next(l for l in text.splitlines() if "tracker → scripts/tracker.sh" in l)
+    assert "healthy" not in line and "could not reach" not in line
+
+
+def test_the_cli_status_names_an_unreachable_capability(project):
+    _reachable_tracker(project)
+    _calls(project, ("tracker", 1, "unreachable", 1, "env1"))
+    done = subprocess.run(EOS + ["capabilities", str(project), "--status", "tracker"],
+                          capture_output=True, text=True)
+    assert "reachable  (health: unreachable)" in done.stdout and "env1" in done.stdout

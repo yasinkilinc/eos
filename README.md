@@ -392,7 +392,7 @@ eos ai update . --claude plugin                # drop the per-project copies
 | `eos note add\|list\|show\|search\|skip\|amend\|audit <path> ...` | Manage authored knowledge notes (see below) |
 | `eos work add\|claim\|log\|block\|unblock\|done\|drop\|list\|show\|stats <path> ...` | What sessions are working on here, and what came of it (see below) |
 | `eos ai update <path> [--no-agents-md] [--surface cli\|mcp\|both] [--claude files\|plugin]` | Refresh the AI integration surfaces for the current EOS version |
-| `eos capabilities <path> [--for "<task>"] [--command "<cmd>"]` | The wrappers this project offers instead of raw commands, the ones a task calls for, or which one covers a command line |
+| `eos capabilities <path> [--for "<task>"] [--command "<cmd>"] [--status <name>]` | The wrappers this project offers instead of raw commands, the ones a task calls for, which one covers a command line, or where one stands (truth ladder and health) |
 | `eos hook <event> [--agent NAME]` | Handle one harness hook event (JSON on stdin); what the plugin's hooks run, always exit 0 |
 | `eos mcp <path>` | Start the read-only stdio MCP server |
 | `eos bench <path> [--samples N]` | Measure EOS's own tools against baselines, on this project |
@@ -957,7 +957,15 @@ hint  = ['curl\s[^|;&]*tracker\.example']      # allowed, answered once with `ru
 eos capabilities .                               # every wrapper
 eos capabilities . --for "check ticket DEMO-1"   # the ones a task calls for
 eos capabilities . --command "curl https://tracker.example/1"   # which one covers this
+eos capabilities . --status tracker              # its rung on the truth ladder, and its health
 ```
+
+A wrapper that records its calls (`eos-event`) can say its system did not
+answer at all -- DNS, TLS, a refused connection, a timeout -- with
+`--status unreachable`. The latest such call, or the latest call that exited 0,
+within the last 8 hours is the capability's health; any other failure is an
+answer, not evidence either way. An unreachable wrapper gets a bracket on its
+line in the task brief.
 
 The task brief then carries a `WRAPPERS FOR THIS TASK` block when a task's
 words point at a wrapper, and the plugin's post-tool hook records a `hint`

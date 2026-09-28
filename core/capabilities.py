@@ -201,14 +201,17 @@ def remedy(found: Match) -> str:
 # loads at all is both catalogued and registered at once -- `truth()` reports
 # the pair as "registered", the more informative of the two names, rather
 # than inventing a distinction this engine has no second registry to draw.
-# `healthy` is never computed (the report's own "health defaulting to
-# unknown"): nothing here runs a capability to find out, and `truth()` is
-# read-only exactly like every other reader in this module. `authorized`,
-# the top rung, is reached once a capability is reachable -- unless its own
-# `verify_before_use` marker asks for evidence of health first, which this
-# engine cannot yet supply; that capability holds at `reachable` instead, a
-# named limitation rather than a guess.
+# `healthy` is read from what already happened, never by running a capability
+# to find out (`health()` below): `truth()` stays read-only like every other
+# reader in this module. A capability whose last call could not reach its
+# system holds at `reachable`. `authorized`, the top rung, is reached once a
+# capability is reachable -- unless its own `verify_before_use` marker asks for
+# evidence of health first; without a recent answered call that capability
+# holds at `reachable` too.
 STATES = ("catalogued", "registered", "configured", "reachable", "healthy", "authorized")
+# Evidence older than this says nothing about now: a network that was down
+# this morning may be up, and one that answered yesterday may not.
+HEALTH_WINDOW_HOURS = 8
 
 
 @dataclasses.dataclass(frozen=True)
@@ -238,10 +241,70 @@ def truth(project_root: str | Path, name: str) -> Truth | None:
     reachable, why = _reachable(project_root, found)
     if not reachable:
         return Truth(name=found.name, state="configured", detail=why)
-    if found.verify_before_use:
+    seen = health(project_root, found)
+    if seen.state == "unreachable":
+        return Truth(name=found.name, state="reachable", health=seen.state, detail=seen.describe())
+    if found.verify_before_use and seen.state != "healthy":
         return Truth(name=found.name, state="reachable",
-                     detail="verify_before_use: no recorded health -- not authorized")
-    return Truth(name=found.name, state="authorized")
+                     detail=f"verify_before_use: {seen.describe()} -- not authorized")
+    return Truth(name=found.name, state="authorized", health=seen.state,
+                 detail=seen.describe() if seen.state == "healthy" else "")
+
+
+@dataclasses.dataclass(frozen=True)
+class Health:
+    """What the ledger says of a capability's system: `healthy` (its latest
+    call was answered), `unreachable` (its wrapper said the system did not
+    answer) or `unknown` (no such call within HEALTH_WINDOW_HOURS)."""
+    state: str = "unknown"
+    at: str | None = None
+    target: str | None = None
+
+    def describe(self, now=None) -> str:
+        if self.state == "unknown":
+            return f"no answered or unreachable call in the last {HEALTH_WINDOW_HOURS}h"
+        from core import work
+
+        where = f" ({self.target})" if self.target else ""
+        if self.state == "unreachable":
+            return f"its last call could not reach the system{where}, {work.ago(self.at, now)}"
+        return f"its last call was answered{where}, {work.ago(self.at, now)}"
+
+
+def health(project_root: str | Path, capability: Capability, *, records=None, now=None) -> Health:
+    """The capability's health, from the calls its wrapper recorded on runs.
+
+    Two things are evidence, whichever is latest decides: a call that exited 0
+    (its system answered) and a call the wrapper marked `unreachable`. Any other
+    failure is not -- measured on one host, most failing streaks were a usage
+    refusal, a wrong name answered 403 or a search with no match, all from a
+    system that was up. Nothing is run to find out.
+    """
+    from core import executions, work
+
+    tool = executions.normalize_tool(capability.program)
+    if not tool:
+        return Health()  # a harness tool: no wrapper records its calls
+    latest: tuple[float, str, object, object] | None = None
+    for record in records if records is not None else executions.load(project_root):
+        for event in record.events:
+            if event.tool != tool:
+                continue
+            if event.status == "unreachable":
+                state = "unreachable"
+            elif event.exit_code == 0:
+                state = "healthy"
+            else:
+                continue
+            hours = work._age_hours(event.at, now)
+            if hours is None or hours > HEALTH_WINDOW_HOURS:
+                continue
+            if latest is None or hours <= latest[0]:
+                latest = (hours, state, event, record)
+    if latest is None:
+        return Health()
+    _, state, event, record = latest
+    return Health(state=state, at=event.at, target=event.target or record.target)
 
 
 def _reachable(project_root: str | Path, capability: Capability) -> tuple[bool, str]:

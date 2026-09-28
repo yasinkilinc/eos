@@ -221,6 +221,33 @@ def test_the_shell_helper_ignores_an_unknown_kind(project, tmp_path):
     assert executions.load(project)[0].events == []
 
 
+def test_the_shell_helper_records_that_a_wrapper_could_not_reach_its_system(project, tmp_path):
+    executions.start(project, "Deploy", session="s-sh")
+
+    _helper(["--kind", "called", "--tool", "tracker", "--exit", "1", "--status", "unreachable"],
+            _env(tmp_path, CLAUDE_CODE_SESSION_ID="s-sh"))
+
+    assert executions.load(project)[0].events[0].status == "unreachable"
+
+
+def test_the_shell_helper_keeps_the_event_and_drops_a_status_it_does_not_know(project, tmp_path):
+    executions.start(project, "Deploy", session="s-sh")
+
+    _helper(["--kind", "called", "--tool", "tracker", "--status", "sideways"],
+            _env(tmp_path, CLAUDE_CODE_SESSION_ID="s-sh"))
+
+    event = executions.load(project)[0].events[0]
+    assert (event.tool, event.status) == ("tracker", None)
+
+
+def test_an_event_may_say_its_system_was_unreachable(project):
+    executions.start(project, "Deploy", session="s-9")
+
+    executions.event(project, kind="called", tool="tracker", exit_code=1, status="unreachable", session="s-9")
+
+    assert executions.load(project)[0].events[0].status == "unreachable"
+
+
 def test_exported_variables_win_over_the_pointer(project, tmp_path):
     first = executions.start(project, "First", session="s-sh")
     second = executions.start(project, "Second", session="other")

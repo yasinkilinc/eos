@@ -43,8 +43,11 @@ OUTCOMES = ("ok", "failed", "abandoned")
 # before 1.3.0, which were all one of the first and the last.
 SOURCES = ("wrapper", "hook", "cli")
 # What became of the action, as far as the writer could see: it ran, it failed,
-# or it ran around a wrapper that exists for it (`capabilities.toml`).
-STATUSES = ("ok", "error", "bypass")
+# it ran around a wrapper that exists for it (`capabilities.toml`), or it could
+# not reach the system it fronts -- DNS, TLS, a refused connection, a timeout --
+# which only the wrapper can tell apart from an answer that happened to be "no"
+# (A4: `capabilities.health`).
+STATUSES = ("ok", "error", "bypass", "unreachable")
 # A harness that registers the same hook twice (a plugin and a project entry)
 # fires it twice for one call. The id it gives the call is looked for in this
 # much of the ledger's tail before an event carrying it is appended.

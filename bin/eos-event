@@ -3,9 +3,13 @@
 #
 #   eos-event --kind ran --tool <wrapper> [--target <env|system>] [--ref <path|id>]
 #             [--exit <code>] [--ms <duration>] [--body <text>] [--source wrapper|hook|cli]
+#             [--status ok|error|bypass|unreachable]
 #
 # `source` is written on every line (default `wrapper`, which is what calls this),
 # so "what did the wrappers see" and "what did a hook see" stay separable.
+# `status` only when given: `unreachable` is how a wrapper says its system did
+# not answer at all (DNS, TLS, refused, timeout) -- an exit code cannot say it,
+# and `eos capabilities --status` reads it as the capability's health (A4).
 #
 # For wrappers: no interpreter, a few milliseconds, and it never fails the
 # command that called it. No execution open, no session id, an unwritable
@@ -22,10 +26,11 @@
 # credential refusal `eos run event` applies is not repeated here; a wrapper
 # passing free text should use that command instead.
 
-kind= tool= target= ref= exit_code= ms= body= source=wrapper
+kind= tool= target= ref= exit_code= ms= body= source=wrapper status=
 while [ $# -gt 0 ]; do
   case "$1" in
     --kind) kind=${2-}; shift 2 ;;
+    --status) status=${2-}; shift 2 ;;
     --tool) tool=${2-}; shift 2 ;;
     --target) target=${2-}; shift 2 ;;
     --ref) ref=${2-}; shift 2 ;;
@@ -44,6 +49,10 @@ esac
 case "$source" in
   wrapper|hook|cli) ;;
   *) source=wrapper ;;
+esac
+case "$status" in
+  ok|error|bypass|unreachable) ;;
+  *) status= ;;
 esac
 
 execution=${EOS_EXECUTION-}
@@ -99,6 +108,7 @@ at=$(date -u +%Y-%m-%dT%H:%M:%S+00:00 2>/dev/null) || exit 0
 line=$(printf '{"v": 1, "type": "event", "execution": %s, "ord": null, "at": %s, "kind": %s, "tool": %s, "target": %s, "ref": %s, "exit_code": %s, "ms": %s, "body": %s, "session": %s, "source": %s}' \
   "$(str "$execution")" "$(str "$at")" "$(str "$kind")" "$(str "$tool")" "$(str "$target")" \
   "$(str "$ref")" "$(num "$exit_code")" "$(num "$ms")" "$(str "$body")" "$(str "$session")" "$(str "$source")")
+[ -n "$status" ] && line="${line%?}, \"status\": $(str "$status")}"
 
 { printf '%s\n' "$line" >> "$ledger"; } 2>/dev/null
 exit 0

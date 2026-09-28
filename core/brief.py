@@ -549,9 +549,13 @@ def _task_sections(root: Path, task: str) -> tuple[list[list[str]], bool]:
         wanted = []
     if wanted:
         found = True
-        sections.append(["WRAPPERS FOR THIS TASK — use these rather than the raw command"]
-                        + [f"  {capability.line()}" for capability in wanted]
-                        + ["  Every wrapper here: eos capabilities ."])
+        block = ["WRAPPERS FOR THIS TASK — use these rather than the raw command"]
+        for capability in wanted:
+            # Only bad news is worth a line's width: an answered call is the expectation.
+            seen = capabilities.health(root, capability, records=records)
+            block.append(f"  {capability.line()}"
+                         + (f"  [{seen.describe()}]" if seen.state == "unreachable" else ""))
+        sections.append(block + ["  Every wrapper here: eos capabilities ."])
 
     catalogued = _catalogue_state(root, task)
     if runs or catalogued:
