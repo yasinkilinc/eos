@@ -299,6 +299,23 @@ def render_context_section(
     if not candidates:
         return ""
 
+    # C4: a note already contained, whole and normalised, in a file the
+    # harness always loads (`[ai] loaded`) is left out -- the harness has it
+    # in context already, so delivering it again is a token spent on nothing
+    # new. Unset (the common case), `already_loaded_text` is "" and every
+    # note passes through exactly as it did before this existed.
+    from core.context import dedup
+
+    loaded_text = dedup.always_loaded_text(project_root)
+    left_out = 0
+    if loaded_text:
+        kept = [n for n in candidates if not dedup.already_loaded(n.body, loaded_text)]
+        left_out = len(candidates) - len(kept)
+        candidates = kept
+    if not candidates:
+        return (f"## Accumulated Knowledge\n\n_{left_out} note(s) left out: already in an "
+                "always-loaded file._") if left_out else ""
+
     # Findings lead, indexes trail. Without this a bulk-generated inventory
     # entry outranks a trap someone learned the hard way purely by being newer,
     # and since the budget fits one or two full notes it can take the only slot.
@@ -322,6 +339,9 @@ def render_context_section(
             break
         lines.append(entry)
         included += 1
+
+    if left_out:
+        lines.append(f"_{left_out} note(s) left out: already in an always-loaded file._")
 
     # Titles for what did not fit, not just a count. A note the reader cannot
     # see the existence of cannot be asked for, and the budget fits only one or

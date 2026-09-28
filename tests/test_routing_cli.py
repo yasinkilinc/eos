@@ -144,6 +144,32 @@ def test_the_text_format_prints_the_verify_depth(tmp_path):
     assert "Verify:      depth 0" in done.stdout
 
 
+def test_learn_on_an_empty_project_says_no_proposal(tmp_path):
+    root = _project(tmp_path)
+    done = _run(tmp_path, ["route", str(root), "--learn"])
+    assert done.returncode == 0
+    assert "No proposal" in done.stdout
+
+
+def test_learn_never_touches_config(tmp_path):
+    root = _project(tmp_path)
+    config = root / ".eos" / "config.toml"
+    before = config.read_text(encoding="utf-8") if config.exists() else None
+    for i in range(6):
+        assert _run(tmp_path, ["run", "start", str(root), "--title", f"t{i}"], EOS_SESSION=f"s{i}").returncode == 0
+        assert _run(tmp_path, ["route", str(root), "fix the typo"], EOS_SESSION=f"s{i}").returncode == 0
+        outcome = "failed" if i < 4 else "ok"
+        args = ["run", "finish", str(root), "--outcome", outcome]
+        if outcome == "failed":
+            args += ["--lesson", f"distinct lesson {i} about this failure"]
+        assert _run(tmp_path, args, EOS_SESSION=f"s{i}").returncode == 0
+    done = _run(tmp_path, ["route", str(root), "--learn"])
+    assert done.returncode == 0
+    assert "failed or were abandoned" in done.stdout
+    after = config.read_text(encoding="utf-8") if config.exists() else None
+    assert before == after
+
+
 def test_a_reused_decision_inside_a_run_keeps_its_verify_depth(tmp_path):
     """A2: verify_depth is not on the ledger's own seven-token wire line
     (`_body`) -- it is recomputed from the reused decision's own level, not

@@ -17,12 +17,46 @@ from __future__ import annotations
 import collections
 import json
 import re
+import statistics
 from pathlib import Path
 
 from core.context.budget import CHARS_PER_TOKEN  # noqa: F401 -- re-exported for importers
 IMAGE_TOKENS = 1600
 _SKIPPED_ATTACHMENTS = {"prompt_snapshot", "environment", "model", "date", "session_context",
                         "command_permissions", "remote_session_change", "thinking_drop"}
+
+# C7: the saved-vs-baseline column. Day 3b measured that a channel-to-source
+# mapping is the missing piece and did not decide it (a real design choice,
+# left to this pass). Sourced from nexus docs/eos-evals/claude-baseline.md
+# §5 (Faz 0, 2026-09-26), a one-time replay of 135 recorded sessions before
+# this branch's own C-item work landed -- median tokens/session, over the
+# session set that channel appeared in.
+#
+# Only two of the baseline's four channels get an entry, because only two
+# name a mechanism `_hook_source` can identify by itself, not a guessed
+# attachment-type rollup: PostToolBatch fires no EOS content except
+# note_inject, and UserPromptSubmit fires no EOS content except the task
+# brief (core/ai/templates/prompt_submit.py). The baseline's other two rows
+# -- "SessionStart additionalContext" (1,450 median) and "SessionStart
+# stdout" (0 median) -- are left out on purpose: both arrive as harness
+# attachments on the same `SessionStart` hookEvent (`hook_additional_context`
+# and `hook_success`), which `_hook_source` collapses into one
+# `hook: SessionStart` label with no way to tell them apart after the fact,
+# so comparing a merged number against either baseline row alone would
+# misstate one of them (Decided without asking, C7).
+#
+# RVk (Day 4 review): a "saved" percentage from one or two sessions claims a
+# reliability the sample cannot back -- `median_entered_tokens` still shows,
+# but `saved` stays None (and `render()` prints no `vs baseline` line) below
+# this floor. Matches A5's own `MIN_RUNS` (core/routing/learn.py) as the
+# project's one small-sample convention, not a second number invented here.
+BASELINE_MIN_SESSIONS = 5
+BASELINE_SOURCE = {
+    "hook: PostToolBatch": {"median_tokens": 3496, "sessions": 56, "as_of": "2026-09-26",
+                            "doc": "claude-baseline.md §5"},
+    "hook: UserPromptSubmit": {"median_tokens": 3128, "sessions": 19, "as_of": "2026-09-26",
+                               "doc": "claude-baseline.md §5"},
+}
 
 
 def transcripts_dir(project_root: str | Path) -> Path:
@@ -135,6 +169,7 @@ def report(project_root: str | Path, *, transcripts: str | Path | None = None, s
     except Exception:  # noqa: BLE001 - without a registry every Bash call is raw
         declared = []
     resident, entered = collections.Counter(), collections.Counter()
+    per_session_entered: dict[str, list[float]] = collections.defaultdict(list)
     sessions = calls_total = reads_total = base_total = 0
     for path in sorted(folder.glob("*.jsonl")):
         items, boundaries, calls, reads, first, day = _session(path, declared)
@@ -144,14 +179,17 @@ def report(project_root: str | Path, *, transcripts: str | Path | None = None, s
         calls_total += calls
         reads_total += reads
         base_total += first * calls
+        local_entered: collections.Counter = collections.Counter()
         for source, chars, at in items:
             end = next((b for b in boundaries if b > at), calls)
             tokens = chars / CHARS_PER_TOKEN
             resident[source] += tokens * max(end - at, 0)
             entered[source] += tokens
+            local_entered[source] += tokens
+        for source, tokens in local_entered.items():
+            per_session_entered[source].append(tokens)
     explained = sum(resident.values()) + base_total
-    rows = [{"source": source, "resident_tokens": round(value), "entered_tokens": round(entered[source]),
-             "share": round(value / explained, 4) if explained else None}
+    rows = [_source_row(source, value, entered[source], explained, per_session_entered.get(source) or [])
             for source, value in resident.most_common()]
     from core.lib import honest
 
@@ -163,7 +201,30 @@ def report(project_root: str | Path, *, transcripts: str | Path | None = None, s
             "provenance": {"sessions": honest.MEASURED, "calls": honest.MEASURED,
                            "cache_reads": honest.MEASURED, "base_tokens": honest.DERIVED,
                            "explained": honest.DERIVED, "sources[].resident_tokens": honest.DERIVED,
-                           "sources[].entered_tokens": honest.DERIVED, "sources[].share": honest.DERIVED}}
+                           "sources[].entered_tokens": honest.DERIVED, "sources[].share": honest.DERIVED,
+                           "sources[].sessions_with_source": honest.MEASURED,
+                           "sources[].median_entered_tokens": honest.DERIVED,
+                           "sources[].baseline": honest.DERIVED}}
+
+
+def _source_row(source: str, resident_value: float, entered_value: float, explained: float,
+                per_session: list[float]) -> dict:
+    row = {"source": source, "resident_tokens": round(resident_value), "entered_tokens": round(entered_value),
+           "share": round(resident_value / explained, 4) if explained else None,
+           "sessions_with_source": len(per_session),
+           "median_entered_tokens": round(statistics.median(per_session)) if per_session else None,
+           "baseline": None}
+    base = BASELINE_SOURCE.get(source)
+    if base is not None and row["median_entered_tokens"] is not None and base["median_tokens"]:
+        current = row["median_entered_tokens"]
+        enough = row["sessions_with_source"] >= BASELINE_MIN_SESSIONS
+        row["baseline"] = {**base, "current_median_tokens": current,
+                           "saved": round(1 - current / base["median_tokens"], 4) if enough else None,
+                           "provenance": "derived"}
+        if not enough:
+            row["baseline"]["note"] = (f"too few sessions ({row['sessions_with_source']} < "
+                                       f"{BASELINE_MIN_SESSIONS}) for a confident percentage")
+    return row
 
 
 def render(data: dict, limit: int = 15) -> str:
@@ -181,6 +242,12 @@ def render(data: dict, limit: int = 15) -> str:
         share = "—" if row["share"] is None else "~" + format(row["share"], ".1%")
         lines.append(f"  {row['source'][:40]:<40}{share:>7}{'~' + format(row['resident_tokens'] / 1e6, '.1f'):>11}M"
                      f"{'~' + format(row['entered_tokens'] / 1e3, '.0f'):>10}k")
+        baseline = row.get("baseline")
+        if baseline is not None and baseline["saved"] is not None:
+            direction = "saved" if baseline["saved"] >= 0 else "grew"
+            lines.append(f"    vs baseline ({baseline['as_of']}, {baseline['doc']}): "
+                         f"{baseline['median_tokens']} -> ~{baseline['current_median_tokens']} tok/session, "
+                         f"~{abs(baseline['saved']):.0%} {direction}")
     if data["explained"] is not None and data["explained"] > 1.05:
         # More than the model actually read: an item's size or residency is wrong
         # somewhere (a block the harness shrank, a context edit it did not record).

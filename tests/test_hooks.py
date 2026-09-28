@@ -753,6 +753,62 @@ def test_the_verify_gate_and_the_open_run_gate_share_one_block(project, monkeypa
     assert "not verified yet" in reason and run.id in reason
 
 
+# --- A2: verify_depth's one consumer (Day 4) --------------------------------------------
+
+
+def _procedure_with_readonly_success(project):
+    out = subprocess.run(EOS + ["procedure", "new", str(project), "--title", "Ship it", "--steps", "-",
+                                "--success", "`python3 -c \"print(1)\"` prints 1 (read-only)"],
+                         input="Do it\n", capture_output=True, text=True)
+    assert out.returncode == 0, out.stderr
+    return out.stdout.split("\t")[0]
+
+
+def _decide(project, run_id, level, *, session="s1"):
+    executions.event(project, run_id, kind="decided", tool="route", ref="route:abc123",
+                     body=f"coding {level} claude-sonnet-5 - flag 0.8000 0.90", session=session)
+
+
+def test_depth_2_names_the_procedures_read_only_success_check(project, monkeypatch, capsys):
+    source = _verify_project(project)
+    slug = _procedure_with_readonly_success(project)
+    run = executions.start(project, "ship it", procedure=slug, session="s1")
+    _decide(project, run.id, "HIGH")
+    _hook(monkeypatch, capsys, "post-tool", _payload(project, tool_name="Edit", tool_input={"file_path": str(source)}))
+    reason = json.loads(_hook(monkeypatch, capsys, "stop", _payload(project)).out)["reason"]
+    assert f"eos verify --procedure {slug}" in reason
+
+
+def test_depth_0_adds_nothing_the_gate_did_not_already_say(project, monkeypatch, capsys):
+    source = _verify_project(project)
+    slug = _procedure_with_readonly_success(project)
+    run = executions.start(project, "ship it", procedure=slug, session="s1")
+    _decide(project, run.id, "LOW")
+    _hook(monkeypatch, capsys, "post-tool", _payload(project, tool_name="Edit", tool_input={"file_path": str(source)}))
+    reason = json.loads(_hook(monkeypatch, capsys, "stop", _payload(project)).out)["reason"]
+    assert "eos verify --procedure" not in reason
+
+
+def test_no_routed_decision_never_makes_the_gate_stricter(project, monkeypatch, capsys):
+    """No open run at all: the gate's text is exactly what it was before A2 --
+    nothing added, nothing new triggered."""
+    source = _verify_project(project)
+    _hook(monkeypatch, capsys, "post-tool", _payload(project, tool_name="Edit", tool_input={"file_path": str(source)}))
+    reason = json.loads(_hook(monkeypatch, capsys, "stop", _payload(project)).out)["reason"]
+    assert "eos verify --procedure" not in reason
+
+
+def test_a_run_that_never_routed_adds_no_hint_either(project, monkeypatch, capsys):
+    """A run following a procedure with read-only checks, but with no
+    `decided` event at all (no routing configured): still nothing added."""
+    source = _verify_project(project)
+    slug = _procedure_with_readonly_success(project)
+    executions.start(project, "ship it", procedure=slug, session="s1")
+    _hook(monkeypatch, capsys, "post-tool", _payload(project, tool_name="Edit", tool_input={"file_path": str(source)}))
+    reason = json.loads(_hook(monkeypatch, capsys, "stop", _payload(project)).out)["reason"]
+    assert "eos verify --procedure" not in reason
+
+
 # --- subagent handoff (2.x roadmap C6) and whole updatedInput ---------------------------
 
 

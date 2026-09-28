@@ -19,7 +19,7 @@ from core.routing.types import AUTO, EFFORTS, LEVELS, TASK_TYPES, Decision, task
 MODEL_ENV = "EOS_ROUTE_MODEL"
 EFFORT_ENV = "EOS_ROUTE_EFFORT"
 
-__all__ = ["route", "withheld", "Decision", "OverrideError", "MODEL_ENV", "EFFORT_ENV"]
+__all__ = ["route", "withheld", "Decision", "OverrideError", "MODEL_ENV", "EFFORT_ENV", "verify_depth_of"]
 
 
 def withheld(decision: Decision, cfg, models) -> str | None:
@@ -155,6 +155,24 @@ def _decided(run, models) -> Decision | None:
             # Not on the wire (the ledger body is a fixed seven tokens): level
             # alone decides it, so it is recomputed rather than duplicated.
             verify_depth=policy.VERIFY_DEPTH[level])
+    return None
+
+
+def verify_depth_of(run) -> int | None:
+    """The `verify_depth` (ADR-025) of the latest decision recorded on this
+    run, or None when it never routed one -- the one thing `_decided` cannot
+    answer without a model registry, and the Stop gate's only consumer (A2)
+    does not need a registry, only the level the decision already carries."""
+    for event in reversed(run.events):
+        if event.kind != "decided" or event.tool != "route" or not event.body:
+            continue
+        parts = event.body.split()
+        if len(parts) != 7:
+            continue
+        level = parts[1]
+        if level not in LEVELS:
+            continue
+        return policy.VERIFY_DEPTH[level]
     return None
 
 

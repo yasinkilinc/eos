@@ -92,18 +92,18 @@ them. Nothing here is guessed: "unmeasured" means no number exists yet.
 | 3 | C1 | done | one estimator, 2.22 chars/token (N3) |
 | 3 | C2 | done | kind and age (C2a), lessons' evidence (N10); stable ids left out on purpose |
 | 3 | C3 | engine done | the host's injection hook narrowing note bodies |
-| 3 | C4 | open | measured (Day 3b): ADR-027 suppresses EOS repeating itself; dedup against the harness's always-loaded files does not exist |
+| 3 | C4 | done | `[ai] loaded` dedup, Day 4 (Q4); measured no-op on today's host corpus, ready for a future duplicate |
 | 3 | C5, C6 | done | -- |
-| 3 | C7 | engine done | the saved-vs-baseline column needs a channel-to-source mapping (Day 3b measured it) |
+| 3 | C7 | done | saved-vs-baseline column, Day 4 (Q5); host: PostToolBatch ~30% saved, UserPromptSubmit ~49% saved vs the 2026-09-26 baseline (2 of 4 baseline channels; SessionStart left unmapped, honestly) |
 | 4 | A1 | in progress | corpus labelled (H3); tuning on dev under way; `route --bench` absent |
-| 4 | A2 | part | `verify_depth` on the decision (1.33.0); nothing consumes it yet |
+| 4 | A2 | done | the Stop verify gate is depth's one consumer, Day 4 (Q1) |
 | 4 | A3 | done | advised vs used vs outcome in `route --stats` (N5, RVb) |
 | 4 | A4 | part | six-state model (1.33.0); `healthy` is always `unknown` -- wiring it to live checks is a design decision |
-| 4 | A5 | open | `route --learn` from outcomes absent; `route --eval` suggestions exist |
+| 4 | A5 | done | `route --learn`, Day 4 (Q2); keyword-level proposals left out (ADR-019, no keyword data recorded) |
 | 5 | E1 | part | recording done (N11, D1); the >= 95% gate unmet: 16/40 over 7 runs, too few -- re-measure once sessions on >= 1.32 accumulate |
 | 5 | E2, E3, E4 | done | E3: cite, hook checks, scope at finish (N6), depth 2 (1.33.0) |
 | 5 | E5 | not needed | measured |
-| 5 | E6 | open | EOS's own `graph.json` is not split (Graphify's is gone, L2) |
+| 5 | E6 | measured, not needed | Day 4 (Q3): every reader found; no consumer justifies a split (E5's index-build cost already decided; the one avoidable fallback needs `eos index`, not an engine change) |
 | 6 | L1 | part | keyword proposals in `consolidate`: no config surface names a routing corpus (D3); priors wait on M6 |
 | 6 | L2, L3, L4 | done | -- |
 | 6 | L5 | open | recalibration receipts, after A1's tuning |
@@ -421,3 +421,70 @@ read in full.
   extend to the harness's own always-loaded files, and how EOS would even
   observe their *content* rather than just a load event (C4) -- left named,
   not guessed at.
+
+## Day 4 (2026-09-28) -- branch `eos-2x-day4` (from `main` 9f298dd, 1.34.0)
+
+The five §17 rows Day 3b's own P4 measurement left as open decisions: A2's
+missing consumer, A5's offline learner, E6's graph.json split, and the two
+C4/C7 gaps P4 measured but did not build. Same rules: tests first, full suite
+and `tools/check-clean.sh` green before every commit (exit code kept, no
+`| tail`), push after every commit, a fresh-agent review after items 1-2 and
+again after 3-5, each finding fixed with a test before the release commit.
+
+| Step | What | Status | Commits / notes |
+|---|---|---|---|
+| Q1 | A2: a consumer for `verify_depth` | DONE | 012ed3e. `core/routing/__init__.py::verify_depth_of` reads the latest `decided` event's level (no registry needed); `core/hooks.py::_verify_depth2_hint`, wired into `_verify_gate`, appends one line naming `eos verify --procedure <slug>` when depth 2 AND the procedure has a read-only `## Success` check AND the gate has already fired for another reason -- never a trigger of its own. Depth 0/1 and "no routed decision" (no open run, or a run with no `decided` event) are byte-identical to before. Review (foreground, after Q1-Q2): 1 finding in Q2 (below), Q1 clean -- confirmed the "never stricter" claim holds through every exception path and that the read-only flag, not "has any Success check", gates the hint |
+| Q2 | A5: `eos route --learn` | DONE | e9f3757, fixed bfd5c8f. Two proposal shapes from the join `--stats` already makes (`trace.stats`, `trace.advised_vs_used_outcome_stats`): a (type, level, model, effort) whose finished routed runs fail/are-abandoned at >= 50% (MIN_RUNS 5), and a level whose advised model was overridden by the model actually used at >= 70%. Below the minimum sample: "too few runs", never a guessed rate. Never writes `.eos/config.toml` -- print-only, confirmed by the review (no `write_text`/`ConfigIO.write` reachable from `propose()`). Review finding: a (type, level, model) group whose routed runs were all still open (`finished == 0`) was silently dropped instead of counted as "too few runs" -- fixed (bfd5c8f), now folds into the same too-few count `_override_proposals` already used for `total == 0`. Measured on the host (nexus, read-only, `eos route <nexus> --learn`): 5 groups too few for a rate; `LOW`: the model actually used differed from advised in 5/5 routed runs (100%) -- review this level's model choice; 1 level too few for its own rate |
+| Q3 | E6: EOS's own `graph.json` split | MEASURED, no code change | Found every reader (`core/inspector.py::load_graph`/`_impact_from_graph`, `core/index.py::_load_brain`, `core/cli/project.py::cmd_graph`) -- MCP's own `get_graph` is already gone (ADR-026, E6b). `_load_brain` is the index build itself, needs the whole file once per stale rebuild; E5 already measured that cost as not worth an incremental engine change (0.86s full / 0.08s no-change refresh on a 54 MB service). `cmd_graph` (`eos graph --output`) is a deliberate whole/filtered export for a person, kept indented on purpose (E6a). `_impact_from_graph` is the one avoidable full read -- reached from `impact()`/the MCP `impact_analysis` tool only when `index.open_for_read` finds no db, or (confirmed live, below) the index does not have the queried node (a folder, or a path `_load_brain` never indexed). Measured on the host's largest graph.json (one service, 25.3 MB, 5,415 nodes / 85,334 edges, read-only): `_impact_from_graph` ~0.14s per call (matches the code's own existing comment); the same lookup through an existing index ~0.10s, and L2 already measured EOS's indexed `impact` at ~0.16ms on smaller graphs. Decision: no consumer justifies splitting the file today -- the fix for the one real gap is "run `eos index`", not an engine change; the index build's own full read is unavoidable and already decided fast enough (E5); the export command's full read is the feature. Recorded per the task's own fallback instruction ("no consumer, not needed") rather than building a split with no measured beneficiary. **Correction (review, RVk):** a fourth reader was missed on the first pass -- `ui/server.py`'s `GET /api/instances/{id}/graph` (the optional eos-ui dashboard's "drill-down view") reads and returns the whole file over HTTP. Same class as `cmd_graph`: a person-initiated full view, not an agent-facing hot path -- one browser tab fetching 25 MB once, on demand, is the same trade `eos graph --output` already makes. The decision stands with this reader named rather than missed; if the dashboard is ever measured slow on a large project, pagination there is the concrete next step, not an engine-side split |
+| Q4 | C4: dedup against the harness's always-loaded files | DONE | 44127e4. `core/context/dedup.py`: `[ai] loaded` (project-relative globs) names files the harness already puts in context every turn; unset, everything is byte-identical to before. A note whose whole body sits, normalised, inside the concatenated text of every glob's matches is left out of `core/inject.py`'s PostToolBatch body tier and `notes.render_context_section`'s Accumulated Knowledge section, each reporting how many it left out. Containment is checked on the whole normalised body (>= 40 chars), never a keyword, so a short or generic body can never match by coincidence. Measured on the host (nexus, read-only, 243 notes, `CLAUDE.md` + `.claude/rules/*.md` + the three preloaded `SKILL.md` files, 40,575 normalised chars): 0 notes are a whole-body duplicate today -- the nearest is 78% word overlap (`dev-atlas 1.3: master sync...`), short of containment. The mechanism is a measured no-op on today's corpus, ready for a future verbatim duplicate; nexus's own `.eos/config.toml` is untouched (the main session decides whether to turn it on) |
+| Q5 | C7: the saved-vs-baseline column | DONE | context_cost.py changes (pre-release). `core/context_cost.py` now tracks each source's per-session entered-token list and its median (not a flat total/session average), and carries a `BASELINE_SOURCE` table sourced from nexus `docs/eos-evals/claude-baseline.md` §5 (Faz 0, 2026-09-26). Only two of the baseline's four channels get an entry: `hook: PostToolBatch` (note_inject is the only EOS content on that event) and `hook: UserPromptSubmit` (the task brief is the only EOS content on that event) -- both identified by the *same mechanism* the baseline measured, not a guessed attachment-type rollup. The baseline's other two rows (`SessionStart additionalContext` 1,450 median, `SessionStart stdout` 0 median) are left out on purpose: both attachment kinds (`hook_additional_context`, `hook_success`) collapse to one `hook: SessionStart` label in `_hook_source`, with no way to tell them apart after the fact -- comparing a merged number against either baseline row alone would misstate one of them, so this channel is recorded as not honestly computable rather than guessed. Every new number (`median_entered_tokens`, the `baseline` block) is DERIVED in `core/lib/honest.py` terms; `render()` prints a `vs baseline (date, doc): before -> ~after tok/session, ~N% saved` line under a matched row. Measured live on the host (nexus, read-only, `eos cost <nexus> --context --since 2026-09-17`): `hook: PostToolBatch` 3,496 -> ~2,446 tok/session (~30% saved, 55 sessions with the source), `hook: UserPromptSubmit` 3,128 -> ~1,609 tok/session (~49% saved, 38 sessions) -- both against the 2026-09-26 baseline, i.e. genuine improvement from the 2.x work landed since (N3's token estimator, the session injection budget, C3a/C3b narrowing) |
+| RVj | Review of Q1 (012ed3e) and Q2 (e9f3757), foreground, general-purpose | DONE | 1 finding (the Q2 all-open-group drop above, fixed bfd5c8f); Q1 (A2's "never stricter" claim, the read-only-check gating) and the rest of Q2 (MIN_RUNS boundary, no config writes, the `advised_level` addition's safety) confirmed clean against the real code, not the commit message. Full suite and `tools/check-clean.sh` green, confirmed independently by the reviewer |
+
+### Decided without asking
+
+- Q1: the depth-2 hint is additive only to a gate that has already fired for
+  another reason (a dirty verify.toml scope) -- never a trigger of its own.
+  The task named "the task brief and/or the Stop verify gate" as candidate
+  surfaces; making the Stop gate itself the trigger for an unrelated
+  procedure's Success checks would be a new blocking behaviour on a task that
+  explicitly said "never make the gate stricter for sessions with no routed
+  decision" -- the same caution applies to a session that *does* have one.
+- Q2: "keywords whose routed runs failed" (one of the task's own two example
+  shapes) is not built: ADR-019 never records which keyword matched a task,
+  only a hash of the text and the classifier's generic factor names -- so it
+  cannot be answered from what `routing.jsonl` actually keeps, and adding a
+  keyword-recording field would be a privacy decision this pass does not
+  make on its own. The other shape (a level's model consistently overridden)
+  is built in full.
+- Q2: `MIN_RUNS = 5`, `FAILURE_RATE_FLAG = 0.5`, `OVERRIDE_RATE_FLAG = 0.7` are
+  conservative constants, not tuned on any one project's data -- most routed
+  work is expected to succeed and match its advice, so crossing either bar
+  is worth a look rather than routine.
+- Q3: `_load_brain`'s and `cmd_graph`'s whole-file reads are left as they are
+  -- both already have a reason a split would not remove (a one-time index
+  build; a person's deliberate export) -- and `_impact_from_graph`'s gap is
+  named as an operational fix ("run `eos index`"), not an engine change,
+  since every one of its callers already prefers the index and only reaches
+  the graph path when there is none, or the node the index dropped on
+  purpose (a folder).
+- Q4: containment must be checked on the *whole* normalised body, never a
+  fragment or a keyword set -- a partial-match heuristic could hide a note
+  over a coincidental phrase, which is a worse failure than never
+  deduplicating (a note silently missing is invisible; a note the harness
+  never actually has is a wrong claim).
+- Q4: `MIN_BODY_CHARS = 40` -- short enough that a real duplicate rule is
+  never missed, long enough that a one-line title-like body can never match
+  by coincidence.
+- Q5: only channels this module can identify by the *same mechanism* the
+  baseline measured get a baseline entry -- a guessed attachment-type rollup
+  (what Day 3b's own P4 measurement declined to invent) is exactly the
+  thing this decision avoids. `SessionStart` is left out rather than
+  comparing a merged current number against one of the baseline's two
+  un-mergeable rows, which would silently misstate whichever row it was not
+  measuring.
+- Q5: the current-side number is the *median* over the sessions a source
+  actually appeared in, matching the baseline's own statistic and session
+  set exactly -- not a flat total/session-count average across the whole
+  report window, which would answer a different question (and, measured
+  during Q5's own review, gives the same number as the median only by
+  coincidence on an even split).

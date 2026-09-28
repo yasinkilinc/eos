@@ -123,6 +123,7 @@ def context_for(targets: list[tuple[str, Path, str, str, str]], seen: set, *, po
     compared with another project's `pom.xml` (953 false stale marks against 72
     true ones before this grouping). `pointer` is the command that reads the
     rest, formatted with `{path}` and `{words}`."""
+    from core.context import dedup
     from core.notes import is_bulk_index, load_notes
 
     prior = set(seen)
@@ -135,6 +136,14 @@ def context_for(targets: list[tuple[str, Path, str, str, str]], seen: set, *, po
         if absolute not in cache:
             cache[absolute] = _digest_of(absolute)
         digests_by_target.setdefault((name, relative), set()).add(cache[absolute])
+
+    # C4: a note whose body already sits in a file the harness always loads
+    # (`[ai] loaded`) never takes a body slot -- the harness has it in
+    # context already. Computed once per touched project; "" (unset, the
+    # common case) matches nothing, so a project without the key is
+    # byte-identical to before this existed.
+    loaded_text = {name: dedup.always_loaded_text(root) for name, (root, _label) in roots.items()}
+    left_out = 0
     by_project: dict[str, list] = {}
     for name, relative in digests_by_target:
         by_project.setdefault(name, []).append((relative, digests_by_target[(name, relative)]))
@@ -160,6 +169,9 @@ def context_for(targets: list[tuple[str, Path, str, str, str]], seen: set, *, po
             key = ("body", note.path.name)
             if key in considered:
                 continue
+            if loaded_text.get(name) and dedup.already_loaded(note.body, loaded_text[name]):
+                left_out += 1
+                continue
             mark = (_STALE_MARK.format(created=note.created or "?") + "\n") \
                 if _stale_for(note, relative, digests) else ""
             text = f"### Known about {relative}\n{mark}{note.title}\n\n{note.body}"
@@ -169,6 +181,10 @@ def context_for(targets: list[tuple[str, Path, str, str, str]], seen: set, *, po
                 continue
             considered.add(key)
             body_segments.append(((key,), text, False, None))
+
+    if left_out:
+        body_segments.append(((), f"_{left_out} note(s) left out: already in an always-loaded file._",
+                              False, None))
 
     digest_segments = []
     queued: set = set()

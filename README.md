@@ -149,6 +149,13 @@ executable launcher under `~/.local/bin/eos`. Override the locations with
   no Success section.
 - **`eos cost --context`:** what a project's agent sessions keep re-reading,
   by source, from the harness's transcripts, checked against their cache reads.
+  A source this repo's own baseline measured before (`hook: PostToolBatch`,
+  `hook: UserPromptSubmit`) carries a `vs baseline` line: today's median
+  tokens/session against the one-time reading, `~N% saved`. Below 5 sessions
+  with that source, the line is left off rather than print a percentage a
+  handful of sessions cannot back. A source the baseline cannot honestly be
+  split for (`hook: SessionStart`, which mixes two baseline channels the
+  harness reports as one) carries none, on purpose.
 - **`eos cost --sessions`:** per session, what EOS delivered (telemetry) against
   what the model read (`routing-usage.jsonl`) and the hooks' counters; a
   source with nothing for a session prints `—`, never 0.
@@ -698,6 +705,13 @@ so `eos doctor` can later flag notes whose code has moved on since. Notes
 matching the current task are injected into `get_context` output, capped at
 15% of the budget.
 
+`[ai] loaded = ["CLAUDE.md", ".claude/rules/*.md", ...]` in `.eos/config.toml`
+names, as project-relative globs, files the harness already puts in context
+on every turn. A note whose whole body already sits, word for word, inside
+one of them is left out of this injection and of the PostToolBatch
+touched-file context, and each says how many it left out. Unset, nothing
+changes.
+
 ## Work in flight
 
 Notes answer "what was learned here". They cannot answer "what is happening
@@ -1099,6 +1113,13 @@ CRITICAL tasks on the cheapest model and efforts a model would refuse, and
 ends with `GATE: PASS` or `FAIL` (exit 0 or 1). Tune on `dev`; `test` prints no
 rows or suggestions, a prompt in both splits is refused, and every test run is
 logged with hashes of the corpus and the configuration (ADR-025 addendum).
+
+`eos route --learn` prints proposals from the same join `--stats` makes —
+never writes `.eos/config.toml`. Two shapes: a (type, level, model, effort)
+whose finished routed runs fail or are abandoned at a high rate, and a level
+whose advised model is consistently overridden by the model actually used.
+Below a handful of runs it says so ("too few runs") rather than guess a
+rate.
 
 The default registry holds four models under the harness's aliases: `haiku`
 (cost 1, no effort setting), `sonnet` (2), `opus` (4, currently Opus 5.5) and
