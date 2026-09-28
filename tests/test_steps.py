@@ -140,3 +140,46 @@ def test_run_show_and_procedure_show_name_the_step_that_failed(tmp_path, monkeyp
     procedure = _run(root, "procedure", "show", str(root), slug)
     assert " 1. ok      Build (tool: mvn)" in procedure
     assert " 2. failed  Push (tool: git)" in procedure
+
+
+# --- E3 depth 2: which Success checks EOS may run itself -----------------------------------
+
+
+def test_success_command_checks_marks_only_the_explicit_read_only_bullet(tmp_path):
+    root = _project(tmp_path)
+    (root / ".eos" / "knowledge").mkdir(parents=True, exist_ok=True)
+    (root / ".eos" / "knowledge" / "capabilities.toml").write_text(
+        '[[capability]]\nname = "tracker"\nrun = "scripts/tracker.sh"\ndoes = "issue <KEY>"\n',
+        encoding="utf-8")
+    slug = _run(root, "procedure", "new", str(root), "--title", "Close a ticket", "--steps", "-",
+               "--success",
+               "`scripts/tracker.sh issue <KEY>` shows it done (read-only)",
+               "--success",
+               "`scripts/tracker.sh close <KEY>` actually closes it",
+               input="Close it (tool: tracker)\n").split("\t")[0]
+    from core import notes
+
+    note = notes.find_procedure(root, slug)
+    checks = steps.success_command_checks(root, note)
+    by_verb = {c.verb: c for c in checks}
+    assert by_verb["issue"].read_only is True
+    assert by_verb["issue"].command == "scripts/tracker.sh issue <KEY>"
+    assert by_verb["close"].read_only is False
+
+
+def test_success_checks_is_unchanged_by_the_read_only_marker(tmp_path):
+    """success_checks/success_tools (E3d labelling) still see only (tool, verb) pairs;
+    the marker is invisible to them, so existing verified/claimed behaviour is unchanged."""
+    root = _project(tmp_path)
+    (root / ".eos" / "knowledge").mkdir(parents=True, exist_ok=True)
+    (root / ".eos" / "knowledge" / "capabilities.toml").write_text(
+        '[[capability]]\nname = "tracker"\nrun = "scripts/tracker.sh"\ndoes = "issue <KEY>"\n',
+        encoding="utf-8")
+    slug = _run(root, "procedure", "new", str(root), "--title", "Close a ticket", "--steps", "-",
+               "--success", "`scripts/tracker.sh issue <KEY>` shows it done (read-only)",
+               input="Close it (tool: tracker)\n").split("\t")[0]
+    from core import notes
+
+    note = notes.find_procedure(root, slug)
+    assert steps.success_checks(root, note) == [("tracker", "issue")]
+    assert steps.success_tools(root, note) == ["tracker"]

@@ -29,6 +29,7 @@ import dataclasses
 import hashlib
 import json
 import subprocess
+import time
 from pathlib import Path
 from typing import Any
 
@@ -152,6 +153,88 @@ def _head(project_root: str | Path) -> str | None:
     if done.returncode != 0:
         return None
     return done.stdout.decode("utf-8", errors="replace").strip() or None
+
+
+# --- E3 depth 2: a procedure's Success checks, run by EOS itself --------------------------
+#
+# The one narrow exception to "EOS does not execute anything" above: a check
+# whose own bullet says outright that running it changes nothing. Never
+# guessed from the command text -- only `core.steps.success_command_checks`'s
+# explicit `(read-only)` marker makes a check eligible, and every other check
+# is listed, never run, same as depth 1 already leaves it.
+
+DEPTH2_TIMEOUT = 120
+
+
+@dataclasses.dataclass(frozen=True)
+class Depth2Check:
+    """One `## Success` check as `eos verify --procedure` sees it."""
+
+    command: str
+    tool: str
+    verb: str | None
+    read_only: bool
+    ran: bool
+    exit_code: int | None = None
+    ms: int | None = None
+
+    @property
+    def ok(self) -> bool | None:
+        """None when never run; a check EOS did not run proves nothing either way."""
+        return None if not self.ran else self.exit_code == 0
+
+    def to_dict(self) -> dict:
+        data = dataclasses.asdict(self)
+        data["ok"] = self.ok
+        return data
+
+
+def run_depth2(project_root: str | Path, note: notes.Note, *, execution: str | None = None,
+               session: str | None = None, timeout: int = DEPTH2_TIMEOUT) -> list[Depth2Check]:
+    """Run a procedure's `## Success` checks EOS may run itself.
+
+    A check runs only when its own bullet carries an explicit `(read-only)`
+    marker; every other one comes back with `ran=False` -- listed for a
+    person or an agent to run, never executed on a guess about its command
+    text. A check that ran records a `verified` event on the open execution
+    with the same (tool, ref) shape a wrapper's own event already uses, so
+    `executions.outcome_source`'s existing Success-label matching (E3d) sees
+    it exactly as it would see a person's own run -- recording that is the
+    whole point of running it here rather than leaving it listed.
+    """
+    import shlex
+
+    from core import executions, steps
+
+    results: list[Depth2Check] = []
+    for check in steps.success_command_checks(project_root, note):
+        if not check.read_only:
+            results.append(Depth2Check(check.command, check.tool, check.verb, False, ran=False))
+            continue
+        try:
+            words = shlex.split(check.command)
+        except ValueError:
+            words = []
+        exit_code = None
+        start = time.monotonic()
+        if words:
+            try:
+                done = subprocess.run(words, cwd=str(project_root), capture_output=True,
+                                      timeout=timeout, text=True)
+                exit_code = done.returncode
+            except (OSError, subprocess.TimeoutExpired):
+                exit_code = None
+        ms = int((time.monotonic() - start) * 1000)
+        results.append(Depth2Check(check.command, check.tool, check.verb, True, ran=True,
+                                   exit_code=exit_code, ms=ms))
+        if execution:
+            try:
+                executions.event(project_root, execution, kind="verified", tool=check.tool,
+                                 ref=check.verb, exit_code=exit_code, ms=ms, session=session,
+                                 source="cli", status=("ok" if exit_code == 0 else "error"))
+            except (ValueError, OSError):
+                pass  # the check itself already ran; the timeline line is a convenience
+    return results
 
 
 def summary(project_root: str | Path) -> dict[str, Any]:

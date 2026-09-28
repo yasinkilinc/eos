@@ -224,13 +224,24 @@ def cmd_rules(args: argparse.Namespace) -> int:
 
 
 def cmd_verify(args: argparse.Namespace) -> int:
-    """Record what an adapter ran for one behaviour code, and what happened.
+    """Record what an adapter ran for one behaviour code, and what happened;
+    or, with --procedure, run that procedure's `## Success` checks itself.
 
-    EOS does not run the test. Executing one needs a build tool, an
-    environment and minutes, and core/ is stdlib-only by design; the workspace
-    already has a wrapper that keeps the log and prints a digest. This records
-    the evidence that wrapper produced.
+    EOS does not run a test. Executing one needs a build tool, an environment
+    and minutes, and core/ is stdlib-only by design; the workspace already has
+    a wrapper that keeps the log and prints a digest, and this records the
+    evidence that wrapper produced. `--procedure` is the one, narrow exception
+    (2.x roadmap E3 depth 2): a Success check EOS may run itself, because its
+    own bullet says outright that running it changes nothing -- never guessed
+    from the command text. A check without that marker is only ever listed.
     """
+    if args.procedure:
+        return _cmd_verify_procedure(args)
+    if not args.code or not args.outcome or not args.ran:
+        print("error: eos verify <code> --outcome <passed|failed|errored> --command \"<what ran>\" "
+              "(or eos verify --procedure <slug> to run its read-only Success checks)", file=sys.stderr)
+        return 2
+
     from core import verification
 
     output = None
@@ -275,6 +286,47 @@ def cmd_verify(args: argparse.Namespace) -> int:
               f"a wrong test or a bad environment it was -- pass --verdict when you know "
               f"({', '.join(verification.VERDICTS)}).", file=sys.stderr)
     return 0
+
+
+def _cmd_verify_procedure(args: argparse.Namespace) -> int:
+    """`eos verify --procedure <slug>`: E3 depth 2, run only what is marked (read-only)."""
+    from core import executions, notes, telemetry, verification
+
+    try:
+        note = notes.find_procedure(args.path, args.procedure)
+    except ValueError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    session = getattr(args, "session", None) or telemetry.detect_session(args.path)[0]
+    current = executions.current(args.path, session)
+    execution = current[0] if current else None
+    checks = verification.run_depth2(args.path, note, execution=execution, session=session)
+
+    if args.format == "json" or (args.output and args.output != "-"):
+        text = json.dumps({"procedure": note.procedure, "checks": [c.to_dict() for c in checks]},
+                          indent=2, ensure_ascii=False)
+    else:
+        text = None
+
+    if args.output and args.output != "-":
+        Path(args.output).write_text(text + "\n", encoding="utf-8")
+        print(f"wrote {args.output}")
+        return 0 if all(c.ok is not False for c in checks) else 1
+
+    if text is not None:
+        print(text)
+        return 0 if all(c.ok is not False for c in checks) else 1
+
+    if not checks:
+        print(f"{note.procedure}: no Success check names a command")
+        return 0
+    for check in checks:
+        if not check.ran:
+            print(f"listed, not run (no (read-only) marker): {check.command}")
+            continue
+        word = "ok" if check.ok else f"exit {check.exit_code}" if check.exit_code is not None else "errored"
+        print(f"ran ({check.ms} ms, {word}): {check.command}")
+    return 0 if all(c.ok is not False for c in checks) else 1
 
 
 def cmd_cost(args: argparse.Namespace) -> int:

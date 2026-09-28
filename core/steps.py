@@ -96,10 +96,37 @@ def success_tools(root, note) -> list[str]:
 
 def success_checks(root, note) -> list[tuple[str, str | None]]:
     """The checks a procedure's `## Success` lines run, in order, as (tool,
-    subcommand): the first word of each backticked command, kept only when it
-    is a declared capability, a program on PATH (not a shell builtin) or a
-    script in the project -- `#id` or `status:` in backticks are not checks --
-    and its second word unless that is a placeholder or a flag."""
+    subcommand) -- see `success_command_checks` for what counts as one."""
+    found: list[tuple[str, str | None]] = []
+    for check in success_command_checks(root, note):
+        if (check.tool, check.verb) not in found:
+            found.append((check.tool, check.verb))
+    return found
+
+
+_READ_ONLY = re.compile(r"\(read-only\)", re.IGNORECASE)
+
+
+@dataclasses.dataclass(frozen=True)
+class SuccessCheck:
+    command: str            # the backticked text, as written
+    tool: str                # normalized tool name (a declared capability, a program, or a script)
+    verb: str | None         # its second word, unless that is a placeholder or a flag
+    read_only: bool = False  # an explicit `(read-only)` marker on the same bullet (E3 depth 2)
+
+
+def success_command_checks(root, note) -> list[SuccessCheck]:
+    """Every backticked command a procedure's `## Success` lines name, in
+    order: the first word, kept only when it is a declared capability, a
+    program on PATH (not a shell builtin) or a script in the project --
+    `#id` or `status:` in backticks are not checks -- and its second word
+    unless that is a placeholder or a flag.
+
+    `read_only` is true only when the bullet carries an explicit
+    `(read-only)` marker -- never guessed from the command text (E3 depth 2:
+    only a check marked this way may be run by `eos verify --procedure`;
+    every other one is listed, never run). The marker applies to every
+    command the bullet names."""
     import shutil
     from pathlib import Path
 
@@ -112,8 +139,9 @@ def success_checks(root, note) -> list[tuple[str, str | None]]:
         declared = []
     known = {executions.normalize_tool(c.name) for c in declared}
     known |= {executions.normalize_tool(c.run) for c in declared if c.run}
-    found: list[tuple[str, str | None]] = []
+    found: list[SuccessCheck] = []
     for item in notes.procedure_success(note):
+        read_only = bool(_READ_ONLY.search(item))
         for command in re.findall(r"`([^`]+)`", item):
             words = command.split()
             if not words:
@@ -125,8 +153,7 @@ def success_checks(root, note) -> list[tuple[str, str | None]]:
                        and bool(shutil.which(words[0])))
             if tool in known or program or procedure_lint._script(root, words[0]) is not None:
                 verb = words[1] if len(words) > 1 and not words[1].startswith(("<", "-", "{", "$")) else None
-                if (tool, verb) not in found:
-                    found.append((tool, verb))
+                found.append(SuccessCheck(command=command, tool=tool, verb=verb, read_only=read_only))
     return found
 
 

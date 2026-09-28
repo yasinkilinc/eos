@@ -185,22 +185,30 @@ def main(argv: list[str] | None = None) -> int:
                           help="Add provenance, detector coverage, or this file's commits")
 
     verify_p = sub.add_parser(
-        "verify", help="Record what an adapter ran for a behaviour code, and what happened")
+        "verify", help="Record what an adapter ran for a behaviour code, and what happened; "
+                       "or, with --procedure, run a procedure's read-only Success checks itself")
     add_path(verify_p)
-    verify_p.add_argument("code", help="The behaviour code the run was about")
-    verify_p.add_argument("--outcome", required=True, choices=("passed", "failed", "errored"))
+    verify_p.add_argument("code", nargs="?", help="The behaviour code the run was about")
+    verify_p.add_argument("--outcome", choices=("passed", "failed", "errored"))
     # dest is not "command": the subparser already stores the subcommand name
     # there, and a flag writing to it replaced "verify" with the shell line,
     # which surfaced as a KeyError on dispatch.
-    verify_p.add_argument("--command", required=True, dest="ran", help="Exactly what was run")
+    verify_p.add_argument("--command", dest="ran", help="Exactly what was run")
     verify_p.add_argument("--exit-code", type=int, dest="exit_code")
     verify_p.add_argument("--log", help="Where the full output was kept")
-    verify_p.add_argument("--output", help="File holding the output, or - for stdin; only its digest is stored")
+    verify_p.add_argument("--output", help="File holding the output, or - for stdin; only its digest is "
+                                           "stored (with --procedure: write the report here instead of "
+                                           "stdout, or - for stdout)")
     verify_p.add_argument("--verdict", choices=(
         "expected-behaviour", "test-defect", "environment-failure",
         "potential-defect", "confirmed-defect"),
         help="What a person concluded. Never filled in automatically.")
     verify_p.add_argument("--note", help="One line of context for the run")
+    verify_p.add_argument("--procedure", help="Run this procedure's `## Success` checks marked "
+                                              "(read-only) and list the rest (E3 depth 2); never runs "
+                                              "an unmarked check")
+    verify_p.add_argument("--format", choices=("text", "json"), default="text",
+                          help="With --procedure only")
 
     cost_p = sub.add_parser("cost", help="What EOS has cost this project, per command")
     add_path(cost_p)
