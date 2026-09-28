@@ -92,10 +92,10 @@ them. Nothing here is guessed: "unmeasured" means no number exists yet.
 | 3 | C1 | done | one estimator, 2.22 chars/token (N3) |
 | 3 | C2 | done | kind and age (C2a), lessons' evidence (N10); stable ids left out on purpose |
 | 3 | C3 | engine done | the host's injection hook narrowing note bodies |
-| 3 | C4 | done | `[ai] loaded` dedup, Day 4 (Q4); measured no-op on today's host corpus, ready for a future duplicate |
+| 3 | C4 | done | `[ai] loaded` dedup, Day 4 (Q4); on in nexus since 2026-09-28 (host config); measured no-op on today's host corpus, ready for a future duplicate |
 | 3 | C5, C6 | done | -- |
 | 3 | C7 | done | saved-vs-baseline column, Day 4 (Q5); host: PostToolBatch ~30% saved, UserPromptSubmit ~49% saved vs the 2026-09-26 baseline (2 of 4 baseline channels; SessionStart left unmapped, honestly) |
-| 4 | A1 | in progress | corpus labelled (H3); tuning on dev under way; `route --bench` absent |
+| 4 | A1 | part | corpus labelled (H3); tuned on dev and deployed (1.34.0 `default_task_type`, host keywords); dev gate PASS. Left: the test split was read twice before `default_task_type` and not since -- one honest test measurement; `route --bench` absent |
 | 4 | A2 | done | the Stop verify gate is depth's one consumer, Day 4 (Q1) |
 | 4 | A3 | done | advised vs used vs outcome in `route --stats` (N5, RVb) |
 | 4 | A4 | part | six-state model (1.33.0); `healthy` is always `unknown` -- wiring it to live checks is a design decision |
@@ -106,7 +106,7 @@ them. Nothing here is guessed: "unmeasured" means no number exists yet.
 | 5 | E6 | measured, not needed | Day 4 (Q3): every reader found; no consumer justifies a split (E5's index-build cost already decided; the one avoidable fallback needs `eos index`, not an engine change) |
 | 6 | L1 | part | keyword proposals in `consolidate`: no config surface names a routing corpus (D3); priors wait on M6 |
 | 6 | L2, L3, L4 | done | -- |
-| 6 | L5 | open | recalibration receipts, after A1's tuning |
+| 6 | L5 | open | recalibration receipts; A1's tuning is in, so unblocked |
 
 | Step | What | Status | Commits / notes |
 |---|---|---|---|
