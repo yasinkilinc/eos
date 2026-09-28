@@ -167,6 +167,35 @@ def test_success_command_checks_marks_only_the_explicit_read_only_bullet(tmp_pat
     assert by_verb["close"].read_only is False
 
 
+def test_the_marker_inside_the_backticked_command_itself_does_not_count(tmp_path):
+    """RV (day3b, item 1-2): `(read-only)` must be an annotation on the
+    bullet, never text the command itself happens to contain -- otherwise a
+    command whose own arguments spell that string would run unattended."""
+    root = _project(tmp_path)
+    slug = _run(root, "procedure", "new", str(root), "--title", "Ship it", "--steps", "-",
+               "--success",
+               '`python3 -c "print(1); import sys; sys.exit(0 if \'(read-only)\' else 1)"` reads the tag',
+               input="Do it\n").split("\t")[0]
+    from core import notes
+
+    note = notes.find_procedure(root, slug)
+    [check] = steps.success_command_checks(root, note)
+    assert check.read_only is False
+
+
+def test_the_marker_outside_the_backticks_applies_to_every_command_the_bullet_names(tmp_path):
+    root = _project(tmp_path)
+    slug = _run(root, "procedure", "new", str(root), "--title", "Ship it", "--steps", "-",
+               "--success",
+               "`python3 -c \"print(1)\"` and `python3 --version` both pass (read-only)",
+               input="Do it\n").split("\t")[0]
+    from core import notes
+
+    note = notes.find_procedure(root, slug)
+    checks = steps.success_command_checks(root, note)
+    assert len(checks) == 2 and all(c.read_only for c in checks)
+
+
 def test_success_checks_is_unchanged_by_the_read_only_marker(tmp_path):
     """success_checks/success_tools (E3d labelling) still see only (tool, verb) pairs;
     the marker is invisible to them, so existing verified/claimed behaviour is unchanged."""

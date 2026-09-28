@@ -326,6 +326,8 @@ def _cmd_verify_procedure(args: argparse.Namespace) -> int:
             continue
         word = "ok" if check.ok else f"exit {check.exit_code}" if check.exit_code is not None else "errored"
         print(f"ran ({check.ms} ms, {word}): {check.command}")
+        if check.output_tail:
+            print("  " + check.output_tail.replace("\n", "\n  "))
     return 0 if all(c.ok is not False for c in checks) else 1
 
 

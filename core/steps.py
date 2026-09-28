@@ -122,11 +122,12 @@ def success_command_checks(root, note) -> list[SuccessCheck]:
     `#id` or `status:` in backticks are not checks -- and its second word
     unless that is a placeholder or a flag.
 
-    `read_only` is true only when the bullet carries an explicit
-    `(read-only)` marker -- never guessed from the command text (E3 depth 2:
-    only a check marked this way may be run by `eos verify --procedure`;
-    every other one is listed, never run). The marker applies to every
-    command the bullet names."""
+    `read_only` is true only when the bullet's own prose -- never a
+    backticked command's own text, which is data, not an annotation --
+    carries an explicit `(read-only)` marker (E3 depth 2: only a check
+    marked this way may be run by `eos verify --procedure`; every other
+    one is listed, never run). The marker applies to every command the
+    bullet names."""
     import shutil
     from pathlib import Path
 
@@ -141,7 +142,12 @@ def success_command_checks(root, note) -> list[SuccessCheck]:
     known |= {executions.normalize_tool(c.run) for c in declared if c.run}
     found: list[SuccessCheck] = []
     for item in notes.procedure_success(note):
-        read_only = bool(_READ_ONLY.search(item))
+        # The marker must sit in the bullet's own prose, outside every
+        # backtick span -- a command's own text is data, never an
+        # annotation about itself (review: a command whose arguments
+        # happened to spell "(read-only)" was otherwise run unattended).
+        prose = re.sub(r"`[^`]*`", "", item)
+        read_only = bool(_READ_ONLY.search(prose))
         for command in re.findall(r"`([^`]+)`", item):
             words = command.split()
             if not words:

@@ -63,6 +63,24 @@ def test_a_read_only_check_that_fails_is_recorded_as_not_ok(tmp_path, monkeypatc
     assert check.ran is True and check.exit_code == 3 and check.ok is False
 
 
+def test_a_passing_check_keeps_only_a_digest_never_the_output_text(tmp_path, monkeypatch):
+    root = _project(tmp_path, monkeypatch)
+    note = _procedure(root, "`python3 -c \"print('secret-marker')\"` prints (read-only)")
+    [check] = verification.run_depth2(root, note)
+    assert check.output_sha256 and len(check.output_sha256) == 64
+    assert check.output_tail is None
+
+
+def test_a_failing_check_keeps_a_bounded_tail_of_its_output(tmp_path, monkeypatch):
+    root = _project(tmp_path, monkeypatch)
+    note = _procedure(
+        root,
+        "`python3 -c \"import sys; print('boom-detail'); sys.exit(1)\"` fails (read-only)")
+    [check] = verification.run_depth2(root, note)
+    assert check.output_sha256 and "boom-detail" in check.output_tail
+    assert len(check.output_tail) <= verification.DEPTH2_TAIL_CHARS
+
+
 def test_a_running_check_writes_a_verified_event_on_the_open_run(tmp_path, monkeypatch):
     root = _project(tmp_path, monkeypatch)
     note = _procedure(root, "`python3 -c \"print(1)\"` prints 1 (read-only)")
@@ -118,6 +136,31 @@ def test_eos_verify_procedure_exits_nonzero_when_a_run_check_failed(tmp_path, mo
     done = subprocess.run(EOS + ["verify", str(root), "--procedure", note.procedure],
                           capture_output=True, text=True)
     assert done.returncode == 1
+
+
+def test_eos_verify_procedure_takes_an_explicit_session_flag(tmp_path, monkeypatch):
+    """RV (day3b, item 1-2): every other stateful subcommand takes --session;
+    --procedure mode silently lacked it and fell back to env-var detection only."""
+    root = _project(tmp_path, monkeypatch)
+    note = _procedure(root, "`python3 -c \"print(1)\"` runs (read-only)")
+    run = _eos("run", "start", str(root), "--title", "Ship it", "--procedure", note.procedure,
+              "--session", "s1").split()[0]
+    _eos("verify", str(root), "--procedure", note.procedure, "--session", "s1")
+    [record] = executions.load(root)
+    assert record.id == run
+    assert any(e.kind == "verified" for e in record.events)
+
+
+def test_a_failing_read_only_check_is_recorded_as_an_error_event(tmp_path, monkeypatch):
+    """RV (day3b, item 1-2): only the passing case was covered before."""
+    root = _project(tmp_path, monkeypatch)
+    note = _procedure(root, "`python3 -c \"import sys; sys.exit(1)\"` fails (read-only)")
+    run = _eos("run", "start", str(root), "--title", "Ship it", "--procedure", note.procedure,
+              "--session", "s1").split()[0]
+    verification.run_depth2(root, note, execution=run, session="s1")
+    [record] = executions.load(root)
+    [verified] = [e for e in record.events if e.kind == "verified"]
+    assert verified.exit_code == 1 and verified.status == "error"
 
 
 def test_manual_mode_is_unchanged(tmp_path, monkeypatch):

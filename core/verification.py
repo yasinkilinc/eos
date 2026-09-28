@@ -1,11 +1,16 @@
 """Record what was actually run, and what happened.
 
-EOS does not run anything. Executing a test means a build tool, an
-environment, credentials and minutes -- and `core/` is stdlib-only by design
-(ADR-010), so making it a build client would trade that property for work
-something else already does well. The workspace this was measured in already
-has the right contract: a wrapper that keeps the full log on disk and prints a
-fixed-shape digest.
+EOS does not run a test. Executing one means a build tool, an environment,
+credentials and minutes -- and `core/` is stdlib-only by design (ADR-010), so
+making it a build client would trade that property for work something else
+already does well. The workspace this was measured in already has the right
+contract: a wrapper that keeps the full log on disk and prints a fixed-shape
+digest.
+
+`run_depth2` below is the one narrow, explicit exception (E3 depth 2): a
+procedure's own `## Success` check, and only the part of it its author
+marked `(read-only)` -- never guessed from the command text. Everything else
+in this file still only ever records what something else ran.
 
 So the division is: an adapter executes, and this records the evidence.
 Command, exit code, a digest of the output, where the log is, which commit was
@@ -166,6 +171,9 @@ def _head(project_root: str | Path) -> str | None:
 DEPTH2_TIMEOUT = 120
 
 
+DEPTH2_TAIL_CHARS = 500  # a failure's own diagnostic, not the whole log (review: was discarded outright)
+
+
 @dataclasses.dataclass(frozen=True)
 class Depth2Check:
     """One `## Success` check as `eos verify --procedure` sees it."""
@@ -177,6 +185,12 @@ class Depth2Check:
     ran: bool
     exit_code: int | None = None
     ms: int | None = None
+    # A digest of the full combined output, always, so two runs can be
+    # compared without keeping the output itself; the last DEPTH2_TAIL_CHARS
+    # of it too, but only when the check did not pass -- a passing check's
+    # output answers nothing a person would read.
+    output_sha256: str | None = None
+    output_tail: str | None = None
 
     @property
     def ok(self) -> bool | None:
@@ -216,17 +230,23 @@ def run_depth2(project_root: str | Path, note: notes.Note, *, execution: str | N
         except ValueError:
             words = []
         exit_code = None
+        digest = tail = None
         start = time.monotonic()
         if words:
             try:
                 done = subprocess.run(words, cwd=str(project_root), capture_output=True,
                                       timeout=timeout, text=True)
                 exit_code = done.returncode
+                output = (done.stdout or "") + (done.stderr or "")
+                if output:
+                    digest = hashlib.sha256(output.encode("utf-8")).hexdigest()
+                    if exit_code != 0:
+                        tail = output[-DEPTH2_TAIL_CHARS:]
             except (OSError, subprocess.TimeoutExpired):
                 exit_code = None
         ms = int((time.monotonic() - start) * 1000)
         results.append(Depth2Check(check.command, check.tool, check.verb, True, ran=True,
-                                   exit_code=exit_code, ms=ms))
+                                   exit_code=exit_code, ms=ms, output_sha256=digest, output_tail=tail))
         if execution:
             try:
                 executions.event(project_root, execution, kind="verified", tool=check.tool,

@@ -209,6 +209,8 @@ def main(argv: list[str] | None = None) -> int:
                                               "an unmarked check")
     verify_p.add_argument("--format", choices=("text", "json"), default="text",
                           help="With --procedure only")
+    verify_p.add_argument("--session", default=None,
+                          help="Session id; filled from the harness when omitted")
 
     cost_p = sub.add_parser("cost", help="What EOS has cost this project, per command")
     add_path(cost_p)
