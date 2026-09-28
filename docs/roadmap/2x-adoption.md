@@ -9,6 +9,9 @@ The row-by-row ledger with commits is `docs/roadmap/2x-progress.md`.
 
 | Release | Item | What it does |
 |---|---|---|
+| 1.31.0 | Lessons carry evidence (N10) | `note add --evidence "<command, run id, or file:line>"` for `kind lesson` only (another kind is refused by name); `amend` carries it through a rewrite unchanged. The task brief marks a lesson naming neither an execution nor evidence with `[no evidence]`; `eos consolidate` counts and lists them (`LESSONS WITHOUT EVIDENCE`). Existing lessons are not migrated |
+| 1.31.0 | Change capture measured (N9, E1) | `eos consolidate` compares, per finished run with a commit range, the files its `changed` events named against the files git says the run's commits touched (`—`, never `0%`, when the range cannot be measured); prints `CHANGE CAPTURE <c>/<t> files (<share>) over N runs with commits; M runs unmeasurable` and the same in JSON. Measured on the host: 18/454 files (4%) over 45 runs with commits, 23 unmeasurable -- far under the report's >= 95% target |
+| 1.31.0 | Expired and replaced procedures are not matched; amend sets provenance and validity (N8) | `notes.procedures()` takes `include_expired` (default False) so `best_procedure` and `run start --procedure` stop offering an expired procedure, the same way a replaced one is already refused; `note amend` gains `--provenance`/`--agent`/`--valid-until`, a metadata-only amend now valid on its own |
 | 1.6.0 | Verified completion (ADR-028) | `verify.toml` maps files to their check; a turn that ends with work changed after its last passing check is stopped once; an ok run is labelled `verified` or `claimed` |
 | 1.7.0 | Telemetry (F1) | `rebuilt` recorded, failures by exit code, a real token median |
 | 1.7.0 | Hooks (F1) | no task brief for pure conversation (`[brief] filler`); session brief budgeted at 800 tokens |
