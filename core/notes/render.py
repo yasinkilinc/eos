@@ -258,7 +258,13 @@ NARROWED_KINDS = ("finding",)
 
 def task_terms(project_root: str | Path, text: str) -> list[str]:
     """The words a task's text narrows note bodies by, this project's synonyms included."""
-    return sorted(_synonym_terms(_words(text), synonym_groups(note_synonyms(project_root))))
+    return word_terms(project_root, _words(text))
+
+
+def word_terms(project_root: str | Path, words: set[str]) -> list[str]:
+    """`task_terms` for words `_words` already read. Reading them again would lose
+    a two-letter acronym: casefolded, `CI` is no longer written in capitals."""
+    return sorted(_synonym_terms(set(words), synonym_groups(note_synonyms(project_root))))
 
 
 def narrowed_body(note: Note, terms: list[str] | None) -> str:

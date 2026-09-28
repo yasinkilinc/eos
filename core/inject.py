@@ -113,12 +113,13 @@ def _near_first(notes: list, relative: str) -> list:
 
 
 def context_for(targets: list[tuple[str, Path, str, str, str]], seen: set, *, pointer: str,
-                task: str = "") -> tuple[str, set]:
+                task_words: frozenset = frozenset()) -> tuple[str, set]:
     """(text, seen after) for touched files, each `(project name, project root,
     project path as the session types it, relative path, absolute path)`;
-    `seen` holds `(tier, note file name)`. `task` is what the user last asked:
-    a long finding in a body slot is narrowed to the lines its words hit (C3),
-    the way `eos context` narrows one; without it every body arrives whole.
+    `seen` holds `(tier, note file name)`. `task_words` are the words of what
+    the user last asked: a long finding in a body slot is narrowed to the lines
+    they hit (C3), the way `eos context` narrows one; without them every body
+    arrives whole.
 
     Two passes: body slots are decided across every file first (a note exact to
     two touched files gets one body attempt), then the digest tier from what is
@@ -128,7 +129,7 @@ def context_for(targets: list[tuple[str, Path, str, str, str]], seen: set, *, po
     rest, formatted with `{path}` and `{words}`."""
     from core.context import dedup
     from core.notes import is_bulk_index, load_notes
-    from core.notes.render import narrowed_body, task_terms
+    from core.notes.render import narrowed_body, word_terms
 
     prior = set(seen)
     considered = set(prior)
@@ -147,7 +148,7 @@ def context_for(targets: list[tuple[str, Path, str, str, str]], seen: set, *, po
     # common case) matches nothing, so a project without the key is
     # byte-identical to before this existed.
     loaded_text = {name: dedup.always_loaded_text(root) for name, (root, _label) in roots.items()}
-    terms = {name: task_terms(root, task) if task else None for name, (root, _label) in roots.items()}
+    terms = {name: word_terms(root, task_words) if task_words else None for name, (root, _label) in roots.items()}
     left_out = 0
     by_project: dict[str, list] = {}
     for name, relative in digests_by_target:

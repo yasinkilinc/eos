@@ -385,12 +385,12 @@ def _save_task(session: str, prompt: str) -> None:
         pass
 
 
-def _load_task(session: str) -> str:
+def _load_task(session: str) -> frozenset:
     try:
         words = json.loads(_task_file(session).read_text(encoding="utf-8")).get("words")
     except (OSError, ValueError, AttributeError):
-        return ""
-    return " ".join(w for w in words if isinstance(w, str)) if isinstance(words, list) else ""
+        return frozenset()
+    return frozenset(w for w in words if isinstance(w, str)) if isinstance(words, list) else frozenset()
 
 
 def _prompted_file(session: str) -> Path:
@@ -1094,7 +1094,7 @@ def _post_batch(root: Path, hook: Hook, cfg: dict, agent: str | None) -> str:
     state = _state_dir() / f"{_safe(hook.session)}.inject.json"
     seen, spent, digest_used = inject.load_state(state)
     text, seen = inject.context_for(list(dict.fromkeys(targets)), seen, pointer=cfg["notes_pointer"],
-                                    task=_load_task(hook.session))
+                                    task_words=_load_task(hook.session))
     text, spent, digest_used = inject.budgeted(text, spent, digest_used, pointer=cfg["notes_pointer"])
     inject.save_state(state, seen, spent, digest_used)
     return _context("PostToolBatch", text) if text else ""

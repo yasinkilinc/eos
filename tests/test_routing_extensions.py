@@ -264,6 +264,17 @@ def test_doctor_warns_while_a_custom_routing_config_has_no_receipt(tmp_path):
     assert "no receipt" in doctor(custom), "a changed config needs its own receipt"
 
 
+def test_a_damaged_ledger_line_neither_breaks_doctor_nor_hides_a_receipt(tmp_path):
+    root = _project(tmp_path, '[model_routing]\n\n[model_routing.keywords]\ninvestigation = ["neden"]\n')
+    ledger = root / ".eos" / "data" / "routing-eval.jsonl"
+    ledger.parent.mkdir(parents=True, exist_ok=True)
+    good = json.dumps({"config": evaluate.config_hash(root)})
+    ledger.write_bytes(b'{"config": "\xff\xfe broken\n' + good.encode("utf-8") + b"\n")
+    done = subprocess.run(EOS + ["doctor", str(root)], capture_output=True, text=True)
+    assert done.returncode == 0 and "Traceback" not in done.stderr
+    assert "no receipt" not in done.stdout
+
+
 def test_the_test_split_is_refused_while_a_label_is_pending_review(tmp_path):
     root = _project(tmp_path, "[model_routing]\n")
     path = tmp_path / "corpus.tsv"

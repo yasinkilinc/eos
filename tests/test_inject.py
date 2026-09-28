@@ -186,6 +186,15 @@ def test_a_lesson_is_never_narrowed(ws, monkeypatch, capsys):
     assert text.count("ledger layout") == 80 and "Narrowed" not in text
 
 
+def test_a_two_letter_acronym_in_the_prompt_survives_until_injection(ws, monkeypatch, capsys):
+    _, hub, svc = ws
+    source = _refund_source(svc)
+    _note(svc, "20260907-refund.md", "Refund retries", ["src/pkg/Refund.java"],
+          body=_FILLER + "The CI pipeline reruns this export on every merge.\n" + _FILLER)
+    _prompt(monkeypatch, capsys, hub, "c3e", "why did CI fail")
+    assert "terms hit (ci)" in _touch(monkeypatch, capsys, hub, "c3e", source)
+
+
 def test_the_latest_prompt_decides_the_terms(ws, monkeypatch, capsys):
     _, hub, svc = ws
     source = _refund_source(svc)

@@ -195,10 +195,16 @@ def fingerprint(project_root, corpus: str | Path) -> dict:
 
 
 def _measurements(project_root) -> list[dict]:
+    """Every readable entry; a damaged line (a torn append, bytes that are not
+    UTF-8) costs itself, never the lines around it."""
     path = Path(project_root) / ".eos" / "data" / RECORD
     entries = []
-    if path.is_file():
-        for line in path.read_text(encoding="utf-8").splitlines():
+    try:
+        text = path.read_text(encoding="utf-8", errors="replace") if path.is_file() else ""
+    except OSError:
+        text = ""
+    if text:
+        for line in text.splitlines():
             try:
                 entry = json.loads(line)
             except ValueError:
