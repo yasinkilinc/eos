@@ -256,14 +256,13 @@ _OMITTED_TITLE_LIMIT = 25
 NARROWED_KINDS = ("finding",)
 
 
-def _render_note(note: Note, terms: list[str] | None = None) -> str:
-    header = f"### {note.title} ({note.kind})"
-    meta_bits = []
-    if note.tags:
-        meta_bits.append("tags: " + ", ".join(note.tags))
-    if note.source:
-        meta_bits.append(f"source: {note.source}")
-    meta = f"_{' | '.join(meta_bits)}_\n\n" if meta_bits else ""
+def task_terms(project_root: str | Path, text: str) -> list[str]:
+    """The words a task's text narrows note bodies by, this project's synonyms included."""
+    return sorted(_synonym_terms(_words(text), synonym_groups(note_synonyms(project_root))))
+
+
+def narrowed_body(note: Note, terms: list[str] | None) -> str:
+    """A finding's body cut to the lines `terms` hit when it is long; anything else whole."""
     body = note.body
     if terms and note.kind in NARROWED_KINDS:
         from core.context import narrow
@@ -275,7 +274,18 @@ def _render_note(note: Note, terms: list[str] | None = None) -> str:
                 body = (f"{found.text}\n_Narrowed to the lines the task's terms hit "
                         f"({', '.join(found.terms)}){left}; `eos note show <project> {note.path.name}` "
                         "reads all of it._")
-    return f"{header}\n\n{meta}{body}"
+    return body
+
+
+def _render_note(note: Note, terms: list[str] | None = None) -> str:
+    header = f"### {note.title} ({note.kind})"
+    meta_bits = []
+    if note.tags:
+        meta_bits.append("tags: " + ", ".join(note.tags))
+    if note.source:
+        meta_bits.append(f"source: {note.source}")
+    meta = f"_{' | '.join(meta_bits)}_\n\n" if meta_bits else ""
+    return f"{header}\n\n{meta}{narrowed_body(note, terms)}"
 
 
 def render_context_section(
@@ -330,8 +340,7 @@ def render_context_section(
 
     lines = ["## Accumulated Knowledge"]
     included = 0
-    terms = (sorted(_synonym_terms(_words(query), synonym_groups(note_synonyms(project_root))))
-             if query else None)
+    terms = task_terms(project_root, query) if query else None
     for note in candidates:
         entry = _render_note(note, terms)
         projected = len("\n\n".join(lines + [entry]))

@@ -367,6 +367,32 @@ def _state(session: str) -> list[dict]:
     return lines
 
 
+def _task_file(session: str) -> Path:
+    return _state_dir() / f"{_safe(session)}.task.json"
+
+
+def _save_task(session: str, prompt: str) -> None:
+    """The words of the user's latest prompt, which note injection narrows long
+    bodies by (C3). Words, not the prompt: nothing else is needed."""
+    from core.lib import atomic
+    from core.notes.render import _words
+
+    try:
+        path = _task_file(session)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        atomic.write_text(path, json.dumps({"words": sorted(_words(prompt))}, ensure_ascii=False))
+    except OSError:
+        pass
+
+
+def _load_task(session: str) -> str:
+    try:
+        words = json.loads(_task_file(session).read_text(encoding="utf-8")).get("words")
+    except (OSError, ValueError, AttributeError):
+        return ""
+    return " ".join(w for w in words if isinstance(w, str)) if isinstance(words, list) else ""
+
+
 def _prompted_file(session: str) -> Path:
     from core import executions
 
@@ -708,7 +734,11 @@ def _pre_tool_bash(root: Path, hook: Hook, cfg: dict, agent: str | None) -> str:
 
 def _user_prompt(root: Path, hook: Hook, cfg: dict, agent: str | None) -> str:
     prompt = hook.prompt.strip()[:MAX_TASK_CHARS]
-    if not cfg["brief"] or not prompt or any(mark in prompt.lstrip()[:200] for mark in _NOTICE_MARKS):
+    if not prompt or any(mark in prompt.lstrip()[:200] for mark in _NOTICE_MARKS):
+        return ""
+    if cfg["inject"] and hook.session:
+        _save_task(hook.session, prompt)
+    if not cfg["brief"]:
         return ""
     from core import brief, workspace
 
@@ -1063,7 +1093,8 @@ def _post_batch(root: Path, hook: Hook, cfg: dict, agent: str | None) -> str:
         return ""
     state = _state_dir() / f"{_safe(hook.session)}.inject.json"
     seen, spent, digest_used = inject.load_state(state)
-    text, seen = inject.context_for(list(dict.fromkeys(targets)), seen, pointer=cfg["notes_pointer"])
+    text, seen = inject.context_for(list(dict.fromkeys(targets)), seen, pointer=cfg["notes_pointer"],
+                                    task=_load_task(hook.session))
     text, spent, digest_used = inject.budgeted(text, spent, digest_used, pointer=cfg["notes_pointer"])
     inject.save_state(state, seen, spent, digest_used)
     return _context("PostToolBatch", text) if text else ""

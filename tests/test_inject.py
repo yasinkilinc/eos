@@ -23,10 +23,11 @@ def _project(root: Path) -> Path:
     return root
 
 
-def _note(project: Path, name: str, title: str, scope=(), source="", body="Body text.", hashes=None):
+def _note(project: Path, name: str, title: str, scope=(), source="", body="Body text.", hashes=None,
+          kind="finding"):
     store = project / ".eos" / "knowledge"
     store.mkdir(parents=True, exist_ok=True)
-    lines = ["---", "kind: finding", f"title: {title}", "created: 2026-09-01"]
+    lines = ["---", f"kind: {kind}", f"title: {title}", "created: 2026-09-01"]
     if source:
         lines.append(f"source: {source}")
     if scope:
@@ -133,6 +134,65 @@ def test_a_body_already_in_an_always_loaded_file_is_left_out(ws, monkeypatch, ca
           body="The retry queue drains itself on boot, never call drain() by hand.")
     text = _touch(monkeypatch, capsys, hub, "s8", source)
     assert "never call drain() by hand." not in text
+
+
+# --- C3: a long body narrowed to what the user last asked about -------------------------
+
+
+_FILLER = "".join(f"Line {n} is about the ledger layout and nothing else.\n" for n in range(40))
+_LONG = _FILLER + "The refund is retried by the scheduler, never by the caller.\n" + _FILLER
+
+
+def _prompt(monkeypatch, capsys, hub, session, text):
+    payload = {"session_id": session, "cwd": str(hub), "hook_event_name": "UserPromptSubmit", "prompt": text}
+    monkeypatch.setattr(sys, "stdin", io.StringIO(json.dumps(payload)))
+    assert hooks.main(["user-prompt"]) == 0
+    capsys.readouterr()
+
+
+def _refund_source(svc: Path) -> Path:
+    source = svc / "src" / "pkg" / "Refund.java"
+    source.parent.mkdir(parents=True)
+    source.write_text("class Refund {}\n", encoding="utf-8")
+    return source
+
+
+def test_a_long_finding_is_narrowed_to_the_last_prompts_words(ws, monkeypatch, capsys):
+    _, hub, svc = ws
+    source = _refund_source(svc)
+    _note(svc, "20260907-refund.md", "Refund retries", ["src/pkg/Refund.java"], body=_LONG)
+    _prompt(monkeypatch, capsys, hub, "c3a", "why is the refund sent twice")
+    text = _touch(monkeypatch, capsys, hub, "c3a", source)
+    assert "The refund is retried by the scheduler" in text
+    assert "Narrowed to the lines the task's terms hit (refund)" in text
+    assert "eos note show" in text and "20260907-refund.md" in text
+    assert text.count("ledger layout") < 40
+
+
+def test_without_a_prompt_a_long_finding_arrives_whole(ws, monkeypatch, capsys):
+    _, hub, svc = ws
+    source = _refund_source(svc)
+    _note(svc, "20260907-refund.md", "Refund retries", ["src/pkg/Refund.java"], body=_LONG)
+    text = _touch(monkeypatch, capsys, hub, "c3b", source)
+    assert text.count("ledger layout") == 80 and "Narrowed" not in text
+
+
+def test_a_lesson_is_never_narrowed(ws, monkeypatch, capsys):
+    _, hub, svc = ws
+    source = _refund_source(svc)
+    _note(svc, "20260907-refund.md", "Refund retries", ["src/pkg/Refund.java"], body=_LONG, kind="lesson")
+    _prompt(monkeypatch, capsys, hub, "c3c", "why is the refund sent twice")
+    text = _touch(monkeypatch, capsys, hub, "c3c", source)
+    assert text.count("ledger layout") == 80 and "Narrowed" not in text
+
+
+def test_the_latest_prompt_decides_the_terms(ws, monkeypatch, capsys):
+    _, hub, svc = ws
+    source = _refund_source(svc)
+    _note(svc, "20260907-refund.md", "Refund retries", ["src/pkg/Refund.java"], body=_LONG)
+    _prompt(monkeypatch, capsys, hub, "c3d", "the scheduler config")
+    _prompt(monkeypatch, capsys, hub, "c3d", "why is the refund sent twice")
+    assert "terms hit (refund)" in _touch(monkeypatch, capsys, hub, "c3d", source)
 
 
 def test_inject_off_in_config_says_nothing(ws, monkeypatch, capsys):
