@@ -2,8 +2,8 @@
 
 ## Status
 
-Proposed, 2026-09-27 (2.x roadmap L2). Measured on the branch `eos-2x`; the host
-decides whether to stop building the second graph.
+Accepted, 2026-09-28 (2.x roadmap L2). Measured on the branch `eos-2x`, proposed
+2026-09-27; the host stopped building Graphify's graphs on 2026-09-28 (user decision).
 
 ## Context
 
@@ -32,12 +32,13 @@ parser leaves out. Its relations have no instantiation edge, which EOS records
 (`new`) for exactly these pairs. EOS's one miss at depth 2 is a smoke test with no
 reference to its namesake -- no edge exists for either tool.
 
-## Decision (proposed)
+## Decision
 
 Keep EOS's graph as the one code graph for impact questions; do not consume
-Graphify through the index. Nothing in EOS changes. For the host: Graphify's
-per-service build can stop once nothing else reads it (its community and
-god-node views are the remaining users to check).
+Graphify through the index. Nothing in EOS changes. The host no longer builds
+Graphify's workspace or per-service `graph.json`; impact questions go to
+`eos impact`. `eos note graph --output` (ADR-033) stays: an on-demand export a
+person may still open in Graphify, not a build the host keeps.
 
 ## Consequences
 

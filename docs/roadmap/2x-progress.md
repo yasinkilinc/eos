@@ -41,7 +41,7 @@ deletion; the nexus `mac` checkout and the global `eos` CLI are not touched.
 | A5 | Offline keyword learner | ALREADY THERE | `eos route --eval` prints keyword suggestions for the dev split (1.2); nothing to add |
 | E6b | `graph.json` split / paginated MCP `get_graph` | ALREADY THERE | `get_graph` was removed from the MCP roster (ADR-026); `eos graph --output` exports |
 | RV3 | Third review, of caf6a71..7e7acb4 (second-review fixes, typed steps, eos cite) | DONE | 3 findings (05:06), each fixed with a test, release 1.10.2: a check inside `$(...)`/backticks counted (`echo $(false; pytest)`); `bash -c "<check>"` never counted; `finish` crashed on an unrelated ancestor's broken config. Nothing found in the lock fallback, placeholder bounds, misquoted or steps |
-| L2 | Graph decision: EOS `impact` vs Graphify `affected` on test/subject pairs, three services | NEEDS DECISION | ADR-032 (proposed): 353 pairs, recall@2 EOS 99.4% vs Graphify 83.6% (49 subjects missing from its snapshot), 0.16 ms vs ~1 s per query. Keep EOS's graph; whether the host stops building graph.json is the user's call. Full report: nexus-2x docs/eos-evals/l2-graph-comparison.md |
+| L2 | Graph decision: EOS `impact` vs Graphify `affected` on test/subject pairs, three services | DECIDED: EOS (2026-09-28) | ADR-032 (proposed): 353 pairs, recall@2 EOS 99.4% vs Graphify 83.6% (49 subjects missing from its snapshot), 0.16 ms vs ~1 s per query. Keep EOS's graph; whether the host stops building graph.json is the user's call. Full report: nexus-2x docs/eos-evals/l2-graph-comparison.md |
 | E2c | The task brief says where a failed run failed (`failed at step N` on its LAST RUNS line) | DONE | host: the three config scripts now record events (nexus-2x ed42e16), so deliver-config-sql-script's steps 1, 3, 4 can be placed |
 | E3c | The main session's answer checked at Stop like a subagent's: a missing absolute path or a line past the end stops the turn once (`cite_check`) | DONE | the Stop input carries `last_assistant_message` (checked in the 2.1.283 bundle's schema) |
 | L1b | `eos consolidate`: steps whose tool no run of the procedure ever recorded | DONE | host: 11 steps in 4 procedures -- commit-and-push names raw `git` (never recorded), deliver-config-sql-script 1/3/4 (fixed for future runs by nexus-2x ed42e16) and 5 (admin-toolbox is a screen), open-a-pr `review`/`pre-pr-check`, run-a-scenario `obs` |
@@ -107,7 +107,7 @@ has barely started. "Absent" below means the name the report gives does not occu
 | 5 | E5 | not needed | measured on a copy without git history; `index --shadow` absent |
 | 5 | E6 | part | `graph.json` not split |
 | 6 | L1 | part | priors, keyword proposals, routing accuracy, advised-vs-used, stale generated artifacts |
-| 6 | L2 | decision | ADR-032 proposed |
+| 6 | L2 | done | ADR-032 accepted 2026-09-28: EOS's graph; the host stops building Graphify's |
 | 6 | L3, L4, L5 | L3, L4 done; L5 open | L3 and L4 below; recalibration receipts (L5) need A1's corpus |
 | host | cross-phase | open | M3/M4 moves, `projects.toml` and `capability.toml`, the routing corpus, hook scripts to templates, the service-directory resume eval, generators that rewrite always-loaded files |
 
