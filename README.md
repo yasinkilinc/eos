@@ -200,7 +200,8 @@ executable launcher under `~/.local/bin/eos`. Override the locations with
 - **Subagent handoff:** `eos brief --for-subagent --task "…"` is what a
   subagent should start with -- the parent run, the procedure's rules, the
   wrappers its task names, the notes whose titles meet it -- in at most 400
-  tokens; `[hooks] handoff_tokens` appends it to every subagent prompt.
+  tokens; `[hooks] handoff_tokens` appends it to every subagent prompt. `[hooks] subagent_suffix`
+  (1.42) ends every subagent prompt with a host line, e.g. the report language.
 - **Citations checked:** when a subagent's answer cites an absolute path that
   does not exist or a line past the end of a file, it is asked once to correct
   it (`[hooks] cite_check`, on).

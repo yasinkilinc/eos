@@ -86,7 +86,11 @@ COMMANDS = ("start_command", "prompt_command")
 COMMAND_TIMEOUT = 5
 # Text settings: the host commands above, and how an injection names the command
 # that reads the notes it left out (`{path}` the project, `{words}` the query).
-TEXTS = {name: "" for name in COMMANDS} | {"notes_pointer": 'eos note search {path} "{words}"'}
+# `subagent_suffix`: a host line every subagent prompt ends with (the language
+# its report is read in, a rule subagents must keep) -- subagents get no prompt
+# hook, so a rule only the main session hears never reaches them.
+TEXTS = {name: "" for name in COMMANDS} | {"notes_pointer": 'eos note search {path} "{words}"',
+                                           "subagent_suffix": ""}
 # Workspace briefs (a root with `.eos/projects.toml`): at start, the projects
 # with an open run or work in flight; on a prompt, the projects it names.
 WORKSPACE_LIVE_LIMIT = 5
@@ -1285,6 +1289,9 @@ def _pre_agent(root: Path, hook: Hook, cfg: dict, agent: str | None) -> str:
         if text:
             updated["prompt"] = f"{prompt}\n\n{text}"
             _note_state(hook.session, handoff=len(text))
+    suffix = cfg["subagent_suffix"].strip()
+    if suffix and prompt.strip() and suffix not in prompt:
+        updated["prompt"] = f"{updated.get('prompt', prompt)}\n\n{suffix}"
     if not updated:
         return ""
     return json.dumps({"hookSpecificOutput": {"hookEventName": "PreToolUse",

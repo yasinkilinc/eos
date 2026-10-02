@@ -837,6 +837,24 @@ def test_the_handoff_is_appended_to_a_subagent_prompt_when_turned_on(project, mo
     assert "scripts/tracker.sh" in updated["prompt"] and updated["subagent_type"] == "Explore"
 
 
+def test_the_subagent_suffix_ends_every_subagent_prompt(project, monkeypatch, capsys):
+    """A host rule every subagent must carry (the language its report is read
+    in) rides on the prompt itself: subagents get no prompt hook."""
+    _hooks_config(project, 'subagent_suffix = "Final report in Turkish."\n')
+    call = _payload(project, tool_name="Agent", tool_use_id="s1",
+                    tool_input={"prompt": "check the tracker ticket", "subagent_type": "Explore"})
+    updated = json.loads(_hook(monkeypatch, capsys, "pre-agent", call).out)["hookSpecificOutput"]["updatedInput"]
+    assert updated["prompt"] == "check the tracker ticket\n\nFinal report in Turkish."
+    assert updated["subagent_type"] == "Explore"
+
+
+def test_the_subagent_suffix_is_not_added_twice(project, monkeypatch, capsys):
+    _hooks_config(project, 'subagent_suffix = "Final report in Turkish."\n')
+    call = _payload(project, tool_name="Agent", tool_input={
+        "prompt": "check the tracker ticket. Final report in Turkish.", "subagent_type": "Explore"})
+    assert _hook(monkeypatch, capsys, "pre-agent", call).out == ""
+
+
 def test_no_handoff_unless_configured(project, monkeypatch, capsys):
     _open_run(project)
     call = _payload(project, tool_name="Agent", tool_input={"prompt": "check the tracker ticket", "subagent_type": "Explore"})
