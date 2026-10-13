@@ -139,6 +139,20 @@ def test_read_only_programs_and_registered_wrappers_are_not_recorded(project, mo
     assert _events(project) == []
 
 
+def test_a_command_naming_a_wrapper_file_still_records_its_own_programs(project, monkeypatch, capsys):
+    # E1 on the host: `git add <wrapper> && git commit` named a wrapper's file, and
+    # the whole call went unrecorded -- neither git nor what it committed.
+    _open_run(project)
+    _hook(monkeypatch, capsys, "post-tool", _payload(
+        project, tool_name="Bash", tool_input={"command": "git add scripts/tracker.sh && git commit -m x"},
+        tool_use_id="t1"))
+    assert {e.tool for e in _events(project) if e.kind == "ran"} == {"git"}
+    _hook(monkeypatch, capsys, "post-tool", _payload(
+        project, tool_name="Bash", tool_input={"command": "scripts/tracker.sh issue A-1 && git push"},
+        tool_use_id="t2"))
+    assert [e.tool for e in _events(project) if e.kind == "ran"].count("scripts/tracker.sh") == 0
+
+
 def test_nothing_is_recorded_without_an_open_run_but_the_hint_still_arrives(project, monkeypatch, capsys):
     out = _hook(monkeypatch, capsys, "post-tool", _payload(
         project, tool_name="Bash", tool_input={"command": "curl https://tracker.example/x"}, tool_use_id="t1"))

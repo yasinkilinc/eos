@@ -1091,12 +1091,17 @@ def _post_tool(root: Path, hook: Hook, cfg: dict, agent: str | None, failed: boo
         from core import priors
 
         _record_note_reads(root, hook, run, priors.paths_in_command(command))
-    if run is None or capabilities.wrapper_in(command, declared) is not None:
-        # A registered wrapper records its own call (eos-event); counting it
-        # here as well would make every wrapper call look like two.
+    if run is None:
         return output
+    # A registered wrapper records its own call (eos-event); counting it here as
+    # well would make every wrapper call look like two. Only the wrapper is left
+    # out: a command that merely names its file (`git add <wrapper>`), or runs
+    # git after it, still records the rest (E1).
+    wrappers = {capability.program for capability in capabilities.invoked(command, declared)}
     recordable = [(program, verb) for program, verb in capabilities.programs(command)
-                  if capabilities.worth_recording(program, verb)]
+                  if program not in wrappers and capabilities.worth_recording(program, verb)]
+    if wrappers and not recordable:
+        return output
     if any(program == "git" for program, _ in recordable) and not hook.tool_input.get("run_in_background"):
         # `worth_recording` already kept only git's mutating verbs (never log,
         # diff, status...); one of those can commit or check out files with no
