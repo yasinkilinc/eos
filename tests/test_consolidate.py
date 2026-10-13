@@ -198,3 +198,36 @@ def test_stale_index_is_named_after_a_source_changes_and_clears_after_a_rebuild(
 
     index.build(root)
     assert consolidate.report(root)["stale_index"] is False
+
+
+def test_priors_are_recomputed_from_the_ledger_and_named_with_their_runs(tmp_path):
+    """M6 (ADR-036): consolidate shows what the fold says, cheaply, from the runs it already read."""
+    import json
+
+    from core import executions
+
+    root = tmp_path / "proj"
+    root.mkdir()
+    assert subprocess.run(EOS + ["init", str(root), "--no-ai"], capture_output=True).returncode == 0
+    note = notes.add_note(root, "finding", "Rotate the signing key", "The key lives in the vault.")
+    ledger = executions.path_for(root)
+    with open(ledger, "a", encoding="utf-8") as handle:
+        for rid, source in (("x-1", "verified"), ("x-2", "verified"), ("x-3", "claimed")):
+            handle.write(json.dumps({"v": 1, "type": "start", "id": rid, "title": rid, "session": "s9"}) + "\n")
+            handle.write(json.dumps({"v": 1, "type": "event", "execution": rid, "kind": "read",
+                                     "ref": f"note:{note.name}", "at": "2026-10-01T00:00:00+00:00"}) + "\n")
+            handle.write(json.dumps({"v": 1, "type": "finish", "id": rid, "outcome": "ok",
+                                     "outcome_source": source, "at": "2026-10-01T01:00:00+00:00"}) + "\n")
+    data = consolidate.report(root)
+    assert data["priors"] == {"runs": 2, "notes": 1, "points": 2, "alpha": 0.0, "top": [(2, "Rotate the signing key")]}
+    text = consolidate.render(data)
+    assert "PRIORS  2 points from 2 verified runs over 1 note (prior_alpha 0.0: off in search)" in text
+    assert "  2  Rotate the signing key" in text
+
+
+def test_no_verified_run_that_read_a_note_is_no_priors_line(tmp_path):
+    root = tmp_path / "proj"
+    root.mkdir()
+    assert subprocess.run(EOS + ["init", str(root), "--no-ai"], capture_output=True).returncode == 0
+    data = consolidate.report(root)
+    assert data["priors"]["runs"] == 0 and "PRIORS" not in consolidate.render(data)
