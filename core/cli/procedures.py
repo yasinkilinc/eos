@@ -134,6 +134,9 @@ def cmd_procedure_new(args: argparse.Namespace) -> int:
     except (ValueError, OSError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1
+    from core import executions
+
+    executions.note_written(args.path, path, action="procedure new", session=args.session)
     note = notes.parse_note(path)
     print(f"{note.procedure}\t{path}")
     return 0

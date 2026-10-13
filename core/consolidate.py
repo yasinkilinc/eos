@@ -528,6 +528,9 @@ def report(project_root: str | Path) -> dict:
     verified = sum(1 for r in done if r.outcome_source == "verified")
     claimed = sum(1 for r in done if r.outcome_source == "claimed")
     capture = change_capture(root, records=records)
+    from core import action_capture
+
+    actions = action_capture.report(root, records=records)
     # L1 remainder item (a), Day 3: the one generated EOS artifact under
     # `.eos/` with a declared, deterministic freshness key -- the index's own
     # `inputs_sha256` vs. a freshly computed sources digest (`index.is_stale`).
@@ -550,6 +553,7 @@ def report(project_root: str | Path) -> dict:
         "stale_work": [(item.id, item.title) for item in stale_work],
         "verified_rate": {"verified": verified, "claimed": claimed},
         "change_capture": capture,
+        "action_capture": actions,
         "lessons_without_evidence": lessons_without_evidence,
         "stale_index": stale_index,
         "priors": _priors(root, corpus, records),
@@ -632,6 +636,11 @@ def render(data: dict) -> str:
                       f"({honest.show(capture['share'], spec='.0%')}) over {capture['runs_with_commits']} "
                       f"runs with commits; {capture['runs_unmeasurable']} runs unmeasurable "
                       f"({capture.get('runs_unmeasurable_no_hook_events', 0)} without hook events)"]
+    from core import action_capture
+
+    action_line = action_capture.render_line(data.get("action_capture") or {})
+    if action_line:
+        lines += ["", action_line]
     prior = data.get("priors") or {}
     if prior.get("runs"):
         state = "on" if prior["alpha"] else "off"

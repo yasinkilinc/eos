@@ -191,6 +191,44 @@ def test_finish_clears_the_pointer_so_a_later_event_does_not_attach(project):
         executions.event(project, kind="ran", tool="build", session="s-7")
 
 
+def test_finishing_a_second_run_hands_the_pointer_back_to_the_first_still_open_one(project):
+    """Seen on the host (E1): a session opened a short run inside a long one and
+    finished it; the pointer was removed, so the long run -- open for another
+    nineteen hours -- received no event of any kind after that."""
+    first = executions.start(project, "Long task", session="s-7")
+    second = executions.start(project, "Quick check", session="s-7")
+    executions.finish(project, second.id, outcome="ok", session="s-7")
+
+    executions.event(project, kind="ran", tool="build", session="s-7")
+
+    by_id = {r.id: r for r in executions.load(project)}
+    assert [e.tool for e in by_id[first.id].events] == ["build"]
+    assert not by_id[second.id].events
+    executions.finish(project, outcome="ok", session="s-7")
+    with pytest.raises(ValueError, match="none is open"):
+        executions.event(project, kind="ran", tool="build", session="s-7")
+
+
+def test_a_run_finished_elsewhere_is_not_handed_the_pointer_back(project):
+    first = executions.start(project, "Long task", session="s-7")
+    second = executions.start(project, "Quick check", session="s-7")
+    executions.finish(project, first.id, outcome="abandoned", session="other")
+    executions.finish(project, second.id, outcome="ok", session="s-7")
+
+    with pytest.raises(ValueError, match="none is open"):
+        executions.event(project, kind="ran", tool="build", session="s-7")
+
+
+def test_the_shell_helper_follows_the_pointer_handed_back(project, tmp_path):
+    first = executions.start(project, "Long task", session="s-sh")
+    second = executions.start(project, "Quick check", session="s-sh")
+    executions.finish(project, second.id, outcome="ok", session="s-sh")
+
+    _helper(["--kind", "called", "--tool", "db"], _env(tmp_path, CLAUDE_CODE_SESSION_ID="s-sh"))
+
+    assert [e.tool for e in {r.id: r for r in executions.load(project)}[first.id].events] == ["db"]
+
+
 # --- the shell helper -----------------------------------------------------------------
 
 
@@ -418,8 +456,9 @@ def test_the_index_holds_executions_and_their_timeline_and_finds_them_by_title(p
                             (run.id,)).fetchall()
     conn.close()
 
-    assert row == ("failed", "staging", 2, "The image came from the wrong branch")
-    assert [t[0] for t in timeline] == ["build", "deploy"]
+    # The third event is the lesson note the failed finish wrote (E1).
+    assert row == ("failed", "staging", 3, "The image came from the wrong branch")
+    assert [t[0] for t in timeline] == ["build", "deploy", "eos"]
     _, hits = index.search(db, "wallet wrong branch")
     assert ("execution", run.id) in {(h[0], h[1]) for h in hits}
 

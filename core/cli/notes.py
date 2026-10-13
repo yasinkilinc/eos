@@ -84,6 +84,9 @@ def cmd_note_add(args: argparse.Namespace) -> int:
     except (ValueError, FileExistsError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1
+    from core import executions
+
+    executions.note_written(args.path, path, action="note add", session=args.session)
     print(f"Note written to {path}")
     return 0
 
@@ -305,6 +308,9 @@ def cmd_note_amend(args: argparse.Namespace) -> int:
     except (ValueError, OSError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1
+    from core import executions
+
+    executions.note_written(args.path, path, action="note amend", session=args.session)
     print(f"Note amended: {path}")
     if body:
         # Reported, not refused (2.x roadmap M5): amend is the way out of other guards.

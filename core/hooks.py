@@ -241,6 +241,11 @@ def main(argv: list[str] | None = None) -> int:
         payload = json.loads(raw) if raw.strip() else {}
         hook = normalize(payload if isinstance(payload, dict) else {})
         root = project_root(project or hook.cwd or os.environ.get("EOS_PROJECT_DIR") or os.getcwd())
+        if root is None and not project:
+            # A session that cd'd into a checkout with no `.eos`, or a subagent
+            # working in one, is still the session of the project it was
+            # started in -- whose run its pointer names (E1, measured).
+            root = project_root(os.environ.get("CLAUDE_PROJECT_DIR") or os.environ.get("EOS_PROJECT_DIR"))
         handler = HANDLERS.get(event)
         if root is not None and handler is not None:
             output = handler(root, hook, settings(root), agent) or ""

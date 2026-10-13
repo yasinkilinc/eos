@@ -32,6 +32,7 @@ what exists and recognises a command, and the agent decides (ADR-018).
 from __future__ import annotations
 
 import dataclasses
+import functools
 import re
 import shlex
 import shutil
@@ -56,7 +57,7 @@ class Capability:
     # until that evidence exists.
     verify_before_use: bool = False
 
-    @property
+    @functools.cached_property
     def program(self) -> str:
         """The name a command line uses to invoke it: `jira.sh` for `automation/jira.sh`.
 
@@ -147,6 +148,16 @@ def wrapper_in(command: str, capabilities: list[Capability]) -> Capability | Non
         if capability.program and _invocation(capability.program).search(command):
             return capability
     return None
+
+
+def invoked(command: str, capabilities: list[Capability]) -> list[Capability]:
+    """The capabilities this command runs as a command of its own -- a simple
+    command's program (`programs`), where `wrapper_in` also answers for a
+    mention: `git add scripts/x.sh` names the wrapper's file and runs git.
+    Measured on the host (E1): commits, syntax checks and note bodies naming a
+    wrapper were one in twenty of what the mention split called wrapper calls."""
+    heads = {program for program, _ in programs(command)}
+    return [capability for capability in capabilities if capability.program and capability.program in heads]
 
 
 @dataclasses.dataclass(frozen=True)
@@ -341,6 +352,10 @@ GIT_READ_VERBS = frozenset((
     "for-each-ref", "name-rev", "check-ignore", "worktree", "help", "version", "--version",
 ))
 _ASSIGNMENT = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
+# Shell words that open or continue a compound command; the program is what follows.
+_KEYWORDS = frozenset(("do", "then", "else", "elif", "if", "while", "until", "!", "{"))
+# Shell words that run no program: a loop's word list, a case subject, a closer.
+_NOT_COMMANDS = frozenset(("for", "case", "select", "in", "done", "fi", "esac", "}"))
 _SEPARATORS = ("&&", "||", ";", "|", "&")
 # A here-document's body is input to its command, not commands of its own.
 _HEREDOC = re.compile(r"<<-?\s*(['\"]?)([A-Za-z_][A-Za-z0-9_]*)\1[^\n]*\n.*?^\s*\2\s*$", re.S | re.M)
@@ -380,9 +395,20 @@ def programs(command: str) -> list[tuple[str, str | None]]:
 
 def _simple(words: list[str]) -> tuple[str, str | None]:
     head = Path(words[0]).name
+    if head in _NOT_COMMANDS:
+        return "", None
+    if head in _KEYWORDS:
+        # `for k in 1 2; do x.sh $k; done`: the program after the keyword runs.
+        return _simple(words[1:]) if len(words) > 1 else ("", None)
     if head in ("sudo", "nohup", "time", "exec", "command", "env"):
         rest = [w for w in words[1:] if not w.startswith("-") and not _ASSIGNMENT.match(w)]
         return _simple(rest) if rest else (head, None)
+    if head == "timeout":
+        # `timeout [-s SIG] [-k T] DURATION command ...`
+        rest = words[1:]
+        while rest and rest[0].startswith("-"):
+            rest = rest[2:] if rest[0] in ("-s", "-k", "--signal", "--kill-after") else rest[1:]
+        return _simple(rest[1:]) if len(rest) > 1 else (head, None)
     if head in ("bash", "sh", "zsh") and len(words) > 1 and not words[1].startswith("-"):
         head = Path(words[1]).name
     verb = None

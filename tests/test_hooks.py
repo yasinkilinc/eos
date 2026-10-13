@@ -434,6 +434,21 @@ def test_an_edit_is_a_changed_event_with_the_subagent_that_made_it(project, monk
     assert (event.kind, event.tool, event.ref, event.agent) == ("changed", "edit", "src/a.py", "Explore")
 
 
+def test_a_call_from_a_directory_outside_any_project_is_recorded_for_the_sessions_project(
+        project, tmp_path, monkeypatch, capsys):
+    """Measured on the host (E1): a session that had cd'd into a checkout with no
+    `.eos`, and subagents working in such checkouts, recorded nothing at all --
+    the hook looked for a project only above the call's cwd."""
+    elsewhere = tmp_path / "other-checkout"
+    elsewhere.mkdir()
+    _open_run(project)
+    monkeypatch.setenv("CLAUDE_PROJECT_DIR", str(project))
+    _hook(monkeypatch, capsys, "post-tool", _payload(
+        elsewhere, tool_name="Edit", tool_input={"file_path": str(project / "src" / "a.py")}, tool_use_id="t1"))
+    [event] = _events(project)
+    assert (event.kind, event.ref, event.tool_use_id) == ("changed", "src/a.py", "t1")
+
+
 def test_subagent_start_and_stop_are_attributed_and_the_answer_is_only_counted(project, monkeypatch, capsys):
     _open_run(project)
     secret = "the answer text itself"
