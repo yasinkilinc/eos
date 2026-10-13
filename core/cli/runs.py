@@ -130,6 +130,8 @@ def _outside_scope(root, record) -> list[str]:
 
     outside: list[str] = []
     for event in record.events:
+        if executions.is_memory_write(event):
+            continue  # a note EOS wrote is memory about the work, no procedure scopes it (E1)
         if event.kind == "changed" and event.ref and event.ref not in outside and not in_scope(event.ref):
             outside.append(event.ref)
     return outside

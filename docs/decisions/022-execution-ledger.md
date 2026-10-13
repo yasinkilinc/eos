@@ -93,3 +93,27 @@ The shell helper cannot run the credential refusal the Python path runs on
 bodies and refs. It is meant for refs a wrapper generates (paths, build ids),
 not text a person typed; a host that passes free text should use
 `eos run event`.
+
+## Addendum (2.x roadmap E1): the pointer is handed back; EOS's own note writes are events
+
+**A run opened inside an open one does not end the first.** `finish` used to
+remove the session's pointer outright. A session that opened a short run
+while a long one was open and finished the short one left the long run open
+with nothing recording into it: on one host the last 20 sessions lost 183
+editor and wrapper events that way, one run receiving none for nineteen
+hours. `start` now keeps the run it replaces as the pointer's current one in
+`<pointer>.earlier` (one `<execution>\t<ledger>` line each, beside the
+pointer, which stays one line for the shell helper), and `finish` points the
+session back at the latest of those still open in its ledger, or at nothing.
+
+**A note an EOS command writes is a `changed` event on the calling session's
+open run** (`executions.note_written`): `note add`, `note amend`,
+`procedure new` and the lesson a failed `run finish` writes. The editor hooks
+see only the harness's Edit/Write calls, so these were most of the files a
+run's commits touched that no event named. `tool` is `eos`, `source` is
+`cli`, the ref is relative to the run's own project -- absolute when, in a
+workspace, the note's store is another project's (C5b, ADR-035). No run, no
+event, no error. Such an event is memory about the work, not the work
+(`executions.is_memory_write`): it does not make a run's checks stale
+(ADR-028) and `run finish` does not call it a change outside the procedure's
+scope (N6).

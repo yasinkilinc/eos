@@ -301,8 +301,12 @@ def event(project_root: str | Path, execution: str | None = None, *, kind: str,
           tool: str | None = None, target: str | None = None, ref: str | None = None,
           exit_code: int | None = None, ms: int | None = None, body: str | None = None,
           session: str | None = None, agent: str | None = None, source: str | None = None,
-          status: str | None = None, tool_use_id: str | None = None) -> Event | None:
+          status: str | None = None, tool_use_id: str | None = None,
+          ledger: Path | None = None) -> Event | None:
     """Append one thing the session did. Without an id, to this session's current execution.
+
+    `ledger` names the ledger holding `execution` when it is not
+    `project_root`'s own (a workspace run, C5b).
 
     Returns None, writing nothing, when `tool_use_id` is already in the
     ledger's tail: the same call reported twice is one thing the session did.
@@ -315,7 +319,7 @@ def event(project_root: str | Path, execution: str | None = None, *, kind: str,
         raise ValueError(f"source must be one of {', '.join(SOURCES)}; got {source!r}")
     if status is not None and status not in STATUSES:
         raise ValueError(f"status must be one of {', '.join(STATUSES)}; got {status!r}")
-    ledger = path_for(project_root)
+    ledger = Path(ledger) if ledger and execution else path_for(project_root)
     if not execution:
         found = current(project_root, session)
         if found is None:
@@ -334,6 +338,50 @@ def event(project_root: str | Path, execution: str | None = None, *, kind: str,
                                    if v is not None or k in _BASE_EVENT_FIELDS}}
     _append(ledger, line)
     return entry
+
+
+# What EOS records when one of its own commands writes a note: the agent of the
+# change, as `edit`/`write`/`bash` are for the hooks' `changed` events (E1).
+MEMORY_TOOL = "eos"
+
+
+def note_written(project_root: str | Path, path: str | Path, *, action: str,
+                 session: str | None = None, found: tuple[str, Path] | None = None) -> Event | None:
+    """A note an EOS command wrote, as a `changed` event on the calling
+    session's open run; None, writing nothing, when there is no such run.
+
+    The editor hooks see only the harness's Edit/Write calls, so a note
+    `eos note add` wrote was a file the run's commits touched that no event
+    named -- most of them, measured on the host (E1). The run is found the way
+    `eos verify` and the shell helper find it (`current`, through the session
+    pointer); `found` passes it in when the caller already holds it. The ref
+    is relative to the run's own project, which in a workspace can be another
+    project than the one whose store holds the note (C5b, ADR-035): there a
+    note outside that project is named by its absolute path, as the editor
+    hook names a file outside the project. Never raises: the note is written
+    either way, and the timeline line is a convenience.
+    """
+    try:
+        found = found or current(project_root, session)
+        if found is None:
+            return None
+        execution, ledger = found
+        run_root = (_root_of(Path(ledger)) or Path(project_root)).expanduser().resolve()
+        written = Path(path).expanduser().resolve()
+        try:
+            ref = written.relative_to(run_root).as_posix()
+        except ValueError:
+            ref = str(written)
+        return event(run_root, execution, ledger=Path(ledger), kind="changed", tool=MEMORY_TOOL, ref=ref,
+                     body=action, session=session, source="cli", status="ok")
+    except (ValueError, OSError):
+        return None
+
+
+def is_memory_write(entry: Event) -> bool:
+    """A note EOS wrote (`note_written`): memory about the work, not the work --
+    no check is owed for it and no procedure scope is expected to cover it."""
+    return entry.kind == "changed" and entry.tool == MEMORY_TOOL and entry.source == "cli"
 
 
 def recorded(ledger: Path, tool_use_id: str) -> bool:
@@ -360,6 +408,8 @@ def outcome_source(project_root: str | Path, record: Record | None) -> tuple[str
         return _success_source(project_root, record)
     events = []
     for entry in record.events:
+        if is_memory_write(entry):
+            continue
         if entry.kind == "changed" and entry.ref:
             events.append(("changed", entry.ref))
         elif entry.kind == "verified" and entry.tool == "verify" and entry.ref:
@@ -387,9 +437,11 @@ def _success_source(project_root: str | Path, record: Record) -> tuple[str | Non
     if not wanted:
         return None, []
     # Only what ran after the run's last change, as the check it names: an early
-    # `git status` is not a later `git log` (review 12).
-    changes = [n for n, e in enumerate(record.events) if e.kind == "changed"]
-    after = record.events[changes[-1] + 1:] if changes else record.events
+    # `git status` is not a later `git log` (review 12). A note EOS wrote is no
+    # change a check is owed for (E1).
+    events = [e for e in record.events if not is_memory_write(e)]
+    changes = [n for n, e in enumerate(events) if e.kind == "changed"]
+    after = events[changes[-1] + 1:] if changes else events
     passed = {(normalize_tool(e.tool), ((e.ref or e.body or "").split() or [None])[0]) for e in after
               if e.tool and e.exit_code in (0, None) and e.status not in ("failed", "error")}
     left = [f"success: {tool} {verb}".rstrip() if verb else f"success: {tool}" for tool, verb in wanted
@@ -487,8 +539,10 @@ def finish(project_root: str | Path, execution: str | None = None, *, outcome: s
     if outcome == "failed" and has_lesson:
         # Written before the finish line: if the note cannot be written, the
         # run stays open rather than finished with its lesson lost.
-        _write_lesson(project_root, existing or Record(id=execution, title=execution),
-                      lesson, next_time)
+        written = _write_lesson(project_root, existing or Record(id=execution, title=execution),
+                                lesson, next_time)
+        note_written(project_root, written, action="run finish", found=(execution, ledger),
+                     session=existing.session)
     source, _ = outcome_source(project_root, existing) if outcome == "ok" else (None, [])
     commit, _ = work.git_head(project_root)
     at = utc_now()
@@ -876,7 +930,8 @@ class ToolUse:
 def tools(project_root: str | Path, *, procedure: str | None = None,
           target: str | None = None, records: list[Record] | None = None) -> list[ToolUse]:
     """Which tools ran, how often, how often they exited non-zero, and the
-    outcome of the most recent run each was part of -- most used first."""
+    outcome of the most recent run each was part of -- most used first. A
+    note EOS wrote (`is_memory_write`) is no tool the run used."""
     found = records if records is not None else load(project_root)
     wanted = normalize_target(target)
     usage: dict[str, ToolUse] = {}
@@ -887,7 +942,7 @@ def tools(project_root: str | Path, *, procedure: str | None = None,
         for e in record.events:
             tool = normalize_tool(e.tool)
             event_target = normalize_target(e.target) or normalize_target(record.target)
-            if not tool or (wanted and event_target != wanted):
+            if not tool or is_memory_write(e) or (wanted and event_target != wanted):
                 continue
             use = usage.setdefault(tool, ToolUse(tool=tool))
             use.count += 1

@@ -456,8 +456,9 @@ def test_the_index_holds_executions_and_their_timeline_and_finds_them_by_title(p
                             (run.id,)).fetchall()
     conn.close()
 
-    assert row == ("failed", "staging", 2, "The image came from the wrong branch")
-    assert [t[0] for t in timeline] == ["build", "deploy"]
+    # The third event is the lesson note the failed finish wrote (E1).
+    assert row == ("failed", "staging", 3, "The image came from the wrong branch")
+    assert [t[0] for t in timeline] == ["build", "deploy", "eos"]
     _, hits = index.search(db, "wallet wrong branch")
     assert ("execution", run.id) in {(h[0], h[1]) for h in hits}
 
