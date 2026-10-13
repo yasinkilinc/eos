@@ -412,6 +412,9 @@ def main(argv: list[str] | None = None) -> int:
                             "lint, notes that read alike, stale notes and work (changes nothing)")
     add_path(consolidate_p)
     consolidate_p.add_argument("--format", choices=("text", "json"), default="text")
+    consolidate_p.add_argument("--accept", default=None, metavar="ID",
+                               help="Record that a person took this proposal (its id from the report); "
+                                    "writes .eos/data/consolidate-accepted.jsonl, never the config")
     brief_p = sub.add_parser(
         "brief", help="What a session needs before it starts: in flight, and known here")
     add_path(brief_p)
