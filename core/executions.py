@@ -174,23 +174,57 @@ def current(project_root: str | Path | None = None, session: str | None = None
     return execution, Path(path)
 
 
+def _earlier(pointer: Path) -> Path:
+    """The runs a session opened before its current one, oldest first, one
+    `<execution>\\t<ledger>` line each -- beside the pointer, never in it: the
+    shell helper reads the pointer's first line and nothing else."""
+    return pointer.with_name(pointer.name + ".earlier")
+
+
 def _write_pointer(session: str, execution: str, ledger: Path) -> None:
     target = _pointer(session)
     try:
         from core.lib import atomic
 
+        try:
+            previous = target.read_text(encoding="utf-8").strip()
+        except OSError:
+            previous = ""
+        if previous and previous.split("\t", 1)[0] != execution:
+            # A run opened inside another one does not end the first (E1).
+            with open(_earlier(target), "a", encoding="utf-8") as handle:
+                handle.write(previous + "\n")
         atomic.write_text(target, f"{execution}\t{ledger}\n")
     except OSError:
         pass  # capture falls back to explicit ids; recording itself never fails on this
 
 
 def _clear_pointer(session: str | None, execution: str) -> None:
+    """Point the session back at the latest run it opened earlier that is still
+    open, or at nothing. Removing the pointer outright left a session's first
+    run open with nothing recording into it once a second run had come and
+    gone (E1, measured on the host)."""
     if not session:
         return
     target = _pointer(session)
     try:
-        if target.read_text(encoding="utf-8").split("\t", 1)[0].strip() == execution:
-            target.unlink()
+        if target.read_text(encoding="utf-8").split("\t", 1)[0].strip() != execution:
+            return
+        earlier = _earlier(target)
+        try:
+            stack = [line for line in earlier.read_text(encoding="utf-8").splitlines() if "\t" in line]
+        except OSError:
+            stack = []
+        while stack:
+            previous, _, ledger = stack.pop().partition("\t")
+            if previous != execution and _open_in(Path(ledger), previous):
+                from core.lib import atomic
+
+                atomic.write_text(target, f"{previous}\t{ledger}\n")
+                atomic.write_text(earlier, "".join(line + "\n" for line in stack))
+                return
+        target.unlink()
+        earlier.unlink(missing_ok=True)
     except OSError:
         pass
 
