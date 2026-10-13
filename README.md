@@ -39,6 +39,33 @@ canonical `core/` runtime to `~/.local/share/eos/<version>/` and installs an
 executable launcher under `~/.local/bin/eos`. Override the locations with
 `EOS_INSTALL_PREFIX`, `EOS_DATA_DIR`, `EOS_BIN_DIR`, or `EOS_PYTHON`.
 
+## What changed in 2.0
+
+2.0 closes the 2.x roadmap's open rows (`docs/roadmap/2x-progress.md`, "What is
+left of §17"); 1.19 to 1.42 are listed per release in `docs/roadmap/2x-adoption.md`.
+
+- **The session note budget is a hard cap.** Bodies and digest titles stop at
+  3,600 tokens, the "notes withheld" pointers draw on the rest of the 4,000;
+  before, titles and pointers kept arriving after the bodies were cut. Hook
+  telemetry now counts the text the model reads, not the JSON envelope.
+- **Action capture, measured as the roadmap defines it** (E1): `eos consolidate`
+  prints `ACTION CAPTURE` -- of the editor actions and wrapper calls in the last
+  20 sessions made while a run was open, how many reached the ledger. Notes
+  written by `eos note add`/`amend`, `procedure new` and a failed finish's
+  lesson are recorded as `changed`. A run opened and closed inside another no
+  longer leaves the outer one unrecorded; a hook in a directory without `.eos`
+  falls back to the session's project; a command that only names a wrapper's
+  file (`git add <wrapper> && git commit`) records its git call.
+- **Priors from verified outcomes** (M6, ADR-036): a note read during a run that
+  finished `ok` and `verified` gains a share of that run's one point; `[notes]
+  prior_alpha` (0 to 0.2, off by default) reorders matches by it. A note read
+  inside a run is now a `read` event.
+- **Routing in `eos consolidate`** (L1): `[model_routing] corpus` names a
+  project's labelled routing corpora; consolidate prints accuracy on their
+  development rows, advised-vs-used, and keyword proposals with stable ids;
+  `eos consolidate --accept <id>` records an adopted one, and the report counts
+  the last 30 days'. Proposals are never written to config.
+
 ## What changed in 1.18
 
 - **`eos note graph`:** the note graph's size by kind; `--output <file>` writes
