@@ -85,9 +85,19 @@ def test_a_task_names_capabilities_by_their_declared_words(project):
     ("sudo -n env A=1 true", [("true", None)]),
     ("bash scripts/x.sh arg", [("x.sh", None)]),
     ("sed -i '' 's/alpha/beta/' notes.txt", [("sed", None)]),
+    ("timeout -s KILL 60 git push", [("git", "push")]),
+    ("for k in 1 2; do scripts/x.sh $k; done", [("x.sh", None)]),
+    ("if test -f a; then make; else echo no; fi", [("test", None), ("make", None), ("echo", None)]),
 ])
 def test_a_command_line_is_reduced_to_program_names(command, expected):
     assert capabilities.programs(command) == expected
+
+
+def test_a_wrapper_is_invoked_by_running_it_not_by_naming_its_file(project):
+    declared = capabilities.load(project)
+    assert [c.name for c in capabilities.invoked("timeout 9 scripts/tracker.sh issue X | head", declared)] == ["tracker"]
+    assert capabilities.invoked("git add scripts/tracker.sh && bash -n scripts/db.sh", declared) == []
+    assert capabilities.wrapper_in("git add scripts/tracker.sh", declared) is not None
 
 
 def test_only_actions_are_worth_recording():
