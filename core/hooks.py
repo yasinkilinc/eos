@@ -252,8 +252,27 @@ def main(argv: list[str] | None = None) -> int:
         except Exception:  # noqa: BLE001
             pass
     if root is not None:
-        _telemetry(root, event, started, len(output), hook.session)
+        _telemetry(root, event, started, _delivered_chars(output), hook.session)
     return 0
+
+
+def _delivered_chars(output: str) -> int:
+    """What of a hook's output the model reads: the text fields of its JSON, not
+    the envelope (keys, escaped newlines). Plain text, and a rewritten tool input,
+    count whole as before."""
+    try:
+        data = json.loads(output)
+    except ValueError:
+        return len(output)
+    if not isinstance(data, dict):
+        return len(output)
+    specific = data.get("hookSpecificOutput")
+    specific = specific if isinstance(specific, dict) else {}
+    if "updatedInput" in specific:
+        return len(output)
+    texts = [t for t in (specific.get("additionalContext"), data.get("reason"), data.get("systemMessage"))
+             if isinstance(t, str)]
+    return sum(map(len, texts)) if texts else len(output)
 
 
 def project_root(start: str | os.PathLike | None) -> Path | None:

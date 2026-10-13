@@ -41,6 +41,11 @@ MAX_DIGEST_LINES = 8
 # session, the body tier 4,481. Past these, a touched file's notes become one
 # pointer line -- nothing is hidden, only not pre-paid.
 SESSION_MAX_TOKENS = 4000
+# The cap holds over everything delivered, not only note bodies: bodies and
+# digest titles stop at BODY_MAX_TOKENS, and the withheld-pointer lines that
+# follow draw on the rest. Measured on 1.42 (20 host sessions): with bodies
+# alone capped, a context reached 4,491 tokens at p95.
+BODY_MAX_TOKENS = 3600
 SESSION_DIGEST_LINES = 24
 # A file larger than this is not hashed (a packaged jar took ~110 ms and
 # ~190 MB on its own); its notes are never marked stale on an unknown digest.
@@ -246,7 +251,8 @@ def budgeted(text: str, spent: int, digest_used: int, *, pointer: str) -> tuple[
     """`text` cut to what the session has left; (text, spent, digest lines used)."""
     if not text:
         return text, spent, digest_used
-    budget = int(SESSION_MAX_TOKENS * CHARS_PER_TOKEN)
+    hard = int(SESSION_MAX_TOKENS * CHARS_PER_TOKEN)
+    budget = int(BODY_MAX_TOKENS * CHARS_PER_TOKEN)
     blocks: list[list[str]] = []
     for part in text.split("\n\n"):
         if part.startswith("### ") or not blocks:
@@ -265,10 +271,12 @@ def budgeted(text: str, spent: int, digest_used: int, *, pointer: str) -> tuple[
             if room <= 0:
                 continue
             kept = titles[:room]
-            digest_used += len(kept)
             cut = len(titles) - len(kept)
             tail = more[:1] or ([f"- … {cut} more: " + pointer.format(path=".", words="<words>")] if cut else [])
             body = "\n".join([lines[0]] + kept + tail)
+            if spent + len(body) > budget:
+                continue
+            digest_used += len(kept)
         elif head.startswith("### Known about ") and spent + len(body) > budget:
             path = head[len("### Known about "):].strip()
             if path in pointed:
@@ -276,7 +284,10 @@ def budgeted(text: str, spent: int, digest_used: int, *, pointer: str) -> tuple[
             pointed.add(path)
             body = (f"### Known about {path}: notes withheld, this session's note budget "
                     f"({SESSION_MAX_TOKENS:,} tokens) is spent -- " + pointer.format(path=".", words=path))
-        spent += len(body)
+        cost = len(body) + (2 if out else 0)  # the blank line joining it to the block before
+        if spent + cost > hard:
+            continue
+        spent += cost
         out.append(body)
     return "\n\n".join(out), spent, digest_used
 
