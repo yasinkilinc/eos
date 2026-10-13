@@ -176,3 +176,50 @@ measurement on a labelled corpus and an addendum here naming it.
 `policy.adjust_for_history` still reads no outcome and `route --learn` still
 only prints: what a person accepts into the config is the only way history
 changes a decision.
+
+## Addendum (2026-10-13): the routing corpus is named in config; `consolidate` proposes, a person accepts (L1)
+
+`eos route --eval` was always given its corpus on the command line, so nothing
+else could find it: `eos consolidate` had no labelled rows to measure against
+and no words to propose from (`routing.jsonl` keeps no task text, ADR-019).
+
+**`[model_routing] corpus`** names one project-relative TSV in the `route
+--eval` format, or a list of them (a project that tunes on one corpus and
+guards against breaking the others names them all). It changes no decision:
+`config_hash` leaves it out, so no receipt moves, and a table that holds only
+`corpus` does not count as configuring routing -- the brief prints no ROUTE line
+for it. There is no split selector: what is read is the development rows,
+`split = dev` or no split at all (the way `route --eval` tunes a corpus without
+splits), and never a test row -- nor a development row whose prompt another
+named corpus holds for test. The test split stays the once-measured receipt
+(L5), read only by `route --eval --split test`.
+
+**What `consolidate` prints with it.** The policy's accuracy on each corpus's
+development rows, from `evaluate.run`; advised against used over the routed
+runs (`trace.advised_vs_used_outcome_stats`, the join `route --stats` and
+`route --learn` read); and keyword proposals. A proposal is a whole word of a
+mistyped development row that, added to the row's labelled type in
+`[model_routing.keywords]`, moves at least two development rows to their label
+and moves no correctly typed row off its own -- measured by classifying the
+rows again with the word added. A word any keyword table already holds is a
+contest between types, not a gap, and a word most of whose rows carry another
+label is not that type's word; neither is proposed. Stems (`word*`) are left to
+the person, who sees the inflections. `consolidate` writes no config.
+
+**Accepted is counted.** Each proposal has a stable id (`kw-` and eight hex
+digits of its type and word). `eos consolidate <path> --accept <id>` appends
+one line -- the time, the id, the proposal -- to
+`.eos/data/consolidate-accepted.jsonl`; it refuses an id no current proposal
+has and one already accepted, and writes nothing else. A person accepts before
+editing the config, because a word in the table is no longer proposed. The
+report prints how many were accepted in the last 30 days: Phase 6's "acted on
+at least once per month" is that number, read, not inferred.
+
+Routing every corpus row inside `consolidate` made one fix necessary: a
+decision that is neither reused (`fresh`) nor recorded no longer looks up the
+session's open run, which it never used. Measured on one host from inside a
+session with an open run, that lookup was a full ledger read per prompt -- 3.8 s
+for 115 rows, 0.1 s without it -- and `route --eval` gains the same. The verification
+read behind each run's `outcome_source` is skipped where only the groups are
+counted (`sources=False`). With three corpora (188 development rows) the
+routing part of `consolidate` costs that host about 0.5 s.

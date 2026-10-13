@@ -23,6 +23,10 @@ LIMIT = 5
 _SQUASH = re.compile(r"^Squashed '([^']+)' changes from")
 NEAR_DUPLICATE = 0.6          # below the add guard's 0.8: pairs worth a look, not a refusal
 OPEN_RUN_DAYS = 2
+# Proposals a person took, one line each (Phase 6: "acted on at least once per
+# month" is the count of the last ACCEPTED_DAYS, read from here).
+ACCEPTED = "consolidate-accepted.jsonl"
+ACCEPTED_DAYS = 30
 
 
 def touched_files(project_root: str | Path, commit_start: str | None,
@@ -549,6 +553,8 @@ def report(project_root: str | Path) -> dict:
         "lessons_without_evidence": lessons_without_evidence,
         "stale_index": stale_index,
         "priors": _priors(root, corpus, records),
+        "routing": _routing(root, records),
+        "accepted": accepted_counts(root, now),
     }
 
 
@@ -637,6 +643,116 @@ def render(data: dict) -> str:
         lines += ["", "STALE GENERATED ARTIFACT",
                   "  .eos/data/eos.db was built from an older snapshot of its sources",
                   "  (eos index . to rebuild)"]
+    lines += _render_routing(data, block)
     if len(lines) == 1:
         lines.append("Nothing needs attention.")
     return "\n".join(lines)
+
+
+# --- the routing corpus and accepted proposals (L1, ADR-025 addendum) -------------------
+
+
+def _routing(root: Path, records) -> dict | None:
+    """Accuracy on the configured corpus's development rows, advised vs used,
+    keyword proposals; None without `[model_routing] corpus`."""
+    from core.routing import corpus
+
+    return corpus.report(root, records=records)
+
+
+def _accepted_path(project_root: str | Path) -> Path:
+    return Path(project_root).expanduser().resolve() / ".eos" / "data" / ACCEPTED
+
+
+def _accepted(project_root: str | Path) -> list[dict]:
+    """Every readable line; a torn one costs itself, never the others."""
+    import json
+
+    try:
+        text = _accepted_path(project_root).read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return []
+    entries = []
+    for line in text.splitlines():
+        try:
+            entry = json.loads(line)
+        except ValueError:
+            continue
+        if isinstance(entry, dict) and entry.get("id"):
+            entries.append(entry)
+    return entries
+
+
+def accepted_counts(project_root: str | Path, now: datetime.datetime | None = None) -> dict:
+    now = now or datetime.datetime.now(datetime.timezone.utc)
+    entries = _accepted(project_root)
+    recent = 0
+    for entry in entries:
+        try:
+            at = datetime.datetime.fromisoformat(str(entry.get("at")))
+        except ValueError:
+            continue
+        if at.tzinfo is None:
+            at = at.replace(tzinfo=datetime.timezone.utc)
+        recent += int((now - at).days < ACCEPTED_DAYS)
+    return {"last_30_days": recent, "total": len(entries)}
+
+
+def accept(project_root: str | Path, proposal_id: str) -> dict:
+    """Record that a person accepted a current proposal; writes nothing else.
+
+    ValueError for an id no current proposal has, or one already accepted."""
+    import json
+
+    from core.knowledge.evidence import utc_now
+    from core.lib import lock
+    from core.routing import corpus
+
+    if any(entry["id"] == proposal_id for entry in _accepted(project_root)):
+        raise ValueError(f"{proposal_id} was already accepted")
+    found = next((p for p in corpus.proposals(project_root) if p["id"] == proposal_id), None)
+    if found is None:
+        raise ValueError(f"{proposal_id}: no current proposal has this id (eos consolidate <path> lists "
+                         "them; accept one before writing it into the config, where it stops being proposed)")
+    entry = {"at": utc_now(), "id": proposal_id, "proposal": corpus.describe(found)}
+    target = _accepted_path(project_root)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    with lock.locked(target):
+        with open(target, "a", encoding="utf-8") as handle:
+            handle.write(json.dumps(entry, ensure_ascii=False) + "\n")
+    return entry
+
+
+def _render_routing(data: dict, block) -> list[str]:
+    from core.routing import corpus
+
+    found = data.get("routing")
+    accepted = data.get("accepted") or {}
+    lines: list[str] = []
+    if found:
+        lines += ["", "ROUTING VS CORPUS (development rows; the test split is never read)"]
+        for entry in found["corpora"]:
+            if entry["error"]:
+                lines.append(f"  {entry['path']}  cannot read: {entry['error']}")
+                continue
+            accuracy = entry["accuracy"] or {}
+            parts = [f"{column} {accuracy[column]:.1%}" for column in ("type", "level", "model", "effort")
+                     if accuracy.get(column) is not None]
+            lines.append(f"  {entry['path']}  {entry['prompts']} dev prompts" + "".join(f"  {p}" for p in parts))
+        avu = found["advised_vs_used"]
+        total = sum(avu.values())
+        lines += ["", f"ADVISED VS USED  {total} routed run(s): {avu['same']} on the advised model, "
+                      f"{avu['different']} on another, {avu['unknown']} unknown (eos route . --stats)"]
+        proposals = [f"{p['id']}  {corpus.describe(p)}  moves {p['fixes']} mistyped dev rows to their label, "
+                     f"breaks none ({p['rows']} rows hold it)" for p in found["proposals"]]
+        if proposals:
+            lines += block("KEYWORD PROPOSALS", proposals,
+                           "for [model_routing.keywords]; nothing was written. A person who takes one: "
+                           "eos consolidate . --accept <id>")
+        else:
+            lines += ["", f"KEYWORD PROPOSALS  none: no word moves {corpus.MIN_FIXED} mistyped dev rows "
+                          "to their label without breaking one"]
+    if found or accepted.get("total"):
+        lines += ["", f"ACCEPTED PROPOSALS  {accepted.get('last_30_days', 0)} in the last {ACCEPTED_DAYS} days "
+                      f"({accepted.get('total', 0)} in all)"]
+    return lines

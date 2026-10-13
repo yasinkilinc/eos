@@ -268,3 +268,17 @@ def test_advised_vs_used_takes_the_runs_latest_decision(project):
 
     [row] = trace.advised_vs_used_outcome(project)
     assert row["advised_model"] == decision.model == "opus"
+
+
+def test_a_fresh_unrecorded_decision_never_reads_the_run_ledger(project, monkeypatch):
+    """`route --eval` and `consolidate` route a whole corpus this way: on a host whose
+    session had an open run, finding it cost a full ledger read per prompt (~45 ms),
+    for a decision that is neither reused nor recorded on that run."""
+    executions.start(project, "some task", session="s1")
+
+    def no_lookup(*_args, **_kwargs):
+        raise AssertionError("the open run was looked up")
+
+    monkeypatch.setattr(routing, "_open_run", no_lookup)
+    decision = routing.route(project, "fix the typo", session="s1", record=False, fresh=True)
+    assert decision.execution is None and not decision.reused

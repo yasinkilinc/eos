@@ -21,7 +21,7 @@ TABLE = "model_routing"
 BRIEF_MODES = ("with-brief", "always", "never")
 _KEYS = ("enabled", "default_model", "default_effort", "default_task_type", "brief", "hook",
          "hook_dry_run", "hook_min_confidence", "record_prompts", "models", "keywords", "rules",
-         "factors")
+         "factors", "corpus")
 # A stem (`word*`) shorter than this matches too much to mean anything.
 MIN_STEM = 3
 
@@ -50,6 +50,9 @@ class RoutingConfig:
     keywords: dict = dataclasses.field(default_factory=dict)
     rules: dict = dataclasses.field(default_factory=dict)
     factors: dict = dataclasses.field(default_factory=dict)
+    # Project-relative TSVs in the `route --eval` format. Read by `consolidate`
+    # (dev rows only); never part of a decision (ADR-025 addendum, L1).
+    corpus: tuple = ()
 
 
 def config_path(project_root: str | Path) -> Path:
@@ -118,12 +121,30 @@ def parse(table: object) -> RoutingConfig:
     rules = _word_table(table.get("rules", {}), "rules", RULE_LISTS, "rule list")
     factors = _word_table(table.get("factors", {}), "factors", tuple(FACTOR_LISTS), "factor")
 
-    return RoutingConfig(configured=True, enabled=enabled, default_model=default_model.strip(),
+    corpus = _corpus(table.get("corpus", ()))
+    # Naming where the labels live is not asking for routing: a table holding
+    # only `corpus` keeps the brief's ROUTE line off.
+    configured = set(table) != {"corpus"}
+    return RoutingConfig(configured=configured, enabled=enabled, default_model=default_model.strip(),
                          default_effort=default_effort, default_task_type=default_task_type,
                          brief=brief, hook=hook,
                          hook_dry_run=hook_dry_run, hook_min_confidence=float(hook_min_confidence),
                          record_prompts=record_prompts, models=dict(models), keywords=cleaned,
-                         rules=rules, factors=factors)
+                         rules=rules, factors=factors, corpus=corpus)
+
+
+def _corpus(value: object) -> tuple[str, ...]:
+    """`corpus`: one project-relative path, or a list of them."""
+    from pathlib import PurePosixPath
+
+    paths = [value] if isinstance(value, str) else value
+    if not isinstance(paths, (list, tuple)) or not all(isinstance(p, str) and p.strip() for p in paths):
+        raise ValueError(f"[{TABLE}] corpus must be a project-relative path or a list of them")
+    for path in paths:
+        pure = PurePosixPath(path.strip())
+        if pure.is_absolute() or ".." in pure.parts:
+            raise ValueError(f"[{TABLE}] corpus {path!r} must be a path inside the project")
+    return tuple(path.strip() for path in paths)
 
 
 def _word_table(value: object, name: str, allowed: tuple[str, ...], what: str) -> dict:

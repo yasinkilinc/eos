@@ -56,7 +56,9 @@ def route(project_root: str | Path | None, task: str, *, files=(), session: str 
     cfg = config.load(project_root)
     models = registry.load(project_root, cfg)
 
-    run = _open_run(project_root, session)
+    # A decision neither reused (`fresh`) nor recorded has no run to belong to;
+    # finding one is a full ledger read per call (`route --eval`, `consolidate`).
+    run = None if fresh and not record else _open_run(project_root, session)
     if run is not None and not fresh and model is None and effort is None:
         previous = _decided(run, models)
         if previous is not None:

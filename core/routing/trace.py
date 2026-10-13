@@ -194,7 +194,8 @@ def advised_vs_used(project_root: str | Path) -> list[dict]:
     return rows
 
 
-def advised_vs_used_outcome(project_root: str | Path) -> list[dict]:
+def advised_vs_used_outcome(project_root: str | Path, records: list | None = None,
+                            sources: bool = True) -> list[dict]:
     """Per run whose routing decision is recorded (a `decided` event, ADR-022):
     the model advised for it against the model its session actually ran, and
     the run's own outcome (2.x roadmap N5).
@@ -206,13 +207,17 @@ def advised_vs_used_outcome(project_root: str | Path) -> list[dict]:
     model is chosen by the harness rather than by this decision. A session
     with no usage line at all leaves `used_model` None ("unknown" -- never
     guessed as a match or a mismatch).
+
+    `records` is the ledger already loaded; `sources=False` leaves
+    `outcome_source` None, for a caller that only counts the groups
+    (`consolidate`): the verification read behind it costs ~35 ms per ok run.
     """
     from core import executions
     from core.routing import usage
 
     usage_by_session = {line["session"]: line for line in usage.load(project_root) if line.get("session")}
     rows = []
-    for record in executions.load(project_root):
+    for record in records if records is not None else executions.load(project_root):
         # The run's live decision is the latest one recorded, matching
         # `core.routing._decided`: a later explicit --model or --fresh call
         # appends rather than replaces, and is the one later calls in the run
@@ -233,7 +238,7 @@ def advised_vs_used_outcome(project_root: str | Path) -> list[dict]:
             if tally:
                 used_model = max(tally, key=lambda model_id: tally[model_id].get("messages", 0))
         outcome_source = None
-        if record.outcome == "ok":
+        if sources and record.outcome == "ok":
             outcome_source, _ = executions.outcome_source(project_root, record)
         rows.append({
             "execution": record.id, "session": session, "advised_model": advised_model,
@@ -244,7 +249,8 @@ def advised_vs_used_outcome(project_root: str | Path) -> list[dict]:
     return rows
 
 
-def advised_vs_used_outcome_stats(project_root: str | Path) -> dict:
+def advised_vs_used_outcome_stats(project_root: str | Path, records: list | None = None,
+                                  sources: bool = True) -> dict:
     """`advised_vs_used_outcome` grouped into advised == used, advised != used
     and unknown (no used model in the data) -- what `eos route --stats` prints.
 
@@ -264,7 +270,7 @@ def advised_vs_used_outcome_stats(project_root: str | Path) -> dict:
         return spec.id if spec is not None else model_id
 
     groups: dict[str, list[dict]] = {"same": [], "different": [], "unknown": []}
-    for row in advised_vs_used_outcome(project_root):
+    for row in advised_vs_used_outcome(project_root, records=records, sources=sources):
         if row["used_model"] is None:
             groups["unknown"].append(row)
         elif family(row["used_model"]) == family(row["advised_model"]):

@@ -560,6 +560,18 @@ def cmd_consolidate(args: argparse.Namespace) -> int:
     """What needs a person's attention in this project's memory; changes nothing (2.x roadmap L1)."""
     from core import consolidate
 
+    if args.accept:
+        try:
+            entry = consolidate.accept(args.path, args.accept)
+        except ValueError as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            return 2
+        except OSError as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            return 1
+        print(f"accepted {entry['id']}: {entry['proposal']} -- recorded in .eos/data/{consolidate.ACCEPTED}; "
+              "the config is yours to edit, nothing else was changed")
+        return 0
     try:
         data = consolidate.report(args.path)
     except (OSError, ValueError) as exc:  # a malformed config.toml is a TOMLDecodeError, a ValueError
