@@ -166,3 +166,16 @@ def test_relocate_rewrites_commands_not_prose():
     assert out.splitlines()[0] == "EOS brief — ../svc @ main"
     assert 'eos note show ../svc "<title>"' in out and "eos work list ../svc" in out
     assert "eos run finish ../svc <id>" in out and out.endswith("ending with eos.")
+
+
+def test_reading_a_projects_note_from_the_workspace_root_names_the_note(ws, monkeypatch, capsys):
+    """M6: the host's sessions stand at the root and read every store's notes."""
+    tmp_path, hub = ws
+    service = tmp_path / "services" / "order-capture"
+    _note(service, "20260901-wallet.md", "Wallet top-up limits", "Body.")
+    executions.start(hub, "a run", session="s-read")
+    _hook(monkeypatch, capsys, "post-tool", {"session_id": "s-read", "cwd": str(hub), "tool_name": "Read",
+                                             "tool_use_id": "t1", "tool_input": {
+                                                 "file_path": str(service / ".eos" / "knowledge" / "20260901-wallet.md")}})
+    [record] = executions.load(hub)
+    assert [(e.kind, e.ref) for e in record.events] == [("read", "note:20260901-wallet.md")]

@@ -465,6 +465,21 @@ def _record(root: Path, hook: Hook, found, **fields) -> bool:
     return entry is not None
 
 
+def _record_note_reads(root: Path, hook: Hook, run, paths: list[str]) -> None:
+    """A `read` event per note file the call read (M6, ADR-036): what a prior
+    from this run's outcome is split across."""
+    from core import priors
+
+    try:
+        names = priors.note_files(root, paths, hook.cwd or root)
+    except Exception:  # noqa: BLE001 - capture never fails the session
+        return
+    for name in names[:MAX_PROGRAMS]:
+        ref = priors.note_ref(name)
+        _record(root, hook, run, kind="read", ref=ref, status="ok",
+                tool_use_id=f"{hook.tool_use_id}:{ref}" if hook.tool_use_id else None)
+
+
 def _relative(root: Path, path: str) -> str | None:
     """A path the ledger may hold: project-relative, or absolute outside any temp dir."""
     if not path:
@@ -1001,6 +1016,8 @@ def _post_tool(root: Path, hook: Hook, cfg: dict, agent: str | None, failed: boo
     if hook.tool == "Read":
         if main_session and not failed:
             _watch(hook.session, str(hook.tool_input.get("file_path") or ""))
+        if run is not None and not failed:
+            _record_note_reads(root, hook, run, [str(hook.tool_input.get("file_path") or "")])
         return ""
     if hook.tool in EDIT_TOOLS:
         path = str(hook.tool_input.get("file_path") or hook.tool_input.get("notebook_path") or "")
@@ -1065,6 +1082,10 @@ def _post_tool(root: Path, hook: Hook, cfg: dict, agent: str | None, failed: boo
             _note_state(hook.session, hint="verify-form", actor=hook.actor)
             hints.append(form)
     output = _context(event_name, "\n".join(hints)) if hints else ""
+    if run is not None and not failed:
+        from core import priors
+
+        _record_note_reads(root, hook, run, priors.paths_in_command(command))
     if run is None or capabilities.wrapper_in(command, declared) is not None:
         # A registered wrapper records its own call (eos-event); counting it
         # here as well would make every wrapper call look like two.

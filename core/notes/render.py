@@ -215,19 +215,27 @@ def search_notes(project_root: str | Path, query: str, limit: int | None = None,
                  generated: bool = False) -> list[Note]:
     """Notes relevant to `query`, most relevant first, with the project's synonym
     groups; `generated` ranks the generator notes with them (M3)."""
+    from core import priors
+
     corpus = (load_notes(project_root) + shared_notes(project_root)
               + (load_generated(project_root) if generated else []))
-    return rank(corpus, query, limit, synonyms=note_synonyms(project_root))
+    found, alpha = priors.for_search(project_root, corpus)
+    return rank(corpus, query, limit, synonyms=note_synonyms(project_root), priors=found, alpha=alpha)
 
 
 def rank(corpus: list[Note], query: str, limit: int | None = None,
-         *, synonyms: object = None) -> list[Note]:
+         *, synonyms: object = None, priors: dict[str, int] | None = None,
+         alpha: float = 0.0) -> list[Note]:
     """The one note scorer (2.x roadmap F3): `corpus` ranked against `query`.
 
     `search_notes` passes one project's notes; a host searching several stores
     passes their union, so word weights are computed over what is searched.
     `synonyms` is a list of word groups (`[notes] synonyms`); without it a
     query is matched on its own words only.
+
+    `priors` (note file name -> 0..100, `core.priors`) adds `alpha * prior / 100`
+    to a note that already matched (M6, ADR-036): the threshold and the floor
+    read relevance alone, so a prior reorders the matches and never makes one.
     """
     canon = synonym_groups(synonyms) if synonyms else {}
     query_words = canonical_words(_words(query), canon)
@@ -246,6 +254,9 @@ def rank(corpus: list[Note], query: str, limit: int | None = None,
     if matches:
         floor = matches[0][0] * SCORE_FLOOR
         matches = [pair for pair in matches if pair[0] >= floor]
+    if priors and alpha > 0:
+        matches.sort(key=lambda pair: (-(pair[0] + alpha * priors.get(pair[1].path.name, 0) / 100),
+                                       pair[1].path.name))
     ranked = [note for _, note in matches]
     return ranked[:limit] if limit else ranked
 

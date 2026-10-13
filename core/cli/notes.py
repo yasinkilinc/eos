@@ -141,7 +141,20 @@ def cmd_note_show(args: argparse.Namespace) -> int:
         print(f"Superseded by {', '.join(replacements)} -- read that; this is the record of what was believed "
               "before.\n")
     print(matches[0].path.read_text(encoding="utf-8"))
+    _record_read(args.path, matches[0])
     return 0
+
+
+def _record_read(project_root, note) -> None:
+    """A `read` event on the session's open run, if it has one (M6, ADR-036)."""
+    from core import executions, priors
+
+    try:
+        if executions.current(project_root) is not None:
+            executions.event(project_root, None, kind="read", ref=priors.note_ref(note.path.name),
+                             source="cli", status="ok")
+    except (ValueError, OSError):
+        pass  # recording what was read never fails the read
 
 
 def cmd_note_related(args: argparse.Namespace) -> int:

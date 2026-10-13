@@ -548,7 +548,20 @@ def report(project_root: str | Path) -> dict:
         "change_capture": capture,
         "lessons_without_evidence": lessons_without_evidence,
         "stale_index": stale_index,
+        "priors": _priors(root, corpus, records),
     }
+
+
+def _priors(root: Path, corpus, records) -> dict:
+    """The priors the ledger gives today (M6, ADR-036), from the runs already read."""
+    from core import priors
+
+    fold = priors.fold_records(records, corpus)
+    titles = {note.path.name: note.title for note in corpus}
+    top = sorted(fold.values.items(), key=lambda item: (-item[1], item[0]))[:LIMIT]
+    return {"runs": fold.runs, "notes": len(fold.values), "points": sum(fold.values.values()),
+            "alpha": priors.alpha(root),
+            "top": [(value, titles.get(name, name)) for name, value in top]}
 
 
 def _silent_steps(root: Path, records) -> dict:
@@ -613,6 +626,13 @@ def render(data: dict) -> str:
                       f"({honest.show(capture['share'], spec='.0%')}) over {capture['runs_with_commits']} "
                       f"runs with commits; {capture['runs_unmeasurable']} runs unmeasurable "
                       f"({capture.get('runs_unmeasurable_no_hook_events', 0)} without hook events)"]
+    prior = data.get("priors") or {}
+    if prior.get("runs"):
+        state = "on" if prior["alpha"] else "off"
+        lines += ["", f"PRIORS  {prior['points']} points from {prior['runs']} verified "
+                      f"runs over {prior['notes']} note{'s' if prior['notes'] != 1 else ''} "
+                      f"(prior_alpha {prior['alpha']}: {state} in search)"]
+        lines += [f"  {value}  {title}" for value, title in prior["top"]]
     if data.get("stale_index"):
         lines += ["", "STALE GENERATED ARTIFACT",
                   "  .eos/data/eos.db was built from an older snapshot of its sources",

@@ -980,3 +980,59 @@ def test_a_gate_on_a_key_with_a_bar_is_answered_by_its_pass(project, monkeypatch
     _hook(monkeypatch, capsys, "session-end", _payload(project, reason="other"))
     entry = json.loads((project / ".eos" / "data" / "sessions.jsonl").read_text().splitlines()[-1])
     assert entry["verify_gates"] == 1 and entry["verify_after_gate"] == 1
+
+
+# --- note reads (2.x roadmap M6, ADR-036) -------------------------------------------
+
+
+def _store_note(root, name="20260901-a-note.md"):
+    store = root / ".eos" / "knowledge"
+    store.mkdir(parents=True, exist_ok=True)
+    (store / name).write_text("---\nkind: finding\ntitle: A note\ncreated: 2026-09-01\n---\n\nBody.\n",
+                              encoding="utf-8")
+    return store / name
+
+
+def test_reading_a_note_file_is_a_read_event_naming_the_note(project, monkeypatch, capsys):
+    note = _store_note(project)
+    _open_run(project)
+    _hook(monkeypatch, capsys, "post-tool", _payload(
+        project, tool_name="Read", tool_input={"file_path": str(note)}, tool_use_id="t1"))
+    [event] = _events(project)
+    # No tool: a note read is not a tool the run used, and must not satisfy a
+    # procedure's Success check or sit on a step (ADR-031) by its name.
+    assert (event.kind, event.tool, event.ref) == ("read", None, f"note:{note.name}")
+
+
+def test_reading_a_file_that_is_not_a_note_records_nothing(project, monkeypatch, capsys):
+    (project / "src").mkdir()
+    (project / "src" / "README.md").write_text("# not a note\n", encoding="utf-8")
+    _open_run(project)
+    _hook(monkeypatch, capsys, "post-tool", _payload(
+        project, tool_name="Read", tool_input={"file_path": str(project / "src" / "README.md")}, tool_use_id="t1"))
+    assert _events(project) == []
+
+
+def test_a_shell_command_printing_a_note_is_a_read_event(project, monkeypatch, capsys):
+    note = _store_note(project)
+    _open_run(project)
+    _hook(monkeypatch, capsys, "post-tool", _payload(
+        project, tool_name="Bash", tool_input={"command": f"cat .eos/knowledge/{note.name} | head -40"},
+        tool_use_id="t1"))
+    assert [(e.kind, e.ref) for e in _events(project)] == [("read", f"note:{note.name}")]
+
+
+def test_a_note_read_without_an_open_run_records_nothing(project, monkeypatch, capsys):
+    note = _store_note(project)
+    _hook(monkeypatch, capsys, "post-tool", _payload(
+        project, tool_name="Read", tool_input={"file_path": str(note)}, tool_use_id="t1"))
+    assert executions.load(project) == []
+
+
+def test_the_same_note_read_reported_twice_is_one_event(project, monkeypatch, capsys):
+    note = _store_note(project)
+    _open_run(project)
+    payload = _payload(project, tool_name="Bash", tool_input={"command": f"cat {note}"}, tool_use_id="t1")
+    _hook(monkeypatch, capsys, "post-tool", payload)
+    _hook(monkeypatch, capsys, "post-tool", payload)
+    assert [(e.kind, e.ref) for e in _events(project)] == [("read", f"note:{note.name}")]
