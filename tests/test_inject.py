@@ -265,8 +265,35 @@ def test_the_session_budget_holds_across_touches():
         titles += sum(1 for line in out.splitlines() if line.startswith("- Title"))
     assert titles == inject.SESSION_DIGEST_LINES
     big = "### Known about src/A.java\nTitle\n\n" + "x" * 4000
-    spent = int(inject.SESSION_MAX_TOKENS * inject.CHARS_PER_TOKEN) - 100
+    spent = int(inject.BODY_MAX_TOKENS * inject.CHARS_PER_TOKEN) - 100
     out, _, _ = inject.budgeted(big + "\n\n" + big, spent, 0, pointer=pointer)
     assert out.count("notes withheld") == 1 and "xxxx" not in out
     assert 'eos note search . "src/A.java"' in out
     assert inject.budgeted(big, 0, 0, pointer=pointer)[0] == big
+
+
+def test_the_session_budget_is_a_hard_cap_over_every_block():
+    # Measured on 1.42 over 20 host sessions: the budget cut note bodies only, so
+    # digest titles and one withheld-pointer per new path kept arriving after it
+    # was spent -- 4,491 tokens at p95 per context against 4,000.
+    pointer = 'eos note search {path} "{words}"'
+    hard = int(inject.SESSION_MAX_TOKENS * inject.CHARS_PER_TOKEN)
+    spent, used, delivered, pointers = 0, 0, 0, 0
+    for n in range(80):
+        text = (f"### Other notes on svc-{n}\n- Title {n}\n\n"
+                f"### Known about src/pkg{n}/File{n}.java\nTitle {n}\n\n" + "x" * 900)
+        out, spent, used = inject.budgeted(text, spent, used, pointer=pointer)
+        delivered += len(out)
+        pointers += out.count("notes withheld")
+    assert delivered <= hard and spent <= hard
+    assert pointers >= 1  # the reserve still says where the rest is
+
+
+def test_hook_telemetry_counts_the_text_the_model_reads(ws, monkeypatch, capsys):
+    # The JSON envelope (keys, escaped newlines) never reaches the model; counting
+    # it made every hook's tokens read high.
+    _, hub, svc = ws
+    seen = []
+    monkeypatch.setattr(hooks, "_telemetry", lambda root, event, started, chars, session: seen.append(chars))
+    text = _touch(monkeypatch, capsys, hub, "s-tel", svc / "src" / "pkg" / "Foo.java")
+    assert text and seen == [len(text)]
