@@ -107,8 +107,10 @@ MAX_WATCHED = 64
 MAX_KEPT_FILES = 12
 _RUN_FINISH = re.compile(r"(?<![\w-])eos\s+run\s+finish\b")
 # The harness delivers its own notices through the prompt event.
-_NOTICE_MARKS = ("[SYSTEM NOTIFICATION", "<task-notification>", "<system-reminder>",
-                 "<local-command-caveat>", "<command-name>")
+# A tag may carry attributes (`<system-reminder id=…>`), so the mark is the
+# tag name; a subagent's hand-back arrives as `<agent-message from=…>`.
+_NOTICE_MARKS = ("[SYSTEM NOTIFICATION", "<task-notification", "<system-reminder",
+                 "<agent-message", "<local-command-caveat", "<command-name")
 _EXIT = re.compile(r"exit code (-?\d+)", re.I)
 # A reference a subagent's answer can be checked against: path:line, a
 # markdown link to a line, a note, a run id.

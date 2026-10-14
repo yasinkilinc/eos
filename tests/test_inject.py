@@ -72,15 +72,31 @@ def test_an_instruction_file_injects_nothing(ws, monkeypatch, capsys):
     assert _touch(monkeypatch, capsys, hub, "s1", hub / ".claude" / "agents" / "atlas.md") == ""
 
 
-def test_the_digest_is_capped_near_first_then_newest_agents_md_last(ws, monkeypatch, capsys):
+def test_the_digest_lists_only_notes_scoped_into_the_touched_folder(ws, monkeypatch, capsys):
+    """Notes scoped elsewhere in the project were listed too: on a 590-note
+    workspace every Read brought ~1.2k characters of unrelated titles (661
+    times in 272 sessions, measured 2026-10-14)."""
     _, hub, svc = ws
     text = _touch(monkeypatch, capsys, hub, "s2", svc / "src" / "pkg" / "Foo.java")
-    lines = [line for line in text.splitlines() if line.startswith("- ") and "more on svc-a" not in line]
     assert text.startswith("### Other notes on svc-a")
-    assert len(lines) == inject.MAX_DIGEST_LINES and "more on svc-a" in text
-    assert lines[0] == "- Other class in the same package" and lines[1] == "- Far note 21"
-    assert "AGENTS.md: Critical Rules" not in text
-    assert 'eos note search ../services/svc-a "<words>"' in text
+    assert "- Other class in the same package" in text
+    assert "Far note" not in text and "AGENTS.md: Critical Rules" not in text
+    assert "more on svc-a" not in text
+
+
+def test_a_file_whose_folder_has_no_notes_lists_nothing(ws, monkeypatch, capsys):
+    _, hub, svc = ws
+    assert _touch(monkeypatch, capsys, hub, "s2b", svc / "src" / "lonely" / "Bar.java") == ""
+
+
+def test_the_folder_digest_is_capped_newest_first(ws, monkeypatch, capsys):
+    _, hub, svc = ws
+    for n in range(10, 22):
+        _note(svc, f"202610{n}-pkg-{n}.md", f"Pkg note {n}", [f"src/pkg/sub/C{n}.java"])
+    text = _touch(monkeypatch, capsys, hub, "s2c", svc / "src" / "pkg" / "Foo.java")
+    lines = [line for line in text.splitlines() if line.startswith("- ") and "more on svc-a" not in line]
+    assert len(lines) == inject.MAX_DIGEST_LINES and lines[0] == "- Pkg note 21"
+    assert 'more on svc-a: eos note search ../services/svc-a "<words>"' in text
 
 
 def test_a_bulk_table_takes_no_body_slot_but_is_listed(ws, monkeypatch, capsys):

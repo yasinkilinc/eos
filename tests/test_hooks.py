@@ -1114,3 +1114,15 @@ def test_after_a_compaction_the_sections_arrive_again(project, monkeypatch, caps
     again = _hook(monkeypatch, capsys, "user-prompt", _payload(project, prompt="second task words")).out
 
     assert "ROUTE  a" in again
+
+
+def test_a_message_the_harness_relays_gets_no_brief(project, monkeypatch, capsys):
+    """A subagent's hand-back reached the prompt hook as `<agent-message from=…>`
+    and its report text matched an unrelated procedure (measured 2026-10-14)."""
+    head = "EOS brief for this task — proj"
+    _briefs(monkeypatch, [f"{head}\n\nPROCEDURE  read LLD diagrams"] * 3)
+
+    for relayed in ('<agent-message from="a40aa6f">\n[Subagent hand-back] read the LLD diagrams',
+                    '<system-reminder id="cc013a63">\nAnother Claude session sent a message',
+                    "<task-notification>\n<task-id>a1</task-id>"):
+        assert _hook(monkeypatch, capsys, "user-prompt", _payload(project, prompt=relayed)).out == ""

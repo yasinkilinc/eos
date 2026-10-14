@@ -57,9 +57,6 @@ FILE_TOOLS = ("Read", "Edit", "Write", "NotebookEdit", "MultiEdit")
 # Measured before this rule: a touch of CLAUDE.md delivered 87 digest titles.
 INSTRUCTION_NAMES = frozenset({"CLAUDE.md", "AGENTS.md", "SKILL.md", "MEMORY.md"})
 INSTRUCTION_DIRS = ("/.claude/agents/", "/.claude/rules/", "/.devin/agents/", "/.devin/rules/")
-# A project's AGENTS.md imported as notes: one batch, same date, it would fill
-# every digest by date alone.
-AGENTS_MD_SOURCE = "agents-md"
 
 _TRUNCATED = "\n\n[truncated: note context exceeded the injection budget]"
 _STALE_MARK = "[STALE: this note was written on {created}, the file has changed since]"
@@ -107,14 +104,15 @@ def _rank_for_body(notes: list) -> list:
     return sorted(recent_first, key=is_bulk_index)
 
 
-def _near_first(notes: list, relative: str) -> list:
-    """Wide notes for the digest: scoped into the touched file's directory
-    first, then newest, an imported AGENTS.md last."""
-    folder = relative.rsplit("/", 1)[0] + "/" if "/" in relative else ""
-    newest = sorted(notes, key=lambda n: n.path.name, reverse=True)
-    if folder:
-        newest = sorted(newest, key=lambda n: not any(s.startswith(folder) for s in n.scope))
-    return sorted(newest, key=lambda n: n.source == AGENTS_MD_SOURCE)
+def _in_folder(notes: list, relative: str) -> list:
+    """Wide notes for the digest: only those scoped into the touched file's
+    directory or below, newest first. A project-wide list of other titles was
+    noise on a large store (~1.2k characters per Read, none about the file)."""
+    if "/" not in relative:
+        return []
+    folder = relative.rsplit("/", 1)[0] + "/"
+    near = [n for n in notes if any(s.startswith(folder) for s in n.scope)]
+    return sorted(near, key=lambda n: n.path.name, reverse=True)
 
 
 def context_for(targets: list[tuple[str, Path, str, str, str]], seen: set, *, pointer: str,
@@ -171,7 +169,7 @@ def context_for(targets: list[tuple[str, Path, str, str, str]], seen: set, *, po
                 corpus[name] = []
         notes = corpus[name]
         exact = [n for n in notes if relative in n.scope]
-        wide = _near_first([n for n in notes if n not in exact], relative)
+        wide = _in_folder([n for n in notes if n not in exact], relative)
         ranked = _rank_for_body(exact)
         per_path.append((relative, name, ranked, wide))
         digests = digests_by_target[(name, relative)]
