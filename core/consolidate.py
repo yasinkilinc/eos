@@ -480,7 +480,9 @@ def change_capture(project_root: str | Path, records: list | None = None) -> dic
             "runs_unmeasurable_no_hook_events": runs_no_hook_events}
 
 
-def report(project_root: str | Path) -> dict:
+def report(project_root: str | Path, *, since: float | None = None) -> dict:
+    """`since` (epoch seconds) narrows ACTION CAPTURE to the actions made after
+    it, in every session written since (`action_capture.report`)."""
     from core import executions, index, notes, procedure_lint, work
 
     root = Path(project_root).expanduser().resolve()
@@ -530,7 +532,7 @@ def report(project_root: str | Path) -> dict:
     capture = change_capture(root, records=records)
     from core import action_capture
 
-    actions = action_capture.report(root, records=records)
+    actions = action_capture.report(root, records=records, since=since)
     # L1 remainder item (a), Day 3: the one generated EOS artifact under
     # `.eos/` with a declared, deterministic freshness key -- the index's own
     # `inputs_sha256` vs. a freshly computed sources digest (`index.is_stale`).

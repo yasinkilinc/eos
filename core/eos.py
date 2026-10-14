@@ -415,6 +415,9 @@ def main(argv: list[str] | None = None) -> int:
                             "lint, notes that read alike, stale notes and work (changes nothing)")
     add_path(consolidate_p)
     consolidate_p.add_argument("--format", choices=("text", "json"), default="text")
+    consolidate_p.add_argument("--since", default=None, metavar="TIME",
+                               help="ACTION CAPTURE counts only actions after this ISO time (a release's "
+                                    "install), in every session written since, not the newest 20")
     consolidate_p.add_argument("--accept", default=None, metavar="ID",
                                help="Record that a person took this proposal (its id from the report); "
                                     "writes .eos/data/consolidate-accepted.jsonl, never the config")
