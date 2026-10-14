@@ -256,7 +256,7 @@ def cmd_note_eval(args: argparse.Namespace) -> int:
         print(f"error: {exc}", file=sys.stderr)
         return 1
 
-    report = retrieval.evaluate(args.path, entries, depth=args.depth)
+    report = retrieval.evaluate(args.path, entries, depth=args.depth, surface=args.surface)
     if args.format == "json":
         print(json.dumps(report, indent=2, ensure_ascii=False))
     else:

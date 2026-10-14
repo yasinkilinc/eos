@@ -20,10 +20,11 @@ integration with the harness's format, not engine logic:
                   its own (`capabilities.invoked`, not a mere mention of its
                   file); captured when an event that wrapper recorded -- same
                   tool, same session, not written by a hook -- falls between
-                  the call and its result, `SLACK` seconds either side. A
-                  wrapper records through `eos-event`, which never learns the
-                  harness's call id, so time is the only key; each event
-                  answers one call
+                  the call and its result, `SLACK` seconds either side (no
+                  upper bound for a call run in the background or moved there
+                  by the harness). A wrapper records through `eos-event`,
+                  which never learns the harness's call id, so time is the
+                  only key; each event answers one call
   outside any run no run of the session was open in any ledger read when the
                   call was made: no writer had a run to record into. Counted
                   apart and left out of the share, so the share says what the
@@ -61,6 +62,9 @@ _USE = re.compile(r'"type":\s?"tool_use"')
 _RESULT = re.compile(r'"type":\s?"tool_result"')
 _IS_ERROR = re.compile(r'"is_error":\s?true')
 _RESULT_ID = re.compile(r'"tool_use_id":\s?"([^"]+)"')
+# The harness moved a running command to the background (its own timeout, or
+# the person's key): the result came at once, the wrapper's event comes later.
+_MOVED = re.compile(r'"backgroundTaskId":\s?"')
 _TIMESTAMP = re.compile(r'"timestamp":\s?"([^"]+)"')
 
 
@@ -82,11 +86,12 @@ def _result_text(content) -> str:
 
 
 def _calls(path: Path) -> tuple[dict, dict]:
-    """(tool calls by id, results by id) of one transcript. A result line that
-    is no error is not decoded: its id and time are all that is needed, and
+    """(tool calls by id, results by id) of one transcript; a result is (time,
+    never ran, moved to the background). A result line that is no error is not
+    decoded: its id, time and background mark are all that is needed, and
     those lines carry every tool's output -- most of a transcript's bytes."""
     uses: dict[str, dict] = {}
-    results: dict[str, tuple[float | None, bool]] = {}
+    results: dict[str, tuple[float | None, bool, bool]] = {}
     try:
         handle = open(path, encoding="utf-8", errors="replace")
     except OSError:
@@ -101,8 +106,9 @@ def _calls(path: Path) -> tuple[dict, dict]:
                 if not _IS_ERROR.search(line):
                     stamp = _TIMESTAMP.search(line)
                     at = _seconds(stamp.group(1)) if stamp else None
+                    moved = bool(_MOVED.search(line))
                     for tool_use_id in _RESULT_ID.findall(line):
-                        results.setdefault(tool_use_id, (at, False))
+                        results.setdefault(tool_use_id, (at, False, moved))
                     continue
                 # An error is decoded below: what it says decides "never ran".
             try:
@@ -126,7 +132,7 @@ def _calls(path: Path) -> tuple[dict, dict]:
                                         "session": str(entry.get("sessionId") or path.stem)}
                 elif part.get("type") == "tool_result" and part.get("tool_use_id"):
                     never = bool(part.get("is_error")) and bool(_NEVER_RAN.match(_result_text(part.get("content"))))
-                    results[part["tool_use_id"]] = (at, never)
+                    results[part["tool_use_id"]] = (at, never, False)
     return uses, results
 
 
@@ -178,7 +184,7 @@ def report(project_root: str | Path, *, transcripts: str | Path | None = None, s
         for part in [main, *sorted((main.parent / main.stem / "subagents").glob("*.jsonl"))]:
             uses, results = _calls(part)
             for tool_use_id, use in uses.items():
-                end, never = results.get(tool_use_id, (None, False))
+                end, never, moved = results.get(tool_use_id, (None, False, False))
                 if use["name"] in EDITOR_TOOLS:
                     path = str(use["input"].get("file_path") or use["input"].get("notebook_path") or "")
                     actions.append({"kind": "editor", "id": tool_use_id, "at": use["at"], "end": end,
@@ -190,7 +196,7 @@ def report(project_root: str | Path, *, transcripts: str | Path | None = None, s
                     if found:
                         actions.append({"kind": "wrapper", "id": tool_use_id, "at": use["at"], "end": end,
                                         "never": never, "session": use["session"], "scratch": False,
-                                        "background": bool(use["input"].get("run_in_background")),
+                                        "background": moved or bool(use["input"].get("run_in_background")),
                                         "tools": {executions.normalize_tool(c.program) for c in found}})
 
     records = _ledger_records(root, records)
