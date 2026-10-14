@@ -158,9 +158,14 @@ def _half() -> dict:
 
 
 def report(project_root: str | Path, *, transcripts: str | Path | None = None, sessions: int = SESSIONS,
-           records: list | None = None) -> dict:
+           records: list | None = None, since: float | None = None) -> dict:
     """`records`: the project's own ledger, already folded by the caller; the
-    workspace's other ledgers are read here either way."""
+    workspace's other ledgers are read here either way.
+
+    `since` (epoch seconds) measures a release from its install instead of the
+    newest `sessions`: every transcript written since is read, only the actions
+    made since are counted, and `sessions` is how many had one -- of them
+    `started_since` made their first tool call after it."""
     from core import capabilities, context_cost, executions, hooks
     from core.lib import honest
 
@@ -171,9 +176,13 @@ def report(project_root: str | Path, *, transcripts: str | Path | None = None, s
     except Exception:  # noqa: BLE001 - without a registry no Bash call is a wrapper's
         declared = []
     try:
-        mains = sorted(folder.glob("*.jsonl"), key=lambda p: p.stat().st_mtime, reverse=True)[:max(sessions, 0)]
+        mains = sorted(folder.glob("*.jsonl"), key=lambda p: p.stat().st_mtime, reverse=True)
+        mains = ([m for m in mains if m.stat().st_mtime >= since] if since is not None
+                 else mains[:max(sessions, 0)])
     except OSError:
         mains = []
+    touched: set[str] = set()
+    started = 0
 
     # A command that names no wrapper at all cannot run one: the parse is paid
     # only by those that do.
@@ -183,6 +192,13 @@ def report(project_root: str | Path, *, transcripts: str | Path | None = None, s
     for main in mains:
         for part in [main, *sorted((main.parent / main.stem / "subagents").glob("*.jsonl"))]:
             uses, results = _calls(part)
+            if since is not None:
+                times = [use["at"] for use in uses.values() if use["at"] is not None]
+                if part == main and times and min(times) >= since:
+                    started += 1
+                uses = {key: use for key, use in uses.items() if use["at"] is not None and use["at"] >= since}
+                if uses:
+                    touched.add(main.stem)
             for tool_use_id, use in uses.items():
                 end, never, moved = results.get(tool_use_id, (None, False, False))
                 if use["name"] in EDITOR_TOOLS:
@@ -253,7 +269,12 @@ def report(project_root: str | Path, *, transcripts: str | Path | None = None, s
     halves["wrapper"]["missed_by_tool"] = dict(missed_by_tool.most_common())
     captured = sum(h["captured"] for h in halves.values())
     measured = sum(h["measured"] for h in halves.values())
-    return {"transcripts": str(folder), "sessions": len(mains), **halves,
+    window = {}
+    if since is not None:
+        window = {"since": datetime.datetime.fromtimestamp(since, datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+                  "started_since": started}
+    return {"transcripts": str(folder), "sessions": len(touched) if since is not None else len(mains), **window,
+            **halves,
             "captured": captured, "measured": measured,
             "share": round(captured / measured, 4) if measured else None,
             **{key: sum(h[key] for h in halves.values()) for key in ("outside_run", "never_ran", "scratch")},
@@ -277,7 +298,9 @@ def render_line(data: dict) -> str | None:
 
     total = (f"{data['captured']}/{data['measured']} ({honest.show(data['share'], spec='.0%')})"
              if data["measured"] else honest.NOT_MEASURED)
-    line = (f"ACTION CAPTURE  {total} over {data['sessions']} sessions: {half('editor')}, {half('wrapper')}; "
+    window = (f" since {data['since']} over {data['sessions']} sessions ({data['started_since']} started since)"
+              if data.get("since") else f" over {data['sessions']} sessions")
+    line = (f"ACTION CAPTURE  {total}{window}: {half('editor')}, {half('wrapper')}; "
             f"{data['outside_run']} outside any run")
     apart = data["never_ran"] + data["scratch"]
     if apart:

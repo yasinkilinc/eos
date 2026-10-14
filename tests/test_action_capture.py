@@ -238,6 +238,38 @@ def test_a_workspace_run_in_a_projects_ledger_is_read(tmp_path):
     assert (data["captured"], data["measured"]) == (1, 1)
 
 
+def test_since_counts_only_actions_after_it_in_every_session_touched_since(project, tmp_path):
+    """A release is measured from its install: actions before it ran on the old
+    code, and a session begun before it but still going has actions after it."""
+    folder = tmp_path / "t"
+    old = _write(folder / "old.jsonl", [_use("e0", "Edit", 1, session="old", file_path=str(project / "a.py")),
+                                         _result("e0", 2, session="old")])
+    spanning = _write(folder / "s1.jsonl", [
+        _use("e1", "Edit", 10, file_path=str(project / "a.py")), _result("e1", 11),
+        _use("e2", "Edit", 200, file_path=str(project / "b.py")), _result("e2", 201),
+    ])
+    fresh = _write(folder / "s2.jsonl", [_use("e3", "Edit", 300, session="s2", file_path=str(project / "c.py")),
+                                          _result("e3", 301, session="s2")])
+    import datetime
+    base = datetime.datetime.fromisoformat(T0).replace(tzinfo=datetime.timezone.utc).timestamp()
+    os.utime(old, (base + 5, base + 5))
+    os.utime(spanning, (base + 205, base + 205))
+    os.utime(fresh, (base + 305, base + 305))
+    _run(project, "x-1", 0)
+    _run(project, "x-2", 0, session="s2")
+    _event(project, "x-1", 201, tool="edit", tool_use_id="e2")
+    for n in range(25):    # more than SESSIONS: the window is the time, not a count
+        _write(folder / f"z{n}.jsonl", [])
+
+    data = _measure(project, folder, since=base + 100)
+
+    assert (data["editor"]["actions"], data["editor"]["captured"], data["editor"]["measured"]) == (2, 1, 2)
+    assert (data["sessions"], data["started_since"]) == (2, 1)
+    assert data["since"] == "2026-10-01T10:01:40Z"
+    line = action_capture.render_line(data)
+    assert line.startswith("ACTION CAPTURE  1/2 (50%) since 2026-10-01T10:01:40Z over 2 sessions (1 started since):")
+
+
 def test_no_transcripts_is_not_measured_rather_than_zero(project, tmp_path):
     data = _measure(project, tmp_path / "nowhere")
     assert data["sessions"] == 0 and data["share"] is None and data["measured"] == 0
@@ -260,6 +292,24 @@ def test_consolidate_prints_the_action_capture_line_and_carries_it_in_json(proje
     assert data["action_capture"]["measured"] == 2
     json.dumps(data)
     assert "ACTION CAPTURE  1/2 (50%) over 1 sessions: editor —, wrapper 1/2; 1 outside any run" in text
+
+
+def test_consolidate_since_is_passed_to_action_capture_from_the_cli(project, tmp_path, monkeypatch, capsys):
+    from core import eos
+
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    folder = context_cost.transcripts_dir(project.resolve())
+    _write(folder / "s1.jsonl", [
+        _use("b1", "Bash", 10, command="scripts/tracker.sh issue KEY-1"), _result("b1", 12),
+        _use("b2", "Bash", 50, command="scripts/tracker.sh issue KEY-2"), _result("b2", 52),
+    ])
+    _run(project, "x-1", 0)
+    _event(project, "x-1", 51, kind="called", tool="tracker", source="wrapper")
+
+    assert eos.main(["consolidate", str(project), "--since", "2026-10-01T10:00:30Z"]) == 0
+    out = capsys.readouterr().out
+    assert "ACTION CAPTURE  1/1 (100%) since 2026-10-01T10:00:30Z over 1 sessions (0 started since)" in out
+    assert eos.main(["consolidate", str(project), "--since", "yesterday"]) == 2
 
 
 def test_consolidate_prints_no_action_capture_line_without_sessions(project, tmp_path, monkeypatch):

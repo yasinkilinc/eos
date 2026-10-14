@@ -572,8 +572,16 @@ def cmd_consolidate(args: argparse.Namespace) -> int:
         print(f"accepted {entry['id']}: {entry['proposal']} -- recorded in .eos/data/{consolidate.ACCEPTED}; "
               "the config is yours to edit, nothing else was changed")
         return 0
+    since = None
+    if args.since:
+        from core import action_capture
+
+        since = action_capture._seconds(args.since)
+        if since is None:
+            print(f"error: --since {args.since!r} is not an ISO time (e.g. 2026-10-13T18:08:00Z)", file=sys.stderr)
+            return 2
     try:
-        data = consolidate.report(args.path)
+        data = consolidate.report(args.path, since=since)
     except (OSError, ValueError) as exc:  # a malformed config.toml is a TOMLDecodeError, a ValueError
         print(f"error: {exc}", file=sys.stderr)
         return 1
