@@ -779,6 +779,42 @@ def _pre_tool_bash(root: Path, hook: Hook, cfg: dict, agent: str | None) -> str:
     return ""
 
 
+def _section_digest(section: str) -> str:
+    return "s:" + hashlib.sha256(section.strip().encode("utf-8")).hexdigest()
+
+
+def _section_label(section: str) -> str:
+    first = section.strip().splitlines()[0]
+    return re.split(r"  |:| \(| —", first, maxsplit=1)[0].strip()[:40] or first[:40]
+
+
+def _new_sections(text: str, seen: set[str]) -> tuple[str, list[str]]:
+    """`text` without the blank-line-separated sections `seen` already holds,
+    and the digests of the sections kept. The first section is the block's
+    header and always stays; when nothing after it is new, the block is ''.
+
+    Measured on a host: one section that changed (the last runs) made a whole
+    brief new, so the same ROUTE, procedure and 'Record this run' line came
+    again with every prompt -- 21% of 203 briefs' text. A dropped section is
+    named on one line, so the session knows it still applies."""
+    sections = [part for part in text.split("\n\n") if part.strip()]
+    if len(sections) < 2:
+        return text, []
+    kept, dropped, digests = [sections[0]], [], []
+    for section in sections[1:]:
+        digest = _section_digest(section)
+        if digest in seen or digest in digests:
+            dropped.append(_section_label(section))
+            continue
+        kept.append(section)
+        digests.append(digest)
+    if len(kept) == 1:
+        return "", []
+    if dropped:
+        kept.append("As given earlier in this conversation: " + ", ".join(dropped))
+    return "\n\n".join(kept), digests
+
+
 def _user_prompt(root: Path, hook: Hook, cfg: dict, agent: str | None) -> str:
     prompt = hook.prompt.strip()[:MAX_TASK_CHARS]
     if not prompt or any(mark in prompt.lstrip()[:200] for mark in _NOTICE_MARKS):
@@ -812,12 +848,16 @@ def _user_prompt(root: Path, hook: Hook, cfg: dict, agent: str | None) -> str:
         digest = hashlib.sha256(text.encode("utf-8")).hexdigest()
         if digest in already or digest in digests:
             return True
+        text, sections = _new_sections(text, already | set(digests))
+        if not text:
+            return True
         if blocks and sum(map(len, blocks)) + len(text) > PROMPT_TOTAL_CHARS:
             if overflow:
                 blocks.append(overflow)
             return False
         blocks.append(text)
         digests.append(digest)
+        digests.extend(sections)
         return True
 
     offer(task_brief(root))

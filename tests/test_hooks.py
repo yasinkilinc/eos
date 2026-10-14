@@ -1065,3 +1065,52 @@ def test_the_same_note_read_reported_twice_is_one_event(project, monkeypatch, ca
     _hook(monkeypatch, capsys, "post-tool", payload)
     _hook(monkeypatch, capsys, "post-tool", payload)
     assert [(e.kind, e.ref) for e in _events(project)] == [("read", f"note:{note.name}")]
+
+
+# --- a brief section already in this context is not sent again ------------------------
+
+
+def _briefs(monkeypatch, texts):
+    from core import brief
+
+    queue = list(texts)
+    monkeypatch.setattr(brief, "build", lambda *a, **k: queue.pop(0) if queue else "")
+
+
+def test_a_prompt_brief_leaves_out_a_section_this_context_already_has(project, monkeypatch, capsys):
+    """Measured on a host: 21% of 203 briefs' text repeated a section the same
+    session had already been given word for word -- a reused ROUTE, the same
+    procedure, the 'Record this run' line -- because one changed section made
+    the whole brief new."""
+    head = "EOS brief for this task — proj"
+    route = "ROUTE  bugfix LOW → haiku/low\n  Apply: Agent({model: \"haiku\"})"
+    record = "Record this run: eos run start . --title \"…\""
+    _briefs(monkeypatch, [f"{head}\n\nLAST RUNS\n  run a\n\n{record}\n\n{route}",
+                          f"{head}\n\nLAST RUNS\n  run b\n\n{record}\n\n{route}"])
+
+    first = _hook(monkeypatch, capsys, "user-prompt", _payload(project, prompt="fix the order flow")).out
+    second = _hook(monkeypatch, capsys, "user-prompt", _payload(project, prompt="now fix the refund flow")).out
+
+    assert "ROUTE  bugfix" in first and "Record this run" in first
+    assert "run b" in second and head in second
+    assert "ROUTE  bugfix" not in second and "Record this run:" not in second
+    assert "As given earlier in this conversation: Record this run, ROUTE" in second
+
+
+def test_a_brief_with_nothing_new_but_its_header_sends_nothing(project, monkeypatch, capsys):
+    head = "EOS brief for this task — proj"
+    _briefs(monkeypatch, [f"{head}\n\nROUTE  a\n\nPROCEDURE  p", f"{head}  \n\nPROCEDURE  p\n\nROUTE  a"])
+
+    _hook(monkeypatch, capsys, "user-prompt", _payload(project, prompt="first task words"))
+    assert _hook(monkeypatch, capsys, "user-prompt", _payload(project, prompt="second task words")).out == ""
+
+
+def test_after_a_compaction_the_sections_arrive_again(project, monkeypatch, capsys):
+    head = "EOS brief for this task — proj"
+    _briefs(monkeypatch, [f"{head}\n\nROUTE  a\n\nLAST RUNS  1", "", f"{head}\n\nROUTE  a\n\nLAST RUNS  2"])
+
+    _hook(monkeypatch, capsys, "user-prompt", _payload(project, prompt="first task words"))
+    _hook(monkeypatch, capsys, "session-start", _payload(project, source="compact"))
+    again = _hook(monkeypatch, capsys, "user-prompt", _payload(project, prompt="second task words")).out
+
+    assert "ROUTE  a" in again
