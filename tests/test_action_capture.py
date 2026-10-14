@@ -134,6 +134,25 @@ def test_one_wrapper_event_answers_one_call(project, tmp_path):
     assert _measure(project, folder)["wrapper"]["captured"] == 1
 
 
+def test_a_call_the_harness_moved_to_the_background_is_answered_by_a_later_event(project, tmp_path):
+    """Measured on the host: `jenkins.sh wait` hit the Bash tool's 600 s timeout
+    and the harness moved it to the background; its result came at once, the
+    wrapper's event when the job ended -- counted a miss though nothing was lost."""
+    folder = tmp_path / "t"
+    moved = _result("b1", 610, "Command did not complete within its 600s timeout and was moved to the background")
+    moved["toolUseResult"] = {"stdout": "", "backgroundTaskId": "b05m1r88d", "timedOutAfterMs": 600000}
+    _write(folder / "s1.jsonl", [
+        _use("b1", "Bash", 10, command="scripts/tracker.sh wait JOB 4075"), moved,
+        _use("b2", "Bash", 20, command="scripts/tracker.sh issue KEY-2"), _result("b2", 21),
+    ])
+    _run(project, "x-1", 0)
+    _event(project, "x-1", 900, kind="called", tool="tracker", source="wrapper")   # b1, when the job ended
+
+    data = _measure(project, folder)
+
+    assert (data["wrapper"]["captured"], data["wrapper"]["measured"]) == (1, 2)
+
+
 def test_a_command_that_only_names_a_wrappers_file_is_not_its_call(project, tmp_path):
     """Measured on the host: `git add automation/x.sh`, `bash -n`, a note body
     naming a wrapper -- the mention split counted them as wrapper calls no
