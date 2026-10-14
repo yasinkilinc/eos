@@ -167,6 +167,50 @@ def test_render_names_every_query_whose_answer_was_not_first(tmp_path):
     assert "wallet line reports paid" not in text, "a query that worked needs no report"
 
 
+# --- the task brief's PROCEDURE line as the surface ------------------------------
+
+
+def _procedure(project, name, title, tags):
+    directory = notes.notes_dir(project)
+    directory.mkdir(parents=True, exist_ok=True)
+    tag_lines = "".join(f"  - {tag}\n" for tag in tags)
+    (directory / name).write_text(
+        f"---\nkind: procedure\ntitle: {title}\ncreated: 2026-09-01\ntags:\n{tag_lines}"
+        f"procedure: {name[:-3]}\n---\n\n## Steps\n\n1. Do it.\n", encoding="utf-8")
+
+
+def test_the_procedure_surface_scores_what_the_brief_names_for_the_task(tmp_path):
+    """A task-shaped question is answered on the host by the brief's PROCEDURE
+    line (`brief.best_procedure`), not by note search; this measures that line.
+    It names one procedure or none, so a query ranks 1 or not at all."""
+    project = tmp_path / "proj"
+    (project / ".eos").mkdir(parents=True)
+    _procedure(project, "deploy.md", "Deploy a service change to staging", ["deploy", "staging"])
+    _procedure(project, "cache.md", "Clear the caches after a config fix", ["cache", "clear"])
+    for n in range(8):
+        _write_note(project, f"2026-deploy-{n}.md", f"Deploy to staging failed in case {n}",
+                    f"Deploy staging story {n}.")
+    path = _golden(tmp_path, "deploy the change to staging\tdeploy.md",
+                   "clear the cache\tdeploy.md",
+                   "zzz nothing\tcache.md")
+
+    report = retrieval.evaluate(project, retrieval.parse_golden(path), surface="procedure")
+
+    assert report["surface"] == "procedure"
+    assert [(r["rank"], r["top"]) for r in report["results"]] == [
+        (1, ["deploy.md"]), (None, ["cache.md"]), (None, [])]
+    assert report["recall"][1] == report["recall"][5] == round(1 / 3, 4)
+    assert report["zero_hit"] == 1
+    assert "surface procedure" in retrieval.render(report)
+
+
+def test_note_search_stays_the_default_surface(tmp_path):
+    project, paid, _ = _corpus(tmp_path)
+    report = retrieval.evaluate(project, retrieval.parse_golden(_golden(tmp_path, f"what was paid\t{paid}")))
+    assert report["surface"] == "search"
+    assert "surface" not in retrieval.render(report).splitlines()[0]
+
+
 # --- what the weighting is for ---------------------------------------------------
 
 

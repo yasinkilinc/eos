@@ -371,6 +371,9 @@ def main(argv: list[str] | None = None) -> int:
     # module is imported in the handler, not here, so the parser stays cheap.
     note_eval_p.add_argument("--depth", type=int, default=10,
                              help="How far down to look for the expected note")
+    note_eval_p.add_argument("--surface", choices=("search", "procedure"), default="search",
+                             help="What answers each question: note search, or the task brief's "
+                                  "PROCEDURE line (one procedure or none)")
     note_eval_p.add_argument("--format", choices=("text", "json"), default="text")
 
     note_skip_p = note_sub.add_parser("skip", help="Record that this session needs no note")

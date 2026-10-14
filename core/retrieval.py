@@ -91,14 +91,28 @@ def parse_golden(path: str | Path) -> list[GoldenEntry]:
     return entries
 
 
+SURFACES = ("search", "procedure")
+
+
 def evaluate(project_root: str | Path, entries: list[GoldenEntry],
-             depth: int = DEFAULT_DEPTH) -> dict:
+             depth: int = DEFAULT_DEPTH, *, surface: str = "search") -> dict:
     """Recall@k, MRR@depth, nDCG@depth, zero-hit count and search latency.
 
     Every scored query is in every denominator: a query search returned
     nothing for is a zero, not an absence (2.x roadmap F6).
+
+    `surface` is what answers the query: `search` is note search; `procedure`
+    is the task brief's PROCEDURE line (`brief.best_procedure`), which is what
+    a session is shown for a task-shaped prompt. That line names one procedure
+    or none, so there a query ranks 1 or not at all.
     """
-    present = {note.path.name for note in notes.load_notes(project_root) + notes.shared_notes(project_root)}
+    from core import brief
+
+    if surface not in SURFACES:
+        raise ValueError(f"surface is one of {', '.join(SURFACES)}")
+    root = Path(project_root)
+    corpus = notes.load_notes(project_root)
+    present = {note.path.name for note in corpus + notes.shared_notes(project_root)}
 
     def accepted(entry: GoldenEntry) -> list[str]:
         return [name.strip() for name in entry.expected.split("|") if name.strip()]
@@ -109,7 +123,11 @@ def evaluate(project_root: str | Path, entries: list[GoldenEntry],
     results: list[QueryResult] = []
     for entry in scored:
         started = time.perf_counter()
-        ranked = notes.search_notes(project_root, entry.query, limit=depth)
+        if surface == "procedure":
+            named = brief.best_procedure(root, entry.query, corpus)
+            ranked = [named] if named else []
+        else:
+            ranked = notes.search_notes(project_root, entry.query, limit=depth)
         took = (time.perf_counter() - started) * 1000
         names = [note.path.name for note in ranked]
         wanted = set(accepted(entry))
@@ -125,6 +143,7 @@ def evaluate(project_root: str | Path, entries: list[GoldenEntry],
     # One relevant note per query: DCG is 1/log2(rank+1) and the ideal DCG is 1.
     ndcg = round(sum(1 / math.log2(r.rank + 1) for r in results if r.rank) / total, 4) if total else 0.0
     return {
+        "surface": surface,
         "corpus": len(present),
         "queries": total,
         "depth": depth,
@@ -158,8 +177,9 @@ def _worst_first(result: dict) -> tuple:
 
 def render(report: dict) -> str:
     """The digest a person reads: the score, then only what went wrong."""
+    shown = "" if report.get("surface", "search") == "search" else f", surface {report['surface']}"
     lines = [
-        f"{report['queries']} queries over {report['corpus']} notes, depth {report['depth']}",
+        f"{report['queries']} queries over {report['corpus']} notes, depth {report['depth']}{shown}",
         "  recall@1 {r1}   recall@3 {r3}   recall@5 {r5}   MRR@{d} {mrr}   nDCG@{d} {ndcg}".format(
             r1=report["recall"][1], r3=report["recall"][3], r5=report["recall"][5],
             d=report["depth"], mrr=report["mrr"], ndcg=report.get("ndcg", 0.0)),
