@@ -678,7 +678,7 @@ eos note show /path/to/project "<file name or part of a title>"
 eos note search /path/to/project "query" [--generated]
 eos note move-generated /path/to/project [--apply]
 eos note skip /path/to/project --reason "..." --session <id>
-eos note amend <note-file> /path/to/project [--body "..." | --reaffirm "..."] [--scope a,b]
+eos note amend <note-file> /path/to/project [--body "..." | --reaffirm "..." | --append "..." | --expire "<why>"] [--supersedes <file>[,<file>]] [--scope a,b]
 eos note audit /path/to/project
 ```
 
@@ -750,6 +750,11 @@ the tags already in use here that match its words.
 `eos note amend` takes the same three flags to revise who wrote a note or how
 long it holds, on their own or with `--body`/`--reaffirm`/`--scope`; a flag left
 out keeps the note's current value.
+`--append` adds a dated `## <today>` section to the body (a series of rounds
+grows in one note instead of a note per round); `--expire "<why>"` ends a note
+that no longer holds -- `valid_until` becomes yesterday and the body opens with
+`> Expired <today>: <why>`; `--supersedes` records, after the fact, that this
+note replaces older ones, without touching its body or scope.
 
 A member is one word; a phrase is dropped, and a word already in an earlier
 group stays there. A host ranking its own corpus passes the same list to

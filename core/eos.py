@@ -391,6 +391,12 @@ def main(argv: list[str] | None = None) -> int:
     amend_what = note_amend_p.add_mutually_exclusive_group()
     amend_what.add_argument("--body", help="New body; '-' reads stdin")
     amend_what.add_argument("--reaffirm", help="The note still holds; say why")
+    amend_what.add_argument("--append", help="Add a dated `## <today>` section to the end of the body")
+    amend_what.add_argument("--expire", metavar="REASON",
+                            help="The note no longer holds: valid_until becomes yesterday and the "
+                            "body opens with `> Expired <today>: REASON`")
+    note_amend_p.add_argument("--supersedes", help="Note file(s) this one replaces, comma-separated; "
+                              "added to what it already replaces, body and scope unchanged")
     note_amend_p.add_argument(
         "--scope",
         help="Comma-separated files/classes this note is about; replaces the "

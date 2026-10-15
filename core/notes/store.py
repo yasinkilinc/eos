@@ -368,6 +368,8 @@ class Note:
     # The file names of the notes this one replaces (ADR-033 addendum); one
     # scalar on every note written before 2.1.0.
     supersedes: tuple[str, ...] = ()
+    # What sets it apart from a live note about the same thing (2.1.0 `--differs`).
+    differs: str | None = None
     # Who wrote it and until when it holds (2.x M1, forward-only): absent on
     # every note written before. Validity starts at `created`.
     provenance: str | None = None
@@ -445,6 +447,7 @@ def parse_note(path: Path) -> Note:
         execution=meta.get("execution") or None,
         evidence=meta.get("evidence") or None,
         supersedes=_names(meta.get("supersedes")),
+        differs=meta.get("differs") or None,
         provenance=meta.get("provenance") or None,
         agent=meta.get("agent") or None,
         valid_until=meta.get("valid_until") or None,

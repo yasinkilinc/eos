@@ -1031,3 +1031,91 @@ def test_amend_refuses_an_empty_scope_entry_beside_real_ones(project):
 
     assert "empty" in str(exc.value)
     assert "2 of 3" in str(exc.value), "say which entry, not just that one is wrong"
+
+
+# -- 2.2.0: amend can supersede, expire and append ---------------------------
+
+def _plain(root, title, body, **extra):
+    return notes.add_note(root, kind="finding", title=title, body=body, tags=["t"], **extra)
+
+
+def _listed(root):
+    import subprocess
+    eos = [sys.executable, str(Path(__file__).resolve().parents[1] / "core" / "eos.py")]
+    return subprocess.run(eos + ["note", "list", str(root)], capture_output=True, text=True).stdout
+
+
+def test_amend_supersedes_an_existing_older_note(tmp_path):
+    old = _plain(tmp_path, "Export fails with 403", "The export call answers 403.")
+    new = _plain(tmp_path, "Export delivered", "The export call answers 200 now.")
+    body_before = new.read_text(encoding="utf-8").split("\n---\n", 1)[1]
+    notes.amend_note(new, tmp_path, supersedes=old.name)
+    assert "Export fails with 403" not in _listed(tmp_path)
+    assert new.read_text(encoding="utf-8").split("\n---\n", 1)[1] == body_before
+
+
+def test_amend_supersedes_adds_to_what_the_note_already_replaces(tmp_path):
+    a = _plain(tmp_path, "First claim", "One thing.")
+    b = _plain(tmp_path, "Second claim", "Another thing.")
+    new = _plain(tmp_path, "Settled claim", "The settled thing.", supersedes=a.name)
+    notes.amend_note(new, tmp_path, supersedes=b.name)
+    assert {n.path.name: n for n in notes.load_notes(tmp_path)}[new.name].supersedes == (a.name, b.name)
+
+
+def test_amend_refuses_to_supersede_an_unknown_note_or_itself(tmp_path):
+    new = _plain(tmp_path, "Export delivered", "The export call answers 200 now.")
+    with pytest.raises(ValueError):
+        notes.amend_note(new, tmp_path, supersedes="20000101-nothing.md")
+    with pytest.raises(ValueError, match="itself"):
+        notes.amend_note(new, tmp_path, supersedes=new.name)
+
+
+def test_amend_expire_hides_and_says_why(tmp_path):
+    note = _plain(tmp_path, "Queue stuck", "Three jobs wait.")
+    notes.amend_note(note, tmp_path, expire="queue drained")
+    text = note.read_text(encoding="utf-8")
+    yesterday = (datetime.date.today() - datetime.timedelta(days=1)).isoformat()
+    assert f"valid_until: {yesterday}" in text
+    assert f"> Expired {datetime.date.today().isoformat()}: queue drained" in text and "Three jobs wait." in text
+    assert "Queue stuck" not in _listed(tmp_path)
+
+
+def test_amend_expire_needs_a_reason(tmp_path):
+    note = _plain(tmp_path, "Queue stuck", "Three jobs wait.")
+    with pytest.raises(ValueError):
+        notes.amend_note(note, tmp_path, expire="  ")
+    with pytest.raises(ValueError):
+        notes.amend_note(note, tmp_path, expire="<why>")
+
+
+def test_amend_append_adds_a_dated_section(tmp_path):
+    note = _plain(tmp_path, "Rules v7 results", "v7: 4 of 10.")
+    notes.amend_note(note, tmp_path, append="v8: 6 of 10.")
+    text = note.read_text(encoding="utf-8")
+    assert "v7: 4 of 10." in text and "v8: 6 of 10." in text
+    assert f"\n## {datetime.date.today().isoformat()}\n" in text
+
+
+def test_amend_append_refuses_a_second_body_change(tmp_path):
+    note = _plain(tmp_path, "Rules v7 results", "v7: 4 of 10.")
+    with pytest.raises(ValueError):
+        notes.amend_note(note, tmp_path, append="v8.", body="v8 instead.")
+
+
+def test_a_body_amend_keeps_what_sets_the_note_apart(tmp_path):
+    note = _plain(tmp_path, "Import is slow", "Import takes 40 s.", differs="import path, not export")
+    notes.amend_note(note, tmp_path, body="Import takes 20 s after the index.")
+    assert {n.path.name: n for n in notes.load_notes(tmp_path)}[note.name].differs == "import path, not export"
+
+
+def test_cli_amend_takes_supersedes_expire_and_append(tmp_path):
+    import subprocess
+    eos = [sys.executable, str(Path(__file__).resolve().parents[1] / "core" / "eos.py")]
+    old = _plain(tmp_path, "Export fails with 403", "The export call answers 403.")
+    new = _plain(tmp_path, "Export delivered", "The export call answers 200 now.")
+    for flags in (["--supersedes", old.name], ["--append", "Verified again on env1."], ["--expire", "gone"]):
+        r = subprocess.run(eos + ["note", "amend", str(new), str(tmp_path), *flags], capture_output=True, text=True)
+        assert r.returncode == 0, r.stderr
+    both = subprocess.run(eos + ["note", "amend", str(new), str(tmp_path), "--append", "x y", "--expire", "z w"],
+                          capture_output=True, text=True)
+    assert both.returncode != 0

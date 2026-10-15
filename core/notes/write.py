@@ -443,8 +443,19 @@ def amend_note(
     provenance: str | None = None,
     agent: str | None = None,
     valid_until: str | None = None,
+    supersedes: str | None = None,
+    expire: str | None = None,
+    append: str | None = None,
 ) -> Path:
     """Rewrite one note in place and re-hash its scope.
+
+    Three edits added in 2.2.0 that keep the note's history in the note:
+    ``supersedes`` names notes this one replaces, added to what it already
+    replaces; the body and scope stay as they are, the claim did not change.
+    ``expire`` ends the note: `valid_until` becomes yesterday and the body
+    opens with `> Expired <today>: <reason>`. ``append`` adds a dated
+    `## <today>` section at the end and is a body revision like ``body``
+    (scope re-hashed), so a series of rounds grows in one note.
 
     Re-hashing is the point: `scope_hashes` is what `stale_notes` compares
     against, so this is the only operation that can clear a stale flag. That
@@ -537,12 +548,21 @@ def amend_note(
     empty either, or it produces a note that still looks recorded and says
     nothing.
     """
-    if body is not None and reaffirm is not None:
-        raise ValueError("amend accepts only one of --body or --reaffirm")
-    if (body is None and reaffirm is None and scope is None
+    rewrites = [name for name, value in (("--body", body), ("--reaffirm", reaffirm), ("--append", append),
+                                          ("--expire", expire)) if value is not None]
+    if len(rewrites) > 1:
+        raise ValueError(f"amend accepts only one of --body, --reaffirm, --append or --expire; got {', '.join(rewrites)}")
+    if expire is not None and valid_until is not None:
+        raise ValueError("--expire sets valid_until itself; drop --valid-until")
+    if (not rewrites and scope is None and supersedes is None
             and provenance is None and agent is None and valid_until is None):
-        raise ValueError("amend needs at least one of --body, --reaffirm, --scope, "
-                         "--provenance, --agent, or --valid-until")
+        raise ValueError("amend needs at least one of --body, --reaffirm, --append, --expire, --supersedes, "
+                         "--scope, --provenance, --agent, or --valid-until")
+    for value, what in ((append, "amend --append text"), (expire, "amend --expire reason")):
+        if value is not None:
+            if not value.strip():
+                raise ValueError(f"The {what} must not be empty")
+            _refuse_placeholder(value, what)
     if scope is not None and not scope:
         raise ValueError(
             "--scope must name at least one file; an empty value is refused "
@@ -581,12 +601,25 @@ def amend_note(
         provenance if provenance is not None else note.provenance, effective_agent
     )
     effective_valid_until = _check_valid_until(valid_until) if valid_until is not None else note.valid_until
+    today = datetime.date.today()
+    if expire is not None:
+        effective_valid_until = (today - datetime.timedelta(days=1)).isoformat()
+    effective_supersedes = note.supersedes
+    if supersedes is not None:
+        corpus = (load_generated if path.parent == generated_dir(project_root) else load_notes)(project_root)
+        for name in _split_names(supersedes):
+            target = _one_note(corpus, name, "--supersedes")
+            if target.path.resolve() == path:
+                raise ValueError(f"{path.name} cannot supersede itself")
+            effective_supersedes = tuple(dict.fromkeys((*effective_supersedes, target.path.name)))
+    if append is not None:
+        body = f"{note.body.rstrip()}\n\n## {today.isoformat()}\n\n{append.strip()}"
 
     # `--agent` alone implies `provenance: agent`, so it writes both.
     metadata = [key for key, given in (
         ("provenance", provenance is not None or agent is not None),
         ("agent", agent is not None), ("valid_until", valid_until is not None)) if given]
-    if metadata and body is None and reaffirm is None and scope is None:
+    if metadata and body is None and reaffirm is None and scope is None and expire is None and supersedes is None:
         # Who wrote a note and how long it holds are not a revision of it:
         # `updated` keeps the day its content last changed and `session` the
         # session that last wrote it, so a migration marking a whole store
@@ -658,6 +691,8 @@ def amend_note(
                 "despite the change."
             )
         content = note.body.strip()
+        if expire is not None:
+            content = f"> Expired {today.isoformat()}: {expire.strip()}\n\n{content}"
 
     found = _find_credential(f"{note.title}\n{content}")
     if found:
@@ -796,7 +831,8 @@ def amend_note(
             # A lesson keeps the run that taught it, and its evidence, through any rewrite.
             "execution": note.execution,
             "evidence": note.evidence,
-            "supersedes": _supersedes_front(note.supersedes),
+            "supersedes": _supersedes_front(effective_supersedes),
+            "differs": note.differs,
             # --provenance/--agent/--valid-until (N8): the value this call
             # computed above, which is the note's own kept value when the
             # flag was not given.
