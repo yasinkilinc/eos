@@ -70,7 +70,7 @@ def _compose_body(kind, body, cause, solution, metric) -> str:
         return body.strip()
 
     if not (body or "").strip():
-        raise ValueError("A finding note must have a body")
+        raise ValueError(f"A {kind} note must have a body")
     return body.strip()
 
 

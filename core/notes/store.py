@@ -161,7 +161,7 @@ def _scalar(value) -> str:
     return json.dumps(text, ensure_ascii=False)
 
 
-KINDS = ("defect", "finding", "procedure", "lesson", "decision")
+KINDS = ("defect", "finding", "procedure", "lesson", "decision", "status")
 
 
 # Exact `source:` values a bulk generator writes, measured against the real

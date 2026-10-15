@@ -131,6 +131,9 @@ def build(project_root: str | Path, *, session: str | None = None,
     return _branch_brief(root, session=session, agent=agent)
 
 
+STATUS_WARN_DAYS = 3
+
+
 def note_label(note) -> str:
     """`[kind, age]` for a note a brief names (2.x roadmap C2): a two-day-old
     lesson and a quarter-old finding weigh differently.
@@ -147,6 +150,13 @@ def note_label(note) -> str:
     except ValueError:
         age = "undated"
     label = f"[{note.kind}, {age}]"
+    if note.kind == "status" and note.valid_until:
+        try:
+            left = (datetime.date.fromisoformat(str(note.valid_until)[:10]) - datetime.date.today()).days
+        except ValueError:
+            left = None
+        if left is not None and left <= STATUS_WARN_DAYS:
+            label = f"[{note.kind}, {age}, until {str(note.valid_until)[:10]}]"
     if note.kind == "lesson" and not note.execution and not note.evidence:
         label += " [no evidence]"
     return label

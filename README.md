@@ -737,6 +737,12 @@ A new note can say who wrote it and until when it holds:
 that day search and briefs stop offering the note and `eos consolidate` lists it
 under EXPIRED NOTES; the file stays. Validity starts at `created`. Notes written
 before carry none of these and read exactly as they did -- nothing is migrated.
+`--kind status` is for how things stand right now ("the staging queue is
+stuck"): it gets `valid_until` 14 days out unless `--valid-until` says
+otherwise, and a brief marks it `until <date>` in its last three days.
+A note about the same thing as a live note of its kind must say
+`--supersedes <file>[,<file>]` (it replaces them) or `--differs "<one line>"`
+(what sets it apart); otherwise `note add` names the rivals and refuses.
 `eos note amend` takes the same three flags to revise who wrote a note or how
 long it holds, on their own or with `--body`/`--reaffirm`/`--scope`; a flag left
 out keeps the note's current value.

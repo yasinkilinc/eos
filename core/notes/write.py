@@ -169,6 +169,8 @@ def add_note(
         _refuse_placeholder(evidence, "note evidence")
     provenance = _check_provenance(provenance, agent)
     valid_until = _check_valid_until(valid_until)
+    if kind == "status" and valid_until is None:
+        valid_until = (datetime.date.today() + datetime.timedelta(days=STATUS_DAYS)).isoformat()
     _check_projects(project_root, projects)
     content = _compose_body(kind, body, cause, solution, metric)
 
@@ -275,6 +277,9 @@ def add_note(
 # Measured on 578 notes replayed in creation order (2.1.0): a title scoring
 # 0.5 against a live note was a replacement or a duplicate in the samples read;
 # "same source alone" would have stopped 40% of all writes, this stops 19%.
+# A status note says how things stand now; it stops being offered after this
+# many days unless --valid-until says otherwise.
+STATUS_DAYS = 14
 SIMILAR_SCORE = 0.5
 SAME_SOURCE_SCORE = 0.35
 SIMILAR_LIMIT = 3
