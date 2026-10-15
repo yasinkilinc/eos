@@ -425,6 +425,20 @@ def _open_runs(root: Path) -> list:
     return [r for r in reversed(executions.load(root)) if r.open]
 
 
+def _procedure_stopwords(root: Path) -> frozenset:
+    """`[brief] procedure_stopwords`: words that never count toward picking a procedure."""
+    try:
+        from core.lib.config_io import ConfigIO
+
+        listed = (ConfigIO.read_toml(Path(root) / ".eos" / "config.toml").get("brief") or {}).get(
+            "procedure_stopwords") or []
+    except Exception:  # noqa: BLE001 - a malformed table leaves no stopwords
+        return frozenset()
+    if not isinstance(listed, list):
+        return frozenset()
+    return frozenset(str(word).casefold() for word in listed if isinstance(word, str))
+
+
 def best_procedure(root: Path, task: str, corpus: list | None = None):
     """The procedure note that best matches the task, or None.
 
@@ -445,7 +459,11 @@ def best_procedure(root: Path, task: str, corpus: list | None = None):
                  and not notes.expired(n)]
     if not candidates:
         return None
-    words = notes._words(task)
+    # A project's generic verbs ("gözden geçir", review) never name a procedure;
+    # every other path still reads them.
+    words = notes._words(task) - _procedure_stopwords(root)
+    if not words:
+        return None
     weights = notes.word_weights(corpus, words)
     if not any(weight > 0 for weight in weights.values()):
         weights = None

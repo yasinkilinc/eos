@@ -382,3 +382,25 @@ def test_the_workspace_mark_line_cannot_blow_the_task_budget(project, monkeypatc
         f"the workspace-root line alone ({len(text)} chars) blew past the task "
         f"budget's cap ({cap} chars) -- RULE_MARK content is capped at "
         f"{notes.RULES_MAX_CHARS} chars for exactly this reason, WORKSPACE_MARK is not")
+
+
+def test_configured_stopwords_never_pick_a_procedure(project):
+    """"notların tamamını gözden geçir" (review all the notes) brought the
+    backlog-review procedure: two Turkish words, rare only because the notes are
+    in English, cleared the named-words floor. A project lists such generic
+    verbs under `[brief] procedure_stopwords`; they stop counting for a procedure."""
+    notes.add_note(project, kind="procedure", title="Review the backlog (backlog gözden geçir)", body=STEPS,
+                   tags=["backlog", "gözden", "geçir"])
+    task = "notların tamamını gözden geçir"
+    assert brief.best_procedure(project, task) is not None, "the false match this setting is for"
+    (project / ".eos" / "config.toml").write_text('[brief]\nprocedure_stopwords = ["gözden", "Geçir"]\n',
+                                                 encoding="utf-8")
+    assert brief.best_procedure(project, task) is None
+    assert brief.best_procedure(project, "backlog gözden geçir") is not None
+
+
+def test_a_malformed_stopword_setting_changes_nothing(project):
+    notes.add_note(project, kind="procedure", title="Review the backlog (backlog gözden geçir)", body=STEPS,
+                   tags=["backlog", "gözden", "geçir"])
+    (project / ".eos" / "config.toml").write_text('[brief]\nprocedure_stopwords = "gözden"\n', encoding="utf-8")
+    assert brief.best_procedure(project, "backlog gözden geçir") is not None
