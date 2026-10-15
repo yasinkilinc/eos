@@ -16,6 +16,12 @@ from core.ai import writer
 from core.mcp_server import McpServer
 from core.routing import adapters
 
+
+def _add_note(*args, **kwargs):
+    # Fixtures write related notes on purpose; the similar-note gate (2.1.0) is not under test here.
+    kwargs.setdefault("differs", "fixture")
+    return notes.add_note(*args, **kwargs)
+
 TASK = "refactor the auth flow and update tests"
 REPO = Path(__file__).resolve().parents[1]
 EOS = [sys.executable, str(REPO / "core" / "eos.py")]
@@ -46,7 +52,7 @@ def _scanned(root):
 
 
 def _with_a_note(root):
-    notes.add_note(root, kind="finding", title="Auth flow refactor keeps the session cookie",
+    _add_note(root, kind="finding", title="Auth flow refactor keeps the session cookie",
                    body="The auth flow refactor must keep the session cookie name.", tags=["auth"])
 
 
@@ -123,7 +129,7 @@ def test_the_route_line_survives_a_tiny_budget(project):
     topics = ("session cookie", "token rotation", "login throttling", "password hashing",
               "remember-me flag", "logout redirect")
     for topic in topics:
-        notes.add_note(project, kind="finding", title=f"Auth flow refactor and the {topic}",
+        _add_note(project, kind="finding", title=f"Auth flow refactor and the {topic}",
                        body=f"The auth flow refactor touches the {topic}. " + f"{topic} " * 40,
                        tags=["auth"])
     text = brief.build(project, task=TASK, budget=60)

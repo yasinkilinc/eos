@@ -14,6 +14,12 @@ from pathlib import Path
 
 from core import brief, index, note_graph, notes
 
+
+def _add_note(*args, **kwargs):
+    # Fixtures write related notes on purpose; the similar-note gate (2.1.0) is not under test here.
+    kwargs.setdefault("differs", "fixture")
+    return notes.add_note(*args, **kwargs)
+
 EOS = [sys.executable, str(Path(__file__).resolve().parents[1] / "core" / "eos.py")]
 KEY = re.compile(r"\bFM-[0-9]+\b")
 
@@ -32,16 +38,16 @@ def _file(root, title):
 
 
 def _seed(root):
-    notes.add_note(root, "finding", "Payment retries leave orders pending",
+    _add_note(root, "finding", "Payment retries leave orders pending",
                    "The FM-12 flow retries the payment call three times.", scope=["src/pay.py"])
-    notes.add_note(root, "finding", "Retries stay at three for the gateway",
+    _add_note(root, "finding", "Retries stay at three for the gateway",
                    "Decided while fixing FM-12: three retries, a fixed delay.")
-    notes.add_note(root, "finding", "The pay module reads its timeout from config",
+    _add_note(root, "finding", "The pay module reads its timeout from config",
                    "Found reading the module.", scope=["src/pay.py"])
     pending = _file(root, "Payment retries leave orders pending")
-    notes.add_note(root, "finding", "Cancelling a pending order releases the number",
+    _add_note(root, "finding", "Cancelling a pending order releases the number",
                    f"Follows from note:{pending[:-3]} -- a cancel releases what the retry held.")
-    notes.add_note(root, "finding", "An unrelated note about notifications", "Templates render at send time for FM-99.")
+    _add_note(root, "finding", "An unrelated note about notifications", "Templates render at send time for FM-99.")
 
 
 def test_edges_are_citations_lessons_scopes_and_tickets(tmp_path):
@@ -59,7 +65,7 @@ def test_a_key_shared_by_too_many_notes_links_nothing(tmp_path):
     root = _project(tmp_path)
     words = ["alpha", "bravo", "charlie", "delta", "echo", "foxtrot", "golf", "hotel", "india", "juliet"]
     for word in words[:note_graph.MAX_SHARED + 1]:
-        notes.add_note(root, "finding", f"The {word} service behaves oddly", f"Seen while on FM-7 in {word}.")
+        _add_note(root, "finding", f"The {word} service behaves oddly", f"Seen while on FM-7 in {word}.")
     assert note_graph.edges(notes.load_notes(root), KEY) == []
 
 
@@ -80,7 +86,7 @@ def test_a_lesson_is_linked_to_its_procedure(tmp_path):
     slug = subprocess.run(EOS + ["procedure", "new", str(root), "--title", "Ship the service", "--steps", "-",
                                  "--success", "it runs"], input="Build it\n", capture_output=True,
                           text=True).stdout.split("\t")[0]
-    notes.add_note(root, "lesson", "The build needs the cache warmed",
+    _add_note(root, "lesson", "The build needs the cache warmed",
                    "## What went wrong\nCold cache.\n## What was learned\nWarm it.\n## Next time\nWarm first.",
                    procedure=slug)
     corpus = notes.load_notes(root)
@@ -120,15 +126,15 @@ def test_one_file_written_three_ways_is_one_scope(tmp_path):
     root = _project(tmp_path)
     for title, entry in (("The pay module retries", "src/pay.py"), ("The pay module logs", "./src/pay.py"),
                          ("The pay module times out", str(root / "src" / "pay.py"))):
-        notes.add_note(root, "finding", title, f"About {title.split()[-1]}.", scope=[entry])
+        _add_note(root, "finding", title, f"About {title.split()[-1]}.", scope=[entry])
     scoped = [e for e in note_graph.edges(notes.load_notes(root), KEY, root) if e.kind == "scope"]
     assert len(scoped) == 3
 
 
 def test_a_key_quoted_in_a_code_block_links_nothing(tmp_path):
     root = _project(tmp_path)
-    notes.add_note(root, "finding", "How ticket keys look in logs", "Example:\n\n```\nticket=FM-500 status=open\n```\n")
-    notes.add_note(root, "finding", "The FM-500 export drops rows", "The export for FM-500 skips the last page.")
+    _add_note(root, "finding", "How ticket keys look in logs", "Example:\n\n```\nticket=FM-500 status=open\n```\n")
+    _add_note(root, "finding", "The FM-500 export drops rows", "The export for FM-500 skips the last page.")
     assert not [e for e in note_graph.edges(notes.load_notes(root), KEY, root) if e.kind == "ticket"]
 
 

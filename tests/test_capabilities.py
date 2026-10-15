@@ -118,7 +118,8 @@ def test_the_task_brief_puts_a_wrappers_pitfalls_under_it(project):
     """A lesson about a wrapper only pays when it is read before the call; the
     wrapper line is the one place the brief already names it."""
     def add(*args):
-        r = subprocess.run(EOS + ["note", "add", str(project), *args], capture_output=True, text=True)
+        r = subprocess.run(EOS + ["note", "add", str(project), *args, "--differs", "fixture"],
+                           capture_output=True, text=True)
         assert r.returncode == 0, r.stderr
         return r.stdout.strip().split()[-1]
 

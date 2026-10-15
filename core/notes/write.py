@@ -6,8 +6,8 @@ import json
 from pathlib import Path
 
 from core.notes.store import (
-    PROVENANCES, _front_matter, _hash_file, _one_note, _resolve_scope_entry, _slug, generated_dir,
-    load_generated, load_notes, notes_dir, parse_note,
+    PROVENANCES, Note, _front_matter, _hash_file, _one_note, _resolve_scope_entry, _slug, expired,
+    generated_dir, load_generated, load_notes, notes_dir, parse_note, superseded,
 )
 from core.notes.guards import (
     DuplicateNoteError, _duplicate_escape, _find_credential, body_digest,
@@ -128,6 +128,7 @@ def add_note(
     agent: str | None = None,
     valid_until: str | None = None,
     projects: list[str] | None = None,
+    differs: str | None = None,
 ) -> Path:
     """Write one note and return its path.
 
@@ -156,6 +157,8 @@ def add_note(
     if source is not None:
         _refuse_placeholder(source, "note source")
     _refuse_scope(scope)
+    if differs is not None:
+        _refuse_placeholder(differs, "--differs")
     if evidence is not None and kind != "lesson":
         raise ValueError(f"--evidence is only for a lesson note (ADR-024); kind {kind!r} refuses it")
     if evidence is not None:
@@ -218,6 +221,16 @@ def add_note(
                 f"one and stay in that note. " + _duplicate_escape(session)
             )
 
+    if not (replaced or differs or generated or kind == "procedure"):
+        rivals = _rivals(existing, kind, title, source)
+        if rivals:
+            raise SimilarNoteError(
+                "These live notes are about the same thing:\n"
+                + "\n".join(f"  {note.path.name}  ({note.title})" for note in rivals)
+                + "\nSay which this replaces (--supersedes <file>[,<file>]), or what is different "
+                  "(--differs \"<one line>\"), or amend that note instead of writing a second one."
+            )
+
     # One name across the memory and generated/ (ADR-034): the index and
     # `note show` know a note by its file name.
     twin_path = (notes_dir(project_root) if generated else generated_dir(project_root)) / path.name
@@ -252,10 +265,46 @@ def add_note(
             "agent": agent,
             "valid_until": valid_until,
             "projects": projects,
+            "differs": differs,
         }
     )
     path.write_text(f"{document}\n\n{content}\n", encoding="utf-8")
     return path
+
+
+# Measured on 578 notes replayed in creation order (2.1.0): a title scoring
+# 0.5 against a live note was a replacement or a duplicate in the samples read;
+# "same source alone" would have stopped 40% of all writes, this stops 19%.
+SIMILAR_SCORE = 0.5
+SAME_SOURCE_SCORE = 0.35
+SIMILAR_LIMIT = 3
+
+
+class SimilarNoteError(DuplicateNoteError):
+    """A live note is about the same thing and this one says neither that it
+    replaces it nor what is different."""
+
+
+def _rivals(existing: list[Note], kind: str, title: str, source: str | None) -> list[Note]:
+    from core.notes.render import _words, relevance, word_weights
+
+    replaced = superseded(existing)
+    live = [note for note in existing
+            if note.kind == kind and note.path.name not in replaced and not expired(note)]
+    words = _words(title)
+    if not live or not words:
+        return []
+    weights = word_weights(live, words)
+    if not any(weight > 0 for weight in weights.values()):
+        weights = None
+    scored = []
+    for note in live:
+        score = relevance(note, words, weights)
+        bar = SAME_SOURCE_SCORE if source and note.source == source else SIMILAR_SCORE
+        if score >= bar:
+            scored.append((score, note))
+    scored.sort(key=lambda pair: (-pair[0], pair[1].path.name))
+    return [note for _, note in scored[:SIMILAR_LIMIT]]
 
 
 def _split_names(value) -> list[str]:
