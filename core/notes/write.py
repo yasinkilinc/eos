@@ -187,11 +187,12 @@ def add_note(
 
     # A generator's note is compared with the generator notes, a note with the memory.
     existing = load_generated(project_root) if generated else load_notes(project_root)
-    replaced = None
-    if supersedes:
-        # A rewrite reads like the note it replaces: that one is not compared.
-        replaced = _one_note(existing, supersedes, "--supersedes")
-        existing = [note for note in existing if note.path.name != replaced.path.name]
+    replaced: list[Note] = []
+    for name in _split_names(supersedes):
+        # A rewrite reads like the notes it replaces: those are not compared.
+        replaced.append(_one_note(existing, name, "--supersedes"))
+    gone = {note.path.name for note in replaced}
+    existing = [note for note in existing if note.path.name not in gone]
     new_digest = body_digest(content)
     for note in existing:
         if body_digest(note.body) == new_digest:
@@ -246,7 +247,7 @@ def add_note(
                if kind == "procedure" else {"procedure": procedure}),
             "execution": execution,
             "evidence": evidence,
-            "supersedes": replaced.path.name if replaced else None,
+            "supersedes": _supersedes_front(tuple(note.path.name for note in replaced)),
             "provenance": provenance,
             "agent": agent,
             "valid_until": valid_until,
@@ -255,6 +256,21 @@ def add_note(
     )
     path.write_text(f"{document}\n\n{content}\n", encoding="utf-8")
     return path
+
+
+def _split_names(value) -> list[str]:
+    """`--supersedes a.md,b.md`, or a list from a library caller."""
+    if not value:
+        return []
+    items = value.split(",") if isinstance(value, str) else list(value)
+    return list(dict.fromkeys(item.strip() for item in items if item and item.strip()))
+
+
+def _supersedes_front(names: tuple[str, ...]):
+    """One target stays a scalar, the shape every reader before 2.1.0 knows."""
+    if not names:
+        return None
+    return names[0] if len(names) == 1 else list(names)
 
 
 def _check_provenance(provenance: str | None, agent: str | None) -> str | None:
@@ -664,7 +680,7 @@ def amend_note(
             # A lesson keeps the run that taught it, and its evidence, through any rewrite.
             "execution": note.execution,
             "evidence": note.evidence,
-            "supersedes": note.supersedes,
+            "supersedes": _supersedes_front(note.supersedes),
             # --provenance/--agent/--valid-until (N8): the value this call
             # computed above, which is the note's own kept value when the
             # flag was not given.

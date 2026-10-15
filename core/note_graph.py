@@ -75,8 +75,9 @@ def edges(corpus, ticket_pattern: re.Pattern | None, project_root=None) -> list[
             target = by_stem.get(stem)
             if target and target != name:
                 found.append(Edge(name, target, "cites", None))
-        if note.supersedes and note.supersedes in by_stem.values() and note.supersedes != name:
-            found.append(Edge(name, note.supersedes, "supersedes", None))
+        for target in note.supersedes:
+            if target in by_stem.values() and target != name:
+                found.append(Edge(name, target, "supersedes", None))
         if note.kind == "lesson" and note.procedure in by_slug:
             found.append(Edge(name, by_slug[note.procedure], "lesson", None))
         for entry in dict.fromkeys(note.scope or []):

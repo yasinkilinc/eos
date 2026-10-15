@@ -320,18 +320,22 @@ def superseded(corpus: list[Note]) -> dict[str, list[str]]:
     replaces = {note.path.name: note.supersedes for note in corpus if note.supersedes}
 
     def in_cycle(start: str) -> bool:
-        seen, current = set(), start
-        while current in replaces and current not in seen:
-            seen.add(current)
-            current = replaces[current]
+        seen, stack = set(), list(replaces.get(start, ()))
+        while stack:
+            current = stack.pop()
             if current == start:
                 return True
+            if current in seen:
+                continue
+            seen.add(current)
+            stack.extend(replaces.get(current, ()))
         return False
 
     found: dict[str, list[str]] = {}
-    for name, target in sorted(replaces.items()):
+    for name, targets in sorted(replaces.items()):
         if not in_cycle(name):
-            found.setdefault(target, []).append(name)
+            for target in targets:
+                found.setdefault(target, []).append(name)
     return found
 
 
@@ -361,8 +365,9 @@ class Note:
     # lesson may carry either, both, or -- until amended -- neither).
     execution: str | None = None
     evidence: str | None = None
-    # The file name of the note this one replaces (ADR-033 addendum).
-    supersedes: str | None = None
+    # The file names of the notes this one replaces (ADR-033 addendum); one
+    # scalar on every note written before 2.1.0.
+    supersedes: tuple[str, ...] = ()
     # Who wrote it and until when it holds (2.x M1, forward-only): absent on
     # every note written before. Validity starts at `created`.
     provenance: str | None = None
@@ -439,7 +444,7 @@ def parse_note(path: Path) -> Note:
         last_execution=meta.get("last_execution") or None,
         execution=meta.get("execution") or None,
         evidence=meta.get("evidence") or None,
-        supersedes=meta.get("supersedes") or None,
+        supersedes=_names(meta.get("supersedes")),
         provenance=meta.get("provenance") or None,
         agent=meta.get("agent") or None,
         valid_until=meta.get("valid_until") or None,

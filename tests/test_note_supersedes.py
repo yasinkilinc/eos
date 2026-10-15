@@ -43,7 +43,7 @@ def test_a_rewrite_that_supersedes_is_accepted_and_the_old_note_steps_back(tmp_p
          "--body", NEW, "--supersedes", "Payment retries use a fixed delay")
     corpus = {n.title: n for n in notes.load_notes(root)}
     new, old = corpus["Payment retries back off"], corpus["Payment retries use a fixed delay"]
-    assert new.supersedes == old.path.name
+    assert new.supersedes == (old.path.name,)
     titles = [n.title for n in notes.search_notes(root, "payment retries delay")]
     assert "Payment retries back off" in titles and "Payment retries use a fixed delay" not in titles
     shown = _eos("note", "show", str(root), old.path.name).stdout
@@ -120,3 +120,46 @@ def test_the_index_records_what_a_note_supersedes(tmp_path):
     rows = sqlite3.connect(index.db_path(root)).execute(
         "SELECT title FROM note WHERE supersedes IS NOT NULL").fetchall()
     assert rows == [("Payment retries back off",)]
+
+
+def _bare(tmp_path):
+    root = tmp_path / "bare"
+    root.mkdir()
+    _eos("init", str(root), "--no-ai")
+    return root
+
+
+def _listed(root):
+    return _eos("note", "list", str(root)).stdout
+
+
+def test_one_note_can_replace_several(tmp_path):
+    root = _bare(tmp_path)
+    a = notes.add_note(root, "finding", "Identity is alpha", "The caller signs in as alpha.", tags=["t"])
+    b = notes.add_note(root, "finding", "Identity is beta", "The caller signs in as beta.", tags=["t"])
+    _eos("note", "add", str(root), "--kind", "finding", "--title", "Identity is gamma", "--tags", "t",
+         "--body", "The caller signs in as gamma.", "--supersedes", f"{a.name},{b.name}")
+    listed = _listed(root)
+    assert "Identity is gamma" in listed
+    assert "Identity is alpha" not in listed and "Identity is beta" not in listed
+    assert {a.name, b.name} <= set(notes.superseded(notes.load_notes(root)))
+
+
+def test_an_old_single_supersedes_still_reads(tmp_path):
+    root = _bare(tmp_path)
+    a = notes.add_note(root, "finding", "Old fact", "It was so.", tags=["t"])
+    new = notes.add_note(root, "finding", "New fact", "It is so now.", tags=["t"])
+    text = new.read_text(encoding="utf-8")
+    new.write_text(text.replace("---\n", f"---\nsupersedes: {a.name}\n", 1), encoding="utf-8")
+    assert "Old fact" not in _listed(root)
+
+
+def test_a_cycle_across_several_targets_hides_nothing(tmp_path):
+    root = _bare(tmp_path)
+    a = notes.add_note(root, "finding", "First claim", "One.", tags=["t"])
+    b = notes.add_note(root, "finding", "Second claim", "Two.", tags=["t"])
+    for note, other in ((a, b), (b, a)):
+        text = note.read_text(encoding="utf-8")
+        note.write_text(text.replace("---\n", f"---\nsupersedes:\n  - {other.name}\n", 1), encoding="utf-8")
+    listed = _listed(root)
+    assert "First claim" in listed and "Second claim" in listed

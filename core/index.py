@@ -1025,7 +1025,8 @@ def _load_notes(build: BuildContext) -> Path:
             "INSERT INTO note(file, kind, title, created, updated, source, session, generated, body, sha256, "
             "supersedes) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (name, note.kind, note.title, note.created or None, updated, note.source, note.session,
-             int(in_generated or notes.is_generated(note)), note.body, digest, note.supersedes),
+             int(in_generated or notes.is_generated(note)), note.body, digest,
+             ",".join(note.supersedes) or None),
         )
         note_id = cursor.lastrowid
         build.conn.executemany(
