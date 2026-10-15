@@ -90,7 +90,7 @@ def test_impact_analysis_without_include_stays_small(tmp_path):
 
 def test_get_context_accepts_task_and_target(tmp_path):
     root = _scanned(tmp_path)
-    assert _run(["note", "add", str(root), "--kind", "finding",
+    assert _run(["note", "add", str(root), "--kind", "finding", "--tags", "t",
                  "--title", "Button theme regression on retry",
                  "--body", "The retry path re-renders the button with the wrong theme."]).returncode == 0
     server = _server(root)
@@ -106,7 +106,7 @@ def test_get_context_accepts_task_and_target(tmp_path):
 
 def test_search_index_finds_a_note_through_full_text(tmp_path):
     root = _scanned(tmp_path)
-    assert _run(["note", "add", str(root), "--kind", "finding",
+    assert _run(["note", "add", str(root), "--kind", "finding", "--tags", "t",
                  "--title", "Pool exhaustion under retry storms",
                  "--body", "Connections are never returned when the retry budget runs out."]).returncode == 0
     assert _run(["index", str(root)]).returncode == 0

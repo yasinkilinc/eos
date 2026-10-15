@@ -74,7 +74,7 @@ def test_a_note_naming_the_session_answers_it(ws, monkeypatch, capsys):
     _, hub, svc = ws
     _config_off(hub)
     _edit(monkeypatch, capsys, hub, svc / "src" / "A.java")
-    done = subprocess.run(EOS + ["note", "add", str(svc), "--kind", "finding", "--title", "A must stay final",
+    done = subprocess.run(EOS + ["note", "add", str(svc), "--kind", "finding", "--tags", "t", "--title", "A must stay final",
                                  "--body", "Subclassing A breaks the factory.", "--session", "s1"],
                           capture_output=True, text=True)
     assert done.returncode == 0, done.stderr
@@ -104,7 +104,7 @@ def test_a_handwritten_note_left_false_is_named_with_its_amend(ws, monkeypatch, 
     source.write_text("class A {}\n", encoding="utf-8")
     for title, body, extra in (("A is built by the factory", "Use the factory.", []),
                                ("A endpoint table", "| GET | /a |", ["--source", "api-inventory"])):
-        done = subprocess.run(EOS + ["note", "add", str(svc), "--kind", "finding", "--title", title,
+        done = subprocess.run(EOS + ["note", "add", str(svc), "--kind", "finding", "--tags", "t", "--title", title,
                                      "--body", body, "--scope", "src/A.java", *extra,
                                      "--session", "s1"], capture_output=True, text=True)
         assert done.returncode == 0, done.stderr

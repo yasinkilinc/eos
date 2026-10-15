@@ -423,7 +423,7 @@ def test_run_start_without_any_session_says_how_capture_can_still_reach_it(proje
 def test_a_work_claim_and_a_note_written_from_the_cli_carry_the_harness_session(project):
     env = {**os.environ, "CLAUDE_CODE_SESSION_ID": "s-harness"}
     assert _run(["work", "add", str(project), "--title", "Deploy wallet", "--claim"], env).returncode == 0
-    assert _run(["note", "add", str(project), "--kind", "finding", "--title", "Staging needs the VPN",
+    assert _run(["note", "add", str(project), "--kind", "finding", "--tags", "t", "--title", "Staging needs the VPN",
                  "--body", "Without it the health check times out."], env).returncode == 0
 
     holders = [h.get("session") for item in work.items(project) for h in item.holders]

@@ -20,7 +20,7 @@ def _project(tmp_path, config=""):
     if config:
         path = root / ".eos" / "config.toml"
         path.write_text(path.read_text(encoding="utf-8") + "\n" + config, encoding="utf-8")
-    added = subprocess.run(EOS + ["note", "add", str(root), "--kind", "finding",
+    added = subprocess.run(EOS + ["note", "add", str(root), "--kind", "finding", "--tags", "t",
                                   "--title", "Save and Continue stays disabled on the payment form",
                                   "--body", "The button waits for a card token."], capture_output=True, text=True)
     assert added.returncode == 0, added.stderr

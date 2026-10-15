@@ -29,7 +29,7 @@ def test_doctor_warns_when_a_notes_scope_file_changed_since_it_was_written(tmp_p
 
     add = _run([
         "note", "add", str(proj),
-        "--kind", "finding", "--title", "Boot note", "--body", "Boots.",
+        "--kind", "finding", "--tags", "t", "--title", "Boot note", "--body", "Boots.",
         "--scope", "Boot.java",
     ])
     assert add.returncode == 0, add.stderr
@@ -55,14 +55,14 @@ def test_doctor_reports_stale_notes_in_one_block_not_two(tmp_path):
 
     handwritten = _run([
         "note", "add", str(proj),
-        "--kind", "finding", "--title", "Boot note", "--body", "Boots.",
+        "--kind", "finding", "--tags", "t", "--title", "Boot note", "--body", "Boots.",
         "--scope", "Boot.java",
     ])
     assert handwritten.returncode == 0, handwritten.stderr
 
     generated = _run([
         "note", "add", str(proj),
-        "--kind", "finding", "--title", "Generated boot map", "--body", "Bulk table.",
+        "--kind", "finding", "--tags", "t", "--title", "Generated boot map", "--body", "Bulk table.",
         "--scope", "Boot.java", "--source", "api-inventory",
     ])
     assert generated.returncode == 0, generated.stderr

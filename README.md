@@ -743,6 +743,10 @@ otherwise, and a brief marks it `until <date>` in its last three days.
 A note about the same thing as a live note of its kind must say
 `--supersedes <file>[,<file>]` (it replaces them) or `--differs "<one line>"`
 (what sets it apart); otherwise `note add` names the rivals and refuses.
+`note add` and the MCP `add_note` tool also keep a title to 140 characters and
+a body to 8000 (past that it is a log: keep the finding, name the log file),
+and a finding, lesson, defect or status note needs `--tags`; the refusal lists
+the tags already in use here that match its words.
 `eos note amend` takes the same three flags to revise who wrote a note or how
 long it holds, on their own or with `--body`/`--reaffirm`/`--scope`; a flag left
 out keeps the note's current value.

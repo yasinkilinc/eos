@@ -186,7 +186,7 @@ def message(pending: dict, stale: dict, session: str) -> str:
                   "  a trap you fell into, the constraint that made this the only fix,",
                   "  a rule for next time, a measured before/after, and what you did NOT verify.", ""]
         for name, (root, _paths) in pending.items():
-            lines += [f"  eos note add {root} --kind finding --title '...' --body '...' \\",
+            lines += [f"  eos note add {root} --kind finding --title '...' --body '...' --tags '...' \\",
                       # Quoted: bare, a shell reads `<` as a redirect before eos starts.
                       "    --scope '<the file this is about, project-relative -- or @parent:<label>/<path> "
                       "if it is really about a linked parent>' \\",
@@ -225,7 +225,8 @@ def fallback(pending: dict, stale: dict, session: str) -> str:
              "Run one command below before finishing.",
              "Quoted and angle-bracketed text below is a placeholder: replace it, do not run it as printed.", ""]
     for name, (root, _paths) in pending.items():
-        lines.append(f"  {name}: eos note add {root} --kind finding --title '...' --body '...' --session {session}")
+        lines.append(f"  {name}: eos note add {root} --kind finding --title '...' --body '...' --tags '...' "
+                     f"--session {session}")
     for name, (root, found) in stale.items():
         lines += [f"  {name}: eos note amend {item['path']} {root} {amend_flags(item)} --session {session}"
                   for item in found]

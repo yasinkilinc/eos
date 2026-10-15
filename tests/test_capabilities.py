@@ -123,14 +123,14 @@ def test_the_task_brief_puts_a_wrappers_pitfalls_under_it(project):
         assert r.returncode == 0, r.stderr
         return r.stdout.strip().split()[-1]
 
-    add("--kind", "finding", "--title", "tracker.sh comment cannot mention a user", "--body", "Mentions stay text.")
+    add("--kind", "finding", "--title", "tracker.sh comment cannot mention a user", "--body", "Mentions stay text.", "--tags", "comments")
     add("--kind", "finding", "--title", "Tracker search pages at 50", "--body", "Page on.", "--tags", "tracker.sh")
     add("--kind", "finding", "--title", "Tracker workflow has five states", "--body", "About the system.",
         "--tags", "tracker")
-    old = add("--kind", "finding", "--title", "tracker.sh needs a profile", "--body", "Set the profile.")
-    add("--kind", "finding", "--title", "tracker.sh reads the profile from env", "--body", "From env now.",
+    old = add("--kind", "finding", "--title", "tracker.sh needs a profile", "--body", "Set the profile.", "--tags", "profile")
+    add("--kind", "finding", "--title", "tracker.sh reads the profile from env", "--body", "From env now.", "--tags", "profile",
         "--supersedes", Path(old).name)
-    add("--kind", "finding", "--title", "The database is slow on Mondays", "--body", "Batch jobs.")
+    add("--kind", "finding", "--title", "The database is slow on Mondays", "--body", "Batch jobs.", "--tags", "database")
 
     text = brief.build(project, task="find the ticket PROJ-12 in the tracker", task_only=True)
 

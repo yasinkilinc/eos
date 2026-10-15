@@ -50,7 +50,7 @@ def _rel(path, root):
 
 def test_note_add_records_the_note_it_wrote_on_the_open_run(project):
     run = _eos("run", "start", str(project), "--title", "Find the timeout").split()[0]
-    out = _eos("note", "add", str(project), "--kind", "finding", "--title", "Staging needs the VPN",
+    out = _eos("note", "add", str(project), "--kind", "finding", "--tags", "t", "--title", "Staging needs the VPN",
                "--body", "Without it the health check times out.")
     path = out.split("Note written to ", 1)[1].strip()
 
@@ -84,9 +84,9 @@ def test_a_failed_runs_lesson_is_recorded_on_that_run(project):
 
 
 def test_without_an_open_run_the_note_is_written_and_nothing_is_recorded(project):
-    _eos("note", "add", str(project), "--kind", "finding", "--title", "Staging needs the VPN",
+    _eos("note", "add", str(project), "--kind", "finding", "--tags", "t", "--title", "Staging needs the VPN",
          "--body", "Without it the health check times out.", session=None)
-    _eos("note", "add", str(project), "--kind", "finding", "--title", "Prod needs the VPN too",
+    _eos("note", "add", str(project), "--kind", "finding", "--tags", "t", "--title", "Prod needs the VPN too",
          "--body", "Same timeout there.", session="nobody-started-a-run")
 
     assert len(notes.load_notes(project)) == 2
@@ -104,7 +104,7 @@ def test_a_note_written_after_the_success_check_leaves_the_run_verified(project)
     run = _eos("run", "start", str(project), "--title", "Close FM-1", "--procedure", slug).split()[0]
     _eos("run", "event", str(project), run, "--kind", "called", "--tool", "tracker", "--ref", "issue FM-1",
          "--exit", "0")
-    _eos("note", "add", str(project), "--kind", "finding", "--title", "FM-1 needed a second reviewer",
+    _eos("note", "add", str(project), "--kind", "finding", "--tags", "t", "--title", "FM-1 needed a second reviewer",
          "--body", "The first one was on leave.")
     record = {r.id: r for r in executions.load(project)}[run]
 
@@ -115,7 +115,7 @@ def test_run_finish_does_not_call_a_note_eos_wrote_a_change_outside_the_procedur
     notes.add_note(project, kind="procedure", title="Deploy wallet scope test",
                    body="## Steps\n1. build\n", scope=["src/wallet.py"])
     _eos("run", "start", str(project), "--title", "run it", "--procedure", "Deploy wallet scope test")
-    _eos("note", "add", str(project), "--kind", "finding", "--title", "The wallet build is slow",
+    _eos("note", "add", str(project), "--kind", "finding", "--tags", "t", "--title", "The wallet build is slow",
          "--body", "Most of it is the dependency download.")
     finished = _eos("run", "finish", str(project), "--outcome", "ok")
 
@@ -141,7 +141,7 @@ def test_in_a_workspace_the_event_follows_the_run_to_its_projects_ledger(ws):
     hub, service = ws
     run = _eos("run", "start", str(hub), "--title", "Fix the order-capture timeout").split()[0]
     assert run in {r.id for r in executions.load(service)}
-    out = _eos("note", "add", str(service), "--kind", "finding", "--title", "The timeout is the pool size",
+    out = _eos("note", "add", str(service), "--kind", "finding", "--tags", "t", "--title", "The timeout is the pool size",
                "--body", "Ten connections are not enough at peak.")
     path = out.split("Note written to ", 1)[1].strip()
 
@@ -154,7 +154,7 @@ def test_a_workspace_note_outside_the_runs_project_is_named_by_its_absolute_path
     absolute ref, the shape the editor hook records a file outside the project in."""
     hub, service = ws
     run = _eos("run", "start", str(hub), "--title", "Fix the order-capture timeout").split()[0]
-    out = _eos("note", "add", str(hub), "--kind", "finding", "--title", "Pool sizes are per service",
+    out = _eos("note", "add", str(hub), "--kind", "finding", "--tags", "t", "--title", "Pool sizes are per service",
                "--body", "Each service sizes its own pool.")
     path = out.split("Note written to ", 1)[1].strip()
 

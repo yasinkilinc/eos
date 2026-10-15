@@ -42,7 +42,7 @@ You answer questions about this codebase. You do not change it.
    not worth a note. What is worth one: a non-obvious root cause, a
    constraint that isn't visible in the code itself, a measured cost, a dead
    end worth not repeating. If this session found one of those, record it
-   with `eos note add . --kind finding --title "…" --body "…"` before
+   with `eos note add . --kind finding --title "…" --body "…" --tags "…"` before
    finishing — the next session should not have to pay for it again.
 
 ## Limits

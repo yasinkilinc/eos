@@ -129,8 +129,13 @@ def add_note(
     valid_until: str | None = None,
     projects: list[str] | None = None,
     differs: str | None = None,
+    strict: bool = False,
 ) -> Path:
     """Write one note and return its path.
+
+    ``strict`` holds a note typed by a person or an agent (the CLI, the MCP
+    tool) to the shape a reader can use (`_refuse_shape`); a library caller
+    -- a generator, a test fixture -- writes what it was given.
 
     ``projects`` names the workspace projects a note in the workspace's own
     store is about (M4, ADR-035); each of them reads it as its own.
@@ -159,6 +164,8 @@ def add_note(
     _refuse_scope(scope)
     if differs is not None:
         _refuse_placeholder(differs, "--differs")
+    for tag in tags or []:
+        _refuse_placeholder(tag, "note tag")
     if evidence is not None and kind != "lesson":
         raise ValueError(f"--evidence is only for a lesson note (ADR-024); kind {kind!r} refuses it")
     if evidence is not None:
@@ -198,6 +205,8 @@ def add_note(
         replaced.append(_one_note(existing, name, "--supersedes"))
     gone = {note.path.name for note in replaced}
     existing = [note for note in existing if note.path.name not in gone]
+    if strict and not generated:
+        _refuse_shape(kind, title, content, tags, existing)
     new_digest = body_digest(content)
     for note in existing:
         if body_digest(note.body) == new_digest:
@@ -277,6 +286,42 @@ def add_note(
 # Measured on 578 notes replayed in creation order (2.1.0): a title scoring
 # 0.5 against a live note was a replacement or a duplicate in the samples read;
 # "same source alone" would have stopped 40% of all writes, this stops 19%.
+TITLE_MAX = 140
+BODY_MAX = 8000
+# The kinds a brief and a wrapper's pitfall line find by tag.
+TAGGED_KINDS = ("finding", "lesson", "defect", "status")
+TAG_SUGGESTION_MIN_USES = 3
+
+
+def _refuse_shape(kind: str, title: str, content: str, tags: list[str] | None, existing: list[Note]) -> None:
+    """A title that fits a line, a body that is a note and not a log, and a tag
+    on the kinds that are found by tag."""
+    if len(title) > TITLE_MAX:
+        raise ValueError(f"The title is {len(title)} characters; keep it to {TITLE_MAX} "
+                         "and put the detail in the body.")
+    if len(content) > BODY_MAX:
+        raise ValueError(f"The body is {len(content)} characters; over {BODY_MAX} is a log, not a note. "
+                         "Keep what was learned and name the log file.")
+    if kind in TAGGED_KINDS and not [tag for tag in (tags or []) if tag.strip()]:
+        hint = ", ".join(_tag_suggestions(existing, f"{title} {content}"))
+        raise ValueError(f"A {kind} note needs at least one tag (--tags a,b)"
+                         + (f"; tags in use here that match it: {hint}" if hint else "") + ".")
+
+
+def _tag_suggestions(existing: list[Note], text: str, limit: int = 5) -> list[str]:
+    """Tags used on at least TAG_SUGGESTION_MIN_USES notes whose words the new
+    note shares, most used first."""
+    from collections import Counter
+
+    from core.notes.render import _words
+
+    uses = Counter(tag.lower() for note in existing for tag in note.tags)
+    words = set(_words(text))
+    matching = [tag for tag, n in uses.items()
+                if n >= TAG_SUGGESTION_MIN_USES and set(_words(tag.replace("-", " "))) & words]
+    return sorted(matching, key=lambda tag: (-uses[tag], tag))[:limit]
+
+
 # A status note says how things stand now; it stops being offered after this
 # many days unless --valid-until says otherwise.
 STATUS_DAYS = 14

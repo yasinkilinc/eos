@@ -255,6 +255,10 @@ class McpServer:
                         "cause": {"type": "string", "description": "Required for kind=defect"},
                         "solution": {"type": "string", "description": "Required for kind=defect"},
                         "metric": {"type": "string", "description": "Required for kind=defect"},
+                        "supersedes": {"type": "string",
+                                       "description": "Note file(s) this replaces, comma-separated"},
+                        "differs": {"type": "string",
+                                    "description": "What sets this apart from a live note about the same thing"},
                     },
                 },
                 "handler": lambda args: {
@@ -271,6 +275,9 @@ class McpServer:
                             solution=args.get("solution"),
                             metric=args.get("metric"),
                             provenance="agent",  # only an agent calls an MCP tool
+                            supersedes=args.get("supersedes"),
+                            differs=args.get("differs"),
+                            strict=True,
                         )
                     )
                 },

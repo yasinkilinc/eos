@@ -117,7 +117,7 @@ def test_the_target_section_replaced_the_json_dump(tmp_path):
 
 def test_a_task_still_reaches_the_note_ranking(tmp_path):
     root = _scanned(tmp_path)
-    assert _run(["note", "add", str(root), "--kind", "finding",
+    assert _run(["note", "add", str(root), "--kind", "finding", "--tags", "t",
                  "--title", "Age limit rejects boundary values",
                  "--body", "The limit is inclusive, which surprised two reviewers."]).returncode == 0
 

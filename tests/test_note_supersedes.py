@@ -36,10 +36,10 @@ def _project(tmp_path):
 
 def test_a_rewrite_that_supersedes_is_accepted_and_the_old_note_steps_back(tmp_path):
     root = _project(tmp_path)
-    refused = _eos("note", "add", str(root), "--kind", "finding", "--title", "Payment retries back off",
+    refused = _eos("note", "add", str(root), "--kind", "finding", "--tags", "t", "--title", "Payment retries back off",
                    "--body", NEW, check=False)
     assert refused.returncode != 0                                   # without it, a paraphrase is refused
-    _eos("note", "add", str(root), "--kind", "finding", "--title", "Payment retries back off",
+    _eos("note", "add", str(root), "--kind", "finding", "--tags", "t", "--title", "Payment retries back off",
          "--body", NEW, "--supersedes", "Payment retries use a fixed delay")
     corpus = {n.title: n for n in notes.load_notes(root)}
     new, old = corpus["Payment retries back off"], corpus["Payment retries use a fixed delay"]
@@ -54,7 +54,7 @@ def test_a_rewrite_that_supersedes_is_accepted_and_the_old_note_steps_back(tmp_p
 
 def test_supersedes_must_name_one_existing_note(tmp_path):
     root = _project(tmp_path)
-    done = _eos("note", "add", str(root), "--kind", "finding", "--title", "Something new entirely",
+    done = _eos("note", "add", str(root), "--kind", "finding", "--tags", "t", "--title", "Something new entirely",
                 "--body", "A different fact about notifications.", "--supersedes", "no such note", check=False)
     assert done.returncode != 0 and "supersedes" in done.stderr
 
@@ -63,7 +63,7 @@ def test_supersedes_must_name_one_existing_note(tmp_path):
 
 
 def _supersede(root, title, body, old):
-    _eos("note", "add", str(root), "--kind", "finding", "--title", title, "--body", body, "--supersedes", old)
+    _eos("note", "add", str(root), "--kind", "finding", "--tags", "t", "--title", title, "--body", body, "--supersedes", old)
 
 
 def test_an_amend_keeps_what_a_note_supersedes(tmp_path):

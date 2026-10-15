@@ -81,6 +81,7 @@ def cmd_note_add(args: argparse.Namespace) -> int:
             valid_until=args.valid_until,
             projects=_split_csv(args.projects),
             differs=args.differs,
+            strict=True,
         )
     except (ValueError, FileExistsError) as exc:
         print(f"error: {exc}", file=sys.stderr)

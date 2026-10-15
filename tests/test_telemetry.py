@@ -278,7 +278,7 @@ def test_a_query_that_had_to_rebuild_the_index_says_so(tmp_path):
     assert _run(["query", str(root), "SELECT 1"]).returncode == 0
     fresh = [e for e in telemetry.load(root) if e["command"] == "query"][-1]
     assert fresh["rebuilt"] is False, fresh
-    assert _run(["note", "add", str(root), "--kind", "finding", "--title", "a new finding",
+    assert _run(["note", "add", str(root), "--kind", "finding", "--tags", "t", "--title", "a new finding",
                  "--body", "It changes the index sources."]).returncode == 0
     assert _run(["query", str(root), "SELECT 1"]).returncode == 0
     stale = [e for e in telemetry.load(root) if e["command"] == "query"][-1]

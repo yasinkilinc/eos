@@ -109,7 +109,7 @@ def test_context_without_a_query_includes_it(ws):
 
 def test_the_cli_writes_and_shows_it(ws):
     hub, services = ws
-    added = subprocess.run(EOS + ["note", "add", str(hub), "--kind", "finding", "--title", "Wallet journey",
+    added = subprocess.run(EOS + ["note", "add", str(hub), "--kind", "finding", "--tags", "t", "--title", "Wallet journey",
                                   "--body", "The wallet is charged last.", "--projects", "svc-a,svc-c"],
                            capture_output=True, text=True)
     assert added.returncode == 0, added.stderr

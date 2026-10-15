@@ -42,7 +42,7 @@ def test_add_note_tool_is_advertised_and_writes_a_note(tmp_path):
 
     responses = _mcp(project, [
         {"jsonrpc": "2.0", "id": 0, "method": "tools/list", "params": {}},
-        _call("add_note", {
+        _call("add_note", {"tags": ["t"], 
             "kind": "finding",
             "title": "Cache warms on boot",
             "body": "The first request pays for it otherwise.",
@@ -107,7 +107,7 @@ def test_add_note_tool_reports_a_credential_body_as_a_tool_error(tmp_path):
     secret = "S" * 24
 
     responses = _mcp(project, [
-        _call("add_note", {
+        _call("add_note", {"tags": ["t"], 
             "kind": "finding",
             "title": "Auth call",
             "body": f"Reproduce with password={secret} against env1.",
@@ -132,7 +132,7 @@ def test_add_note_tool_refuses_an_explicitly_empty_scope(tmp_path):
     _init(project)
 
     responses = _mcp(project, [
-        _call("add_note", {
+        _call("add_note", {"tags": ["t"], 
             "kind": "finding",
             "title": "Cache warms on boot",
             "body": "The first request pays for it otherwise.",
@@ -157,7 +157,7 @@ def test_add_note_tool_refuses_a_scope_whose_entries_are_all_blank(tmp_path):
 
     for blank in ([""], ["   "], ["", "  "]):
         responses = _mcp(project, [
-            _call("add_note", {
+            _call("add_note", {"tags": ["t"], 
                 "kind": "finding",
                 "title": f"Cache warms on boot {len(blank)}{blank[0]!r}",
                 "body": "The first request pays for it otherwise.",
@@ -181,7 +181,7 @@ def test_add_note_tool_refuses_a_non_string_scope_entry(tmp_path):
 
     for index, entry in enumerate(({"a": 1}, None, 7, ["src/X.java"])):
         responses = _mcp(project, [
-            _call("add_note", {
+            _call("add_note", {"tags": ["t"], 
                 "kind": "finding",
                 "title": f"Cache warms on boot {index}",
                 "body": "The first request pays for it otherwise.",
@@ -205,7 +205,7 @@ def test_add_note_tool_strips_a_padded_scope_entry_before_hashing(tmp_path):
     (project / "src" / "X.java").write_text("class X {}\n", encoding="utf-8")
 
     responses = _mcp(project, [
-        _call("add_note", {
+        _call("add_note", {"tags": ["t"], 
             "kind": "finding",
             "title": "X is constructed reflectively",
             "body": "The parent instantiates it by name.",

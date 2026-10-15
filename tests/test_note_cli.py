@@ -67,7 +67,7 @@ def test_note_add_refuses_a_scope_that_names_nothing(tmp_path):
 
     r = _run([
         "note", "add", str(proj),
-        "--kind", "finding",
+        "--kind", "finding", "--tags", "t",
         "--title", "Cache warms on boot",
         "--body", "The first request pays for it otherwise.",
         "--scope", ",",
@@ -82,7 +82,7 @@ def test_note_list_shows_a_previously_added_note(tmp_path):
     proj = _init(tmp_path)
     _run([
         "note", "add", str(proj),
-        "--kind", "finding", "--title", "Cache warms on boot", "--body", "Slow first hit.",
+        "--kind", "finding", "--tags", "t", "--title", "Cache warms on boot", "--body", "Slow first hit.",
     ])
 
     r = _run(["note", "list", str(proj)])
@@ -96,11 +96,11 @@ def test_note_list_hides_a_replaced_or_expired_note_and_all_marks_them(tmp_path)
     either one being current: a reader summarised a three-step decision chain
     from it and named the first step as the outcome."""
     proj = _init(tmp_path)
-    old = _run(["note", "add", str(proj), "--kind", "finding", "--title", "Identity is alpha",
+    old = _run(["note", "add", str(proj), "--kind", "finding", "--tags", "t", "--title", "Identity is alpha",
                 "--body", "The caller signs in as alpha."]).stdout.strip()
-    _run(["note", "add", str(proj), "--kind", "finding", "--title", "Identity is beta",
+    _run(["note", "add", str(proj), "--kind", "finding", "--tags", "t", "--title", "Identity is beta",
           "--body", "The caller signs in as beta.", "--supersedes", Path(old.split()[-1]).name])
-    stale = _run(["note", "add", str(proj), "--kind", "finding", "--title", "Stale fact",
+    stale = _run(["note", "add", str(proj), "--kind", "finding", "--tags", "t", "--title", "Stale fact",
                   "--body", "True once."]).stdout.strip().split()[-1]
     text = Path(stale).read_text(encoding="utf-8")
     Path(stale).write_text(text.replace("---\n", "---\nvalid_until: 2000-01-01\n", 1), encoding="utf-8")
@@ -121,12 +121,12 @@ def test_note_search_finds_the_relevant_note_by_query(tmp_path):
     proj = _init(tmp_path)
     _run([
         "note", "add", str(proj),
-        "--kind", "finding", "--title", "Connection pool exhausted",
+        "--kind", "finding", "--tags", "t", "--title", "Connection pool exhausted",
         "--body", "The pool ran out of connections during deposits.",
     ])
     _run([
         "note", "add", str(proj),
-        "--kind", "finding", "--title", "Unrelated topic", "--body", "Nothing to do with databases.",
+        "--kind", "finding", "--tags", "t", "--title", "Unrelated topic", "--body", "Nothing to do with databases.",
     ])
 
     r = _run(["note", "search", str(proj), "database connection pool"])
@@ -451,7 +451,7 @@ def test_note_show_prints_one_note_in_full(tmp_path):
     """
     root = tmp_path / "project"
     (root / ".eos").mkdir(parents=True)
-    assert _run(["note", "add", str(root), "--kind", "finding",
+    assert _run(["note", "add", str(root), "--kind", "finding", "--tags", "t",
                  "--title", "The cache keeps parents", "--body",
                  "A plain scan used to drop them from every answer."]).returncode == 0
 
@@ -468,7 +468,7 @@ def test_note_show_refuses_to_guess_between_matches(tmp_path):
     (root / ".eos").mkdir(parents=True)
     for title, body in (("Parent links resolve at scan time", "Recorded at link time."),
                         ("Parent classes index under a tagged key", "Stored with a prefix.")):
-        assert _run(["note", "add", str(root), "--kind", "finding",
+        assert _run(["note", "add", str(root), "--kind", "finding", "--tags", "t",
                      "--title", title, "--body", body]).returncode == 0
 
     done = _run(["note", "show", str(root), "parent"])

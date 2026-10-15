@@ -127,7 +127,7 @@ def test_the_cli_writes_provenance_and_validity(tmp_path):
                                     capture_output=True, text=True, cwd=REPO)
     assert run("init", str(project)).returncode == 0
     until = (datetime.date.today() + datetime.timedelta(days=30)).isoformat()
-    result = run("note", "add", str(project), "--kind", "finding", "--title", "Cache warms on boot",
+    result = run("note", "add", str(project), "--kind", "finding", "--tags", "t", "--title", "Cache warms on boot",
                  "--body", "The first request pays for it otherwise.",
                  "--provenance", "human", "--valid-until", until)
     assert result.returncode == 0, result.stderr
@@ -194,7 +194,7 @@ def test_the_cli_amends_provenance_and_validity_alone(tmp_path):
     run = lambda *a: subprocess.run([sys.executable, str(REPO / "core" / "eos.py"), *a],  # noqa: E731
                                     capture_output=True, text=True, cwd=REPO)
     assert run("init", str(project)).returncode == 0
-    added = run("note", "add", str(project), "--kind", "finding", "--title", "Cache warms on boot",
+    added = run("note", "add", str(project), "--kind", "finding", "--tags", "t", "--title", "Cache warms on boot",
                "--body", "The first request pays for it otherwise.")
     assert added.returncode == 0, added.stderr
     note_path = notes.load_notes(project)[0].path
