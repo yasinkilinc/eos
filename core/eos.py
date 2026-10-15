@@ -336,6 +336,8 @@ def main(argv: list[str] | None = None) -> int:
     note_list_p = note_sub.add_parser("list", help="List notes")
     add_path(note_list_p)
     note_list_p.add_argument("--tag", help="Only notes carrying this tag")
+    note_list_p.add_argument("--all", action="store_true",
+                             help="Also superseded and expired notes, marked; hidden by default")
 
     note_show_p = note_sub.add_parser("show", help="Print one note in full")
     add_path(note_show_p)

@@ -91,6 +91,32 @@ def test_note_list_shows_a_previously_added_note(tmp_path):
     assert "Cache warms on boot" in r.stdout
 
 
+def test_note_list_hides_a_replaced_or_expired_note_and_all_marks_them(tmp_path):
+    """A listing that mixes a replaced decision with its replacement reads as
+    either one being current: a reader summarised a three-step decision chain
+    from it and named the first step as the outcome."""
+    proj = _init(tmp_path)
+    old = _run(["note", "add", str(proj), "--kind", "finding", "--title", "Identity is alpha",
+                "--body", "The caller signs in as alpha."]).stdout.strip()
+    _run(["note", "add", str(proj), "--kind", "finding", "--title", "Identity is beta",
+          "--body", "The caller signs in as beta.", "--supersedes", Path(old.split()[-1]).name])
+    stale = _run(["note", "add", str(proj), "--kind", "finding", "--title", "Stale fact",
+                  "--body", "True once."]).stdout.strip().split()[-1]
+    text = Path(stale).read_text(encoding="utf-8")
+    Path(stale).write_text(text.replace("---\n", "---\nvalid_until: 2000-01-01\n", 1), encoding="utf-8")
+
+    listed = _run(["note", "list", str(proj)])
+    everything = _run(["note", "list", str(proj), "--all"])
+
+    assert listed.returncode == 0, listed.stderr
+    assert "Identity is beta" in listed.stdout
+    assert "Identity is alpha" not in listed.stdout and "Stale fact" not in listed.stdout
+    assert "2 hidden" in listed.stdout and "--all" in listed.stdout
+    alpha = next(line for line in everything.stdout.splitlines() if "Identity is alpha" in line)
+    assert "superseded by" in alpha
+    assert "expired" in next(line for line in everything.stdout.splitlines() if "Stale fact" in line)
+
+
 def test_note_search_finds_the_relevant_note_by_query(tmp_path):
     proj = _init(tmp_path)
     _run([

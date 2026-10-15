@@ -94,8 +94,22 @@ def cmd_note_add(args: argparse.Namespace) -> int:
 def cmd_note_list(args: argparse.Namespace) -> int:
     recorded = notes.load_notes(args.path)
     matches = [note for note in recorded if args.tag in note.tags] if args.tag else recorded
+    # A replaced or expired note listed beside the current one reads as current
+    # too; search and briefs already leave them out, so the listing does.
+    replaced = notes.superseded(recorded)
+    hidden = 0
     for note in matches:
-        print(f"{note.path.name}\t{note.kind}\t{note.title}")
+        stale = []
+        if note.path.name in replaced:
+            stale.append("superseded by " + ", ".join(replaced[note.path.name]))
+        if notes.expired(note):
+            stale.append(f"expired {note.valid_until}")
+        if stale and not args.all:
+            hidden += 1
+            continue
+        print(f"{note.path.name}\t{note.kind}\t{note.title}" + (f"\t[{'; '.join(stale)}]" if stale else ""))
+    if hidden:
+        print(f"{hidden} hidden (superseded or expired); --all lists them, marked")
     if matches:
         return 0
     if not recorded:

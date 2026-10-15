@@ -469,6 +469,29 @@ def best_procedure(root: Path, task: str, corpus: list | None = None):
     return note if len(matched) >= 2 and named >= floor else None
 
 
+PITFALL_LIMIT = 3
+_PITFALL_KINDS = ("lesson", "defect", "finding")
+
+
+def _pitfalls(capability, corpus: list, replaced: dict) -> list:
+    """Live notes about one wrapper: its file name (`jira.sh`) in the title or
+    the tags. A lesson about a wrapper only pays when it is read before the
+    call, and the wrapper line is where the brief already names it. The bare
+    name is not matched: `jira` or `db` tags notes about the system, not the tool."""
+    program = capability.program.lower()
+    if not program:
+        return []
+    found = [note for note in corpus
+             if note.kind in _PITFALL_KINDS and note.path.name not in replaced and not notes.expired(note)
+             and (program in note.title.lower() or program in {tag.lower() for tag in note.tags})]
+    found.sort(key=lambda note: (note.kind == "finding", _reverse(note.path.name)))
+    return found[:PITFALL_LIMIT]
+
+
+def _reverse(name: str) -> tuple[int, ...]:
+    return tuple(-ord(char) for char in name)
+
+
 def _clip(text: str, limit: int = STEP_CHARS) -> str:
     text = " ".join(text.split())
     return text if len(text) <= limit else text[: limit - 1] + "…"
@@ -550,11 +573,14 @@ def _task_sections(root: Path, task: str) -> tuple[list[list[str]], bool]:
     if wanted:
         found = True
         block = ["WRAPPERS FOR THIS TASK — use these rather than the raw command"]
+        replaced = notes.superseded(corpus)
         for capability in wanted:
             # Only bad news is worth a line's width: an answered call is the expectation.
             seen = capabilities.health(root, capability, records=records)
             block.append(f"  {capability.line()}"
                          + (f"  [{seen.describe()}]" if seen.state == "unreachable" else ""))
+            block += [f"    pitfall: {_clip(note.title, DETAIL_CHARS)}"
+                      for note in _pitfalls(capability, corpus, replaced)]
         sections.append(block + ["  Every wrapper here: eos capabilities ."])
 
     catalogued = _catalogue_state(root, task)

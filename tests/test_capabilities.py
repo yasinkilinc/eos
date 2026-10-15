@@ -114,6 +114,33 @@ def test_the_task_brief_names_the_wrappers_a_task_calls_for(project):
     assert brief.build(project, task="rename a local variable", task_only=True) == ""
 
 
+def test_the_task_brief_puts_a_wrappers_pitfalls_under_it(project):
+    """A lesson about a wrapper only pays when it is read before the call; the
+    wrapper line is the one place the brief already names it."""
+    def add(*args):
+        r = subprocess.run(EOS + ["note", "add", str(project), *args], capture_output=True, text=True)
+        assert r.returncode == 0, r.stderr
+        return r.stdout.strip().split()[-1]
+
+    add("--kind", "finding", "--title", "tracker.sh comment cannot mention a user", "--body", "Mentions stay text.")
+    add("--kind", "finding", "--title", "Tracker search pages at 50", "--body", "Page on.", "--tags", "tracker.sh")
+    add("--kind", "finding", "--title", "Tracker workflow has five states", "--body", "About the system.",
+        "--tags", "tracker")
+    old = add("--kind", "finding", "--title", "tracker.sh needs a profile", "--body", "Set the profile.")
+    add("--kind", "finding", "--title", "tracker.sh reads the profile from env", "--body", "From env now.",
+        "--supersedes", Path(old).name)
+    add("--kind", "finding", "--title", "The database is slow on Mondays", "--body", "Batch jobs.")
+
+    text = brief.build(project, task="find the ticket PROJ-12 in the tracker", task_only=True)
+
+    block = text.split("WRAPPERS FOR THIS TASK", 1)[1].split("Every wrapper here", 1)[0]
+    assert "pitfall: tracker.sh comment cannot mention a user" in block
+    assert "pitfall: Tracker search pages at 50" in block
+    assert "tracker.sh needs a profile" not in block, "a replaced note is not offered"
+    assert "Mondays" not in block
+    assert "five states" not in block, "a note about the system is not a pitfall of its wrapper"
+
+
 def test_the_cli_answers_for_a_task_and_for_a_command(project):
     listed = subprocess.run(EOS + ["capabilities", str(project)], capture_output=True, text=True)
     assert "tracker → scripts/tracker.sh" in listed.stdout and "db → scripts/db.sh" in listed.stdout
