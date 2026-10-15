@@ -207,6 +207,8 @@ def add_note(
     existing = [note for note in existing if note.path.name not in gone]
     if strict and not generated:
         _refuse_shape(kind, title, content, tags, existing)
+    if not generated:
+        tags = list(dict.fromkeys([*(tags or []), *_wrapper_tags(project_root, f"{title}\n{content}")])) or tags
     new_digest = body_digest(content)
     for note in existing:
         if body_digest(note.body) == new_digest:
@@ -286,6 +288,21 @@ def add_note(
 # Measured on 578 notes replayed in creation order (2.1.0): a title scoring
 # 0.5 against a live note was a replacement or a duplicate in the samples read;
 # "same source alone" would have stopped 40% of all writes, this stops 19%.
+def _wrapper_tags(project_root: str | Path, text: str) -> list[str]:
+    """The declared wrappers (capabilities.toml) a note names as a word, so
+    the brief's `pitfall:` line under that wrapper finds it."""
+    import re
+
+    from core import capabilities
+
+    try:
+        declared = capabilities.load(project_root)
+    except (OSError, ValueError):  # a malformed registry costs the tags, never the note
+        return []
+    return [c.program for c in declared
+            if c.program and re.search(rf"(?<![\w.-]){re.escape(c.program)}(?![\w-]|\.\w)", text)]
+
+
 TITLE_MAX = 140
 BODY_MAX = 8000
 # The kinds a brief and a wrapper's pitfall line find by tag.

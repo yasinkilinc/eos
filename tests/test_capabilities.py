@@ -414,3 +414,36 @@ def test_the_cli_status_names_an_unreachable_capability(project):
     done = subprocess.run(EOS + ["capabilities", str(project), "--status", "tracker"],
                           capture_output=True, text=True)
     assert "reachable  (health: unreachable)" in done.stdout and "env1" in done.stdout
+
+
+
+def _note_file(project, *args):
+    r = subprocess.run(EOS + ["note", "add", str(project), "--kind", "finding", *args],
+                       capture_output=True, text=True)
+    assert r.returncode == 0, r.stderr
+    return Path(r.stdout.split()[-1]).read_text(encoding="utf-8")
+
+
+def test_a_note_naming_a_wrapper_is_tagged_with_it(project):
+    text = _note_file(project, "--tags", "export", "--title", "Comments cannot mention a user",
+                      "--body", "Through scripts/tracker.sh comment the mention stays text.")
+    assert "  - tracker.sh" in text and "  - export" in text
+
+
+def test_a_wrapper_name_inside_another_word_is_not_a_mention(project):
+    text = _note_file(project, "--tags", "backup", "--title", "Backups kept",
+                      "--body", "scripts/tracker.sh.bak is kept for a week; mytracker.sh is another tool.")
+    assert "  - tracker.sh" not in text
+
+
+def test_a_wrapper_tag_already_given_is_not_doubled(project):
+    text = _note_file(project, "--tags", "tracker.sh", "--title", "tracker.sh pages at 50",
+                      "--body", "tracker.sh search returns 50 per page.")
+    assert text.count("  - tracker.sh") == 1
+
+
+def test_a_malformed_registry_costs_the_tag_not_the_note(project):
+    (project / ".eos" / "knowledge" / "capabilities.toml").write_text("[[capability]]\nrun = 'x'\n",
+                                                                         encoding="utf-8")
+    text = _note_file(project, "--tags", "export", "--title", "tracker.sh is slow", "--body", "It takes a minute.")
+    assert "  - tracker.sh" not in text
