@@ -487,10 +487,16 @@ def shared_notes(project_root: str | Path) -> list[Note]:
     home = workspace.of(project)
     if home is None:
         return []
-    name = next((p.name for p in workspace.load_quiet(home) if p.root == project), None)
+    # Before 3.13 Path.is_file raises on a path the OS cannot stat (ENAMETOOLONG,
+    # EACCES) instead of answering False; an unreadable workspace shares nothing.
+    try:
+        name = next((p.name for p in workspace.load_quiet(home) if p.root == project), None)
+        home_notes = load_notes(home)
+    except OSError:
+        return []
     prefix = f"{PROJECT_PREFIX}{name}/"
     views = []
-    for note in load_notes(home):
+    for note in home_notes:
         if name not in note.projects:
             continue
         mine = [(entry[len(prefix):], note.scope_hashes[i] if i < len(note.scope_hashes) else None)
