@@ -424,7 +424,14 @@ def cmd_note_audit(args: argparse.Namespace) -> int:
         for item in generated:
             print(f"  {_title(item)!r} ({_note_path(item)})  (source: {item['source']})")
         print("  Fix: regenerate them; do not edit these by hand.")
-    if not handwritten and not generated:
+    unhashed = notes.unhashed_notes(args.path)
+    if unhashed:
+        print("UNHASHED: scope entries with no recorded hash whose file exists now; "
+              "nothing can flag these notes stale until one is recorded:")
+        for item in unhashed:
+            print(f"  {_title(item)!r} ({_note_path(item)})  [{', '.join(item['scope'])}]")
+            print(f"  eos note amend {_note_path(item)} {root} --reaffirm '<why it still holds>'")
+    if not handwritten and not generated and not unhashed:
         # How many were examined, not just that none failed. "No stale notes."
         # reads the same whether it checked forty notes or found the knowledge
         # directory empty, and those call for opposite next actions.

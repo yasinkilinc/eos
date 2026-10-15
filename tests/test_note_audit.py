@@ -264,3 +264,38 @@ def test_the_printed_mixed_remedy_refuses_rather_than_running_the_placeholder(
         assert rc != 0, f"running this verbatim must not succeed: {line}"
         assert err.strip(), "and must say why"
     assert notes.parse_note(note_path).scope == before, "the note must be untouched"
+
+
+# -- 2.2.0: a scope entry whose file did not exist when the note was written --
+
+def _audit(root):
+    import subprocess
+    eos = [sys.executable, str(Path(__file__).resolve().parents[1] / "core" / "eos.py")]
+    return subprocess.run(eos + ["note", "audit", str(root)], capture_output=True, text=True).stdout
+
+
+def test_audit_lists_a_scope_entry_never_hashed_once_its_file_exists(tmp_path):
+    """Hashed as null at write time (the file came later), the entry was skipped
+    by every staleness check for good: the note could never be flagged."""
+    note = notes.add_note(tmp_path, kind="finding", title="The retry lives in Retry.java",
+                          body="Retry waits two seconds.", tags=["t"], scope=["src/Retry.java"])
+    assert "UNHASHED" not in _audit(tmp_path), "no file yet: nothing to hash, nothing to say"
+    (tmp_path / "src").mkdir()
+    (tmp_path / "src" / "Retry.java").write_text("class Retry {}", encoding="utf-8")
+    said = _audit(tmp_path)
+    assert "UNHASHED" in said and "src/Retry.java" in said and f"eos note amend {note}" in said
+    notes.amend_note(note, tmp_path, reaffirm="still the retry")
+    assert "UNHASHED" not in _audit(tmp_path)
+    assert notes.parse_note(note).scope_hashes[0] is not None
+
+
+def test_a_note_written_with_no_scope_hashes_at_all_is_listed(tmp_path):
+    (tmp_path / "A.java").write_text("class A {}", encoding="utf-8")
+    note = notes.add_note(tmp_path, kind="finding", title="A is final", body="Nothing extends A.",
+                          tags=["t"], scope=["A.java"])
+    text = note.read_text(encoding="utf-8")
+    start = text.index("scope_hashes:")
+    end = text.index("\n", text.index("\n", start) + 1) if "\n  - " in text[start:start + 120] else text.index("\n", start)
+    note.write_text(text[:start] + "scope_hashes: null" + text[end:], encoding="utf-8")
+    assert notes.parse_note(note).scope_hashes == []
+    assert "UNHASHED" in _audit(tmp_path)

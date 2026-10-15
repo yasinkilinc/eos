@@ -51,6 +51,14 @@ executable launcher under `~/.local/bin/eos`. Override the locations with
   note in its last three days, with the `--append` and `--expire` commands),
   and the `run finish … --outcome abandoned` command under each run open for
   days. Nothing is applied.
+- **`eos note audit` lists UNHASHED scope entries:** a file that did not exist
+  when the note was written got no hash, and nothing could flag the note stale;
+  once the file exists, audit names it with the `amend --reaffirm` that records
+  the hash. A hand-edited `scope_hashes: null` reads as none recorded.
+- **`[brief] procedure_stopwords`:** words that never count toward picking a
+  procedure (a project's generic verbs, e.g. "gözden geçir").
+- `run finish` says `closed: ok, claimed (not verified): …` -- the run is
+  closed; the line says what a verified one would need.
 
 ## What changed in 2.1
 

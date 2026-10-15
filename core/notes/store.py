@@ -436,7 +436,8 @@ def parse_note(path: Path) -> Note:
         source=meta.get("source") or None,
         tags=list(meta.get("tags") or []),
         scope=list(meta.get("scope") or []),
-        scope_hashes=list(meta.get("scope_hashes") or []),
+        # A list; a hand-edited `scope_hashes: null` scalar is none recorded, not ['n','u','l','l'].
+        scope_hashes=list(meta["scope_hashes"]) if isinstance(meta.get("scope_hashes"), list) else [],
         body=body.strip(),
         session=meta.get("session") or None,
         procedure=meta.get("procedure") or None,
@@ -528,6 +529,28 @@ def load_dir(directory: str | Path) -> list[Note]:
 # language into fragments: a prompt "PR aç" lost both words, "planı" became
 # "plan" and matched an unrelated "rate-plan-change" in a procedure's body.
 _WORD = re.compile(r"[^\W_]+")
+
+
+def unhashed_notes(project_root: str | Path) -> list[dict]:
+    """Hand-written notes with a scope entry that has no recorded hash and
+    whose file exists now: the file came after the note, so `stale_notes`
+    skips the entry for good. `amend --reaffirm` (or `--body`) records it."""
+    project = Path(project_root).expanduser().resolve()
+    found = []
+    for note in load_notes(project_root):
+        if is_generated(note) or is_bulk_index(note):
+            continue
+        entries = []
+        for index, scope_entry in enumerate(note.scope):
+            if index < len(note.scope_hashes) and note.scope_hashes[index] is not None:
+                continue
+            anchor = _scope_anchor(project, scope_entry)
+            resolved = anchor[1] if anchor else None
+            if resolved is not None and resolved.is_file():
+                entries.append(scope_entry)
+        if entries:
+            found.append({"note": note.path.name, "scope": entries})
+    return found
 
 
 def stale_notes(project_root: str | Path) -> list[dict]:
