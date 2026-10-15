@@ -39,6 +39,32 @@ canonical `core/` runtime to `~/.local/share/eos/<version>/` and installs an
 executable launcher under `~/.local/bin/eos`. Override the locations with
 `EOS_INSTALL_PREFIX`, `EOS_DATA_DIR`, `EOS_BIN_DIR`, or `EOS_PYTHON`.
 
+## What changed in 2.2
+
+- **`eos note amend` keeps a note's history in the note:** `--supersedes`
+  records after the fact that it replaces older notes, `--expire "<why>"` ends
+  one that no longer holds, `--append` adds a dated section instead of a new
+  note per round. A body amend keeps `differs`.
+- **`eos consolidate` proposes clean-up it can show:** LIKELY REPLACED (a
+  note whose title reports a ticket's outcome, beside older notes on that
+  ticket, with the one `amend --supersedes` command), STATUS EXPIRING (a status
+  note in its last three days, with the `--append` and `--expire` commands),
+  and the `run finish … --outcome abandoned` command under each run open for
+  days. Nothing is applied.
+
+## What changed in 2.1
+
+- **A note about the same thing as a live note must say how it relates:**
+  `--supersedes <file>[,<file>]` (one note can replace several) or `--differs
+  "<one line>"`; otherwise `note add` names the rivals and refuses.
+- **`--kind status`** for how things stand now: valid for 14 days unless
+  `--valid-until` says otherwise.
+- **Shape at the boundary:** `note add` and the MCP `add_note` tool refuse a
+  title over 140 characters, a body over 8000, and an untagged finding,
+  lesson, defect or status note, suggesting tags in use. A note naming a
+  declared wrapper (`capabilities.toml`) is tagged with it, so the brief's
+  `pitfall:` line finds it. The MCP tool takes `supersedes` and `differs`.
+
 ## What changed in 2.0
 
 2.0 closes the 2.x roadmap's open rows (`docs/roadmap/2x-progress.md`, "What is

@@ -512,6 +512,7 @@ def report(project_root: str | Path, *, since: float | None = None) -> dict:
 
     expired = [f"{note.title} ({note.valid_until})" for note in corpus if notes.expired(note)]
     likely_replaced = _likely_replaced(corpus, replaced)
+    status_expiring = _status_expiring(corpus, replaced)
     stale = notes.stale_notes(root)
     records = executions.load(root)
     silent = _silent_steps(root, records)
@@ -553,6 +554,7 @@ def report(project_root: str | Path, *, since: float | None = None) -> dict:
         "stale_notes": [entry.get("note") for entry in stale],
         "expired_notes": expired,
         "likely_replaced": likely_replaced,
+        "status_expiring": status_expiring,
         "open_runs_older": old_runs,
         "stale_work": [(item.id, item.title) for item in stale_work],
         "verified_rate": {"verified": verified, "claimed": claimed},
@@ -636,6 +638,28 @@ def _likely_replaced(corpus, replaced) -> list[dict]:
     return found
 
 
+STATUS_WARN_DAYS = 3
+
+
+def _status_expiring(corpus, replaced) -> list[dict]:
+    """Live status notes whose valid_until falls within STATUS_WARN_DAYS."""
+    from core import notes
+
+    today = datetime.date.today()
+    found = []
+    for note in corpus:
+        if note.kind != "status" or note.path.name in replaced or notes.expired(note) or not note.valid_until:
+            continue
+        try:
+            until = datetime.date.fromisoformat(str(note.valid_until)[:10])
+        except ValueError:
+            continue
+        if (until - today).days <= STATUS_WARN_DAYS:
+            found.append({"note": note.path.name, "path": str(note.path), "title": note.title,
+                          "valid_until": until.isoformat()})
+    return sorted(found, key=lambda p: p["valid_until"])
+
+
 def render(data: dict) -> str:
     def block(title, items, more):
         if not items:
@@ -666,8 +690,14 @@ def render(data: dict) -> str:
                    "any note that still holds on its own, then run it")
     lines += block("EXPIRED NOTES", data.get("expired_notes", []),
                    "past their valid_until: search no longer offers them; replace or let them go")
-    lines += block("RUNS OPEN FOR DAYS", [f"{rid}  {title}  ({days}d)" for rid, title, days in data["open_runs_older"]],
-                   "eos run finish . <id> --outcome ok|failed|abandoned")
+    lines += block("STATUS EXPIRING", ["\n".join([f"{p['title']}  (until {p['valid_until']})",
+                                                   f"    still so: eos note amend {p['path']} . --append \"<what holds now>\"",
+                                                   f"    over:     eos note amend {p['path']} . --expire \"<what changed>\""])
+                                        for p in data.get("status_expiring", [])],
+                   "a status note says how things stood; check it again or let it end")
+    lines += block("RUNS OPEN FOR DAYS", [f"{rid}  {title}  ({days}d)\n    eos run finish . {rid} --outcome abandoned"
+                                          for rid, title, days in data["open_runs_older"]],
+                   "abandoned unless it finished: then --outcome ok|failed")
     lines += block("STALE WORK", [f"{wid}  {title}" for wid, title in data["stale_work"]], "eos work list .")
     lines += block("LESSONS WITHOUT EVIDENCE", data.get("lessons_without_evidence", []),
                    "no execution and no evidence recorded; eos note show . \"<title>\" to read one")

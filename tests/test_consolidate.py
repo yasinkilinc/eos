@@ -288,3 +288,29 @@ def test_several_problem_notes_go_into_one_command(tmp_path):
     [proposal] = consolidate.report(root)["likely_replaced"]
     assert proposal["new"] == new.name and sorted(proposal["old"]) == sorted([a.name, b.name])
     assert proposal["command"].endswith(",".join(proposal["old"]))
+
+
+
+# -- 2.2.0: status notes about to expire, and the command that closes an old run --
+
+def test_a_status_note_about_to_expire_is_named_with_both_ways_out(tmp_path):
+    import datetime as _dt
+    root = _proj(tmp_path)
+    soon = (_dt.date.today() + _dt.timedelta(days=1)).isoformat()
+    later = (_dt.date.today() + _dt.timedelta(days=10)).isoformat()
+    near = notes.add_note(root, "status", "Staging queue is stuck", "Three jobs wait.", tags=["queue"],
+                          valid_until=soon)
+    notes.add_note(root, "status", "Build farm is slow", "Builds take an hour.", tags=["build"], valid_until=later)
+    data = consolidate.report(root)
+    assert [p["note"] for p in data["status_expiring"]] == [near.name]
+    text = consolidate.render(data)
+    assert "STATUS EXPIRING (1)" in text and "Staging queue is stuck" in text and "Build farm" not in text
+    assert f"eos note amend {near} . --append" in text and f"eos note amend {near} . --expire" in text
+
+
+def test_a_run_open_for_days_is_given_its_close_command(tmp_path):
+    root = _proj(tmp_path)
+    data = consolidate.report(root)
+    data["open_runs_older"] = [("x-old-run-1a2b", "Deploy the wallet", 9)]
+    text = consolidate.render(data)
+    assert "eos run finish . x-old-run-1a2b --outcome abandoned" in text
