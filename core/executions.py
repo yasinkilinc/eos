@@ -876,6 +876,12 @@ def _write_lesson(project_root: str | Path, record: Record, lesson: str, next_ti
         return notes.add_note(project_root, kind="lesson", title=title, body=body, tags=["lesson"],
                               session=record.session, procedure=record.procedure,
                               execution=record.id)
+    except notes.SimilarNoteError:
+        # A lesson worded close to an older one: a failed run must still close,
+        # and `run finish` has no --differs to offer; the run is what differs.
+        return notes.add_note(project_root, kind="lesson", title=title, body=body, tags=["lesson"],
+                              session=record.session, procedure=record.procedure,
+                              execution=record.id, differs=f"lesson of run {record.id}")
     except notes.DuplicateNoteError:
         # The same lesson again is a recurring failure, and should read as one.
         key = notes.normalized_title_key(title)
@@ -887,7 +893,7 @@ def _write_lesson(project_root: str | Path, record: Record, lesson: str, next_ti
         # A different note already holds this title; keep the lesson, under the run's name.
         return notes.add_note(project_root, kind="lesson", title=f"{title} ({record.id})", body=body,
                               tags=["lesson"], session=record.session, procedure=record.procedure,
-                              execution=record.id)
+                              execution=record.id, differs=f"lesson of run {record.id}")
 
 
 # --- tool and change memory (M5) ----------------------------------------------------

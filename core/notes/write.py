@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import datetime
+import math
 import json
 from pathlib import Path
 
@@ -353,17 +354,19 @@ class SimilarNoteError(DuplicateNoteError):
 
 
 def _rivals(existing: list[Note], kind: str, title: str, source: str | None) -> list[Note]:
-    from core.notes.render import _words, relevance, word_weights
+    from core.notes.render import _words, relevance
 
     replaced = superseded(existing)
     live = [note for note in existing
             if note.kind == kind and note.path.name not in replaced and not expired(note)]
-    words = _words(title)
-    if not live or not words:
+    if not live:
         return []
-    weights = word_weights(live, words)
-    if not any(weight > 0 for weight in weights.values()):
-        weights = None
+    words = _words(title)
+    if not words:
+        # Nothing in the title to compare; the same source is the only signal.
+        same = [note for note in live if source and note.source == source]
+        return sorted(same, key=lambda note: note.path.name)[:SIMILAR_LIMIT]
+    weights = _gate_weights(live, words)
     scored = []
     for note in live:
         score = relevance(note, words, weights)
@@ -372,6 +375,24 @@ def _rivals(existing: list[Note], kind: str, title: str, source: str | None) -> 
             scored.append((score, note))
     scored.sort(key=lambda pair: (-pair[0], pair[1].path.name))
     return [note for _, note in scored[:SIMILAR_LIMIT]]
+
+
+def _gate_weights(live: list[Note], words: set[str]) -> dict[str, float]:
+    """Search weights with one change: a word no live note uses weighs the
+    most, not nothing. In search an unmatched word proves nothing; here it is
+    what makes the new note about something else ("Kafka consumer lag" is not
+    "Kafka topic names"). Smoothed so a word every note uses still counts a
+    little and a one-note store compares at all."""
+    from core.notes.render import _words
+
+    total = len(live)
+    seen = {word: 0 for word in words}
+    for note in live:
+        present = _words(note.title) | _words(" ".join(note.tags)) | _words(note.body)
+        for word in words & present:
+            seen[word] += 1
+    return {word: math.log((total + 1) / count) if count else math.log(total + 1)
+            for word, count in seen.items()}
 
 
 def _split_names(value) -> list[str]:
@@ -833,6 +854,7 @@ def amend_note(
             "evidence": note.evidence,
             "supersedes": _supersedes_front(effective_supersedes),
             "differs": note.differs,
+            "projects": list(note.projects) or None,
             # --provenance/--agent/--valid-until (N8): the value this call
             # computed above, which is the note's own kept value when the
             # flag was not given.

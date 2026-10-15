@@ -46,5 +46,5 @@ from core.notes.render import (
     synonym_groups, canonical_words,
 )  # noqa: F401
 from core.notes.write import (
-    SKIPS_FILE, skips_path, record_skip, was_skipped, add_note, amend_note,
+    SKIPS_FILE, skips_path, record_skip, was_skipped, add_note, amend_note, SimilarNoteError,
 )  # noqa: F401

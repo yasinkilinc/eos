@@ -227,3 +227,15 @@ def test_a_verification_is_indexed_and_searchable(project):
     _, rows = index.search(db, "HEALTH_OK health-check")
     assert ("verification", "HEALTH_OK#0") in {(r[0], r[1]) for r in rows}
     assert sqlite3.connect(db).execute("SELECT execution, session FROM verification").fetchone() == (run.id, "s")
+
+
+def test_a_lesson_close_to_an_older_one_still_lets_the_failed_run_finish(project):
+    first = executions.start(project, "Deploy", session="s")
+    executions.finish(project, first.id, outcome="failed", lesson="Staging deploy fails without the VPN profile")
+    second = executions.start(project, "Deploy again", session="s")
+    executions.finish(project, second.id, outcome="failed",
+                      lesson="Staging deploy fails without the VPN profile on Mondays")
+
+    assert not executions.load(project)[-1].open
+    lesson, = notes.lessons_for(project, execution=second.id)
+    assert second.id in (lesson.differs or "")

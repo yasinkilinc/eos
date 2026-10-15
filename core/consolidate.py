@@ -602,9 +602,9 @@ def _silent_steps(root: Path, records) -> dict:
 
 # A ticket key, and a title that reports its outcome: the key, at most four
 # words, then a word that says the work came to an end ("PROJ-7 export
-# delivered"). Measured on 611 nexus notes (2026-10-15): looser rules (an
+# delivered"). Measured on a 611-note workspace (2026-10-15): looser rules (an
 # outcome word anywhere, the ticket only in `source`) proposed 112-1106 pairs,
-# mostly separate findings; this one proposes 12, the 1904 fix among them.
+# mostly separate findings; this one proposes 12, the fix that prompted it among them.
 _TICKET = re.compile(r"\b[A-Z][A-Z0-9]+-\d+\b")
 _OUTCOME_WORD = r"(?:delivered|fixed|resolved|verified|merged|closed|done|green|passe[sd]|works)"
 _OUTCOME = re.compile(rf"\b{_OUTCOME_WORD}\b", re.IGNORECASE)

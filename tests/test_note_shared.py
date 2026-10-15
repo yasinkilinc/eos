@@ -135,3 +135,20 @@ def test_a_hand_written_single_project_is_one_project(ws):
     path.write_text(raw, encoding="utf-8")
     assert notes.parse_note(path).projects == ("svc-a",)
     assert [n.title for n in notes.shared_notes(services["svc-a"])] == ["Order journey across services"]
+
+
+def test_every_amend_kind_keeps_the_notes_projects_and_fields(ws):
+    hub, _ = ws
+    path = _journey(hub, tags=["journey"], differs="the wallet leg")
+    other = notes.add_note(hub, kind="finding", title="Capture hands the order to the catalog",
+                           body="Capture calls the catalog first.", source="journey-map", differs="capture leg")
+    steps = [dict(body="The order goes capture, catalog, wallet, then billing."),
+             dict(append="Billing joined the journey."),
+             dict(reaffirm="still the route in production"),
+             dict(supersedes=other.name),
+             dict(expire="the journey was redrawn")]
+    for step in steps:
+        notes.amend_note(path, hub, **step)
+        note = notes.parse_note(path)
+        assert note.projects == ("svc-a", "svc-b"), step
+        assert (note.source, note.differs, note.tags) == ("journey-map", "the wallet leg", ["journey"]), step

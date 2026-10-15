@@ -72,3 +72,25 @@ def test_a_decision_is_not_compared_with_a_finding(tmp_path):
               "--title", "PROJ-7 export fails with 403 is fixed through the bulk API",
               "--body", "Use the bulk API.\n\n## Why\nSpeed.\n\n## When\nAlways.\n\n## Component\nexport"])
     assert r.returncode == 0, r.stderr
+
+
+def test_words_no_note_uses_make_a_title_different_not_similar(tmp_path):
+    from core import notes
+    words = ("alpha bravo charlie delta echo foxtrot golf hotel india juliet kilo lima mike november "
+             "oscar papa quebec romeo sierra tango uniform victor whiskey xray yankee zulu amber "
+             "basalt cobalt dune").split()
+    for word in words:
+        notes.add_note(tmp_path, kind="finding", title=f"{word.title()} service restarts cleanly",
+                       body=f"The {word} pod restarts.", differs="filler")
+    notes.add_note(tmp_path, kind="finding", title="Kafka topic names follow the domain", body="Names.")
+    notes.add_note(tmp_path, kind="finding", title="Kafka consumer lag spikes at midnight", body="Lag.")
+    notes.add_note(tmp_path, kind="finding", title="Kafka tüketici gecikmesi gece yükseliyor", body="Gecikme.")
+
+
+def test_the_same_source_with_a_title_of_no_words_is_still_checked(tmp_path):
+    import pytest
+    from core import notes
+    notes.add_note(tmp_path, kind="finding", title="PROJ-7 export fails with 403",
+                   body="The export answers 403.", source="PROJ-7")
+    with pytest.raises(notes.SimilarNoteError):
+        notes.add_note(tmp_path, kind="finding", title="x", body="Now 200.", source="PROJ-7")
