@@ -152,10 +152,14 @@ def cmd_run_finish(args: argparse.Namespace) -> int:
         _, left = executions.outcome_source(args.path, record)
         success = [item.split(": ", 1)[1] for item in left if item.startswith("success: ")]
         changed = [item for item in left if not item.startswith("success: ")]
+        # The run is closed either way; "claimed:" alone read as a refusal and
+        # sessions finished the same run again.
         if changed:
-            print(f"claimed: {', '.join(changed)} changed after its last passing check")
+            print(f"closed: ok, claimed (not verified): {', '.join(changed)} changed after its last "
+                  "passing check; run that check, and a new run that records it is verified")
         if success:
-            print(f"claimed: the procedure's Success check(s) never ran: {', '.join(success)}")
+            print(f"closed: ok, claimed (not verified): the procedure's Success check(s) never ran: "
+                  f"{', '.join(success)}; a new run that runs them is verified")
     outside = _outside_scope(args.path, record)
     if outside:
         shown = ", ".join(outside[:5])

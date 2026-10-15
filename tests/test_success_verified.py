@@ -100,3 +100,15 @@ def test_the_check_is_its_subcommand_and_comes_after_the_work(tmp_path, monkeypa
     runs = {r.id: r for r in executions.load(root)}
     assert executions.outcome_source(root, runs[wrong_verb])[0] == "claimed"
     assert executions.outcome_source(root, runs[early])[0] == "claimed"
+
+
+def test_a_claimed_finish_says_the_run_closed(tmp_path, monkeypatch):
+    """Read as "claimed: …" the line looked like a refusal, and sessions finished
+    the same run again. It says the run is closed and what would verify the next one."""
+    root, slug = _project(tmp_path, monkeypatch)
+    run = _eos("run", "start", str(root), "--title", "Close FM-3", "--procedure", slug, "--session", "s3").split()[0]
+    said = _eos("run", "finish", str(root), run, "--outcome", "ok")
+    line = next(line for line in said.splitlines() if "Success check" in line)
+    assert line.startswith("closed: ok, claimed (not verified):")
+    assert "tracker issue" in line and "a new run" in line
+    assert [r.open for r in executions.load(root) if r.id == run] == [False]
