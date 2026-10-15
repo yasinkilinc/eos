@@ -231,3 +231,60 @@ def test_no_verified_run_that_read_a_note_is_no_priors_line(tmp_path):
     assert subprocess.run(EOS + ["init", str(root), "--no-ai"], capture_output=True).returncode == 0
     data = consolidate.report(root)
     assert data["priors"]["runs"] == 0 and "PRIORS" not in consolidate.render(data)
+
+
+# -- 2.2.0: a resolved note on the same ticket is proposed as the replacement --
+
+def _proj(tmp_path):
+    root = tmp_path / "proj"
+    root.mkdir()
+    assert subprocess.run(EOS + ["init", str(root), "--no-ai"], capture_output=True).returncode == 0
+    return root
+
+
+def _ticket_note(root, title, body, source="PROJ-7", **extra):
+    return notes.add_note(root, "finding", title, body, tags=["export"], source=source, differs="fixture", **extra)
+
+
+def test_consolidate_proposes_a_resolved_note_as_the_replacement(tmp_path):
+    root = _proj(tmp_path)
+    old = _ticket_note(root, "PROJ-7 export fails with 403", "The export call answers 403.")
+    new = _ticket_note(root, "PROJ-7 export delivered", "Permission row added; the export answers 200.")
+    data = consolidate.report(root)
+    assert [(p["new"], p["old"]) for p in data["likely_replaced"]] == [(new.name, [old.name])]
+    text = consolidate.render(data)
+    assert "LIKELY REPLACED (1)" in text
+    assert f"eos note amend {new} " in text and f"--supersedes {old.name}" in text
+
+
+def test_a_pair_already_replaced_or_on_another_ticket_is_not_proposed(tmp_path):
+    root = _proj(tmp_path)
+    old = _ticket_note(root, "PROJ-7 export fails with 403", "The export call answers 403.")
+    _ticket_note(root, "PROJ-7 export delivered", "The export answers 200.", supersedes=old.name)
+    _ticket_note(root, "PROJ-8 import fails", "The import call answers 500.", source="PROJ-8")
+    _ticket_note(root, "PROJ-9 import fixed", "The import answers 200.", source="PROJ-9")
+    assert consolidate.report(root)["likely_replaced"] == []
+
+
+def test_two_open_notes_on_one_ticket_are_not_a_replacement(tmp_path):
+    root = _proj(tmp_path)
+    _ticket_note(root, "PROJ-7 export fails with 403", "The export call answers 403.")
+    _ticket_note(root, "PROJ-7 export is slow", "The export takes 40 s.")
+    assert consolidate.report(root)["likely_replaced"] == []
+
+
+def test_an_outcome_word_far_from_the_ticket_is_not_an_outcome(tmp_path):
+    root = _proj(tmp_path)
+    _ticket_note(root, "PROJ-7 export fails with 403", "The export call answers 403.")
+    _ticket_note(root, "PROJ-7 export batch on the nightly queue was never merged", "Still open.")
+    assert consolidate.report(root)["likely_replaced"] == []
+
+
+def test_several_problem_notes_go_into_one_command(tmp_path):
+    root = _proj(tmp_path)
+    a = _ticket_note(root, "PROJ-7 export fails with 403", "The export call answers 403.")
+    b = _ticket_note(root, "PROJ-7 export lacks a permission row", "Row 12 is missing.")
+    new = _ticket_note(root, "PROJ-7 delivered: export answers 200", "Row added.")
+    [proposal] = consolidate.report(root)["likely_replaced"]
+    assert proposal["new"] == new.name and sorted(proposal["old"]) == sorted([a.name, b.name])
+    assert proposal["command"].endswith(",".join(proposal["old"]))

@@ -511,6 +511,7 @@ def report(project_root: str | Path, *, since: float | None = None) -> dict:
                              if e.kind == "cites" and e.dst in replaced and e.src not in replaced})
 
     expired = [f"{note.title} ({note.valid_until})" for note in corpus if notes.expired(note)]
+    likely_replaced = _likely_replaced(corpus, replaced)
     stale = notes.stale_notes(root)
     records = executions.load(root)
     silent = _silent_steps(root, records)
@@ -551,6 +552,7 @@ def report(project_root: str | Path, *, since: float | None = None) -> dict:
         "cites_replaced": cites_replaced,
         "stale_notes": [entry.get("note") for entry in stale],
         "expired_notes": expired,
+        "likely_replaced": likely_replaced,
         "open_runs_older": old_runs,
         "stale_work": [(item.id, item.title) for item in stale_work],
         "verified_rate": {"verified": verified, "claimed": claimed},
@@ -596,6 +598,44 @@ def _silent_steps(root: Path, records) -> dict:
     return silent
 
 
+# A ticket key, and a title that reports its outcome: the key, at most four
+# words, then a word that says the work came to an end ("PROJ-7 export
+# delivered"). Measured on 611 nexus notes (2026-10-15): looser rules (an
+# outcome word anywhere, the ticket only in `source`) proposed 112-1106 pairs,
+# mostly separate findings; this one proposes 12, the 1904 fix among them.
+_TICKET = re.compile(r"\b[A-Z][A-Z0-9]+-\d+\b")
+_OUTCOME_WORD = r"(?:delivered|fixed|resolved|verified|merged|closed|done|green|passe[sd]|works)"
+_OUTCOME = re.compile(rf"\b{_OUTCOME_WORD}\b", re.IGNORECASE)
+_TICKET_OUTCOME = re.compile(rf"\b([A-Z][A-Z0-9]+-\d+)\b(?:\W+\S+){{0,4}}?\W+{_OUTCOME_WORD}\b", re.IGNORECASE)
+
+
+def _likely_replaced(corpus, replaced) -> list[dict]:
+    """A live note whose title reports a ticket's outcome, and the older live
+    notes of its kind naming that ticket in their title without one: likely
+    the problem notes the outcome was written beside instead of over.
+    Proposed for a person to read, never applied."""
+    from core import notes
+
+    live = [n for n in corpus if n.path.name not in replaced and not notes.expired(n)]
+    found = []
+    for new in sorted(live, key=lambda n: (str(n.created)[:10], n.path.name)):
+        match = _TICKET_OUTCOME.search(new.title)
+        if not match:
+            continue
+        key = match.group(1)
+        # `created` is a date: two notes of one day have no order, so same day counts.
+        olds = [old for old in live
+                if old is not new and old.kind == new.kind and key in _TICKET.findall(old.title)
+                and str(old.created)[:10] <= str(new.created)[:10]
+                and not _OUTCOME.search(old.title) and old.path.name not in new.supersedes]
+        if olds:
+            found.append({"ticket": key, "new": new.path.name, "new_title": new.title,
+                          "old": [old.path.name for old in olds], "old_titles": [old.title for old in olds],
+                          "command": f"eos note amend {new.path} . --supersedes "
+                                     + ",".join(old.path.name for old in olds)})
+    return found
+
+
 def render(data: dict) -> str:
     def block(title, items, more):
         if not items:
@@ -619,6 +659,11 @@ def render(data: dict) -> str:
     lines += block("NOTES CITING A REPLACED NOTE", [f"{a}  ->  {b}" for a, b in data.get("cites_replaced", [])],
                    "point them at the replacement: eos note show . \"<replaced title>\"")
     lines += block("NOTES WHOSE FILES CHANGED", data["stale_notes"], "eos note audit .")
+    lines += block("LIKELY REPLACED",
+                   ["\n".join([p["new_title"], *(f"    replaces? {title}" for title in p["old_titles"]),
+                                f"    {p['command']}"]) for p in data.get("likely_replaced", [])],
+                   "a ticket's outcome written beside its problem notes; drop from the command "
+                   "any note that still holds on its own, then run it")
     lines += block("EXPIRED NOTES", data.get("expired_notes", []),
                    "past their valid_until: search no longer offers them; replace or let them go")
     lines += block("RUNS OPEN FOR DAYS", [f"{rid}  {title}  ({days}d)" for rid, title, days in data["open_runs_older"]],
