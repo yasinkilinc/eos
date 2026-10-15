@@ -39,6 +39,16 @@ canonical `core/` runtime to `~/.local/share/eos/<version>/` and installs an
 executable launcher under `~/.local/bin/eos`. Override the locations with
 `EOS_INSTALL_PREFIX`, `EOS_DATA_DIR`, `EOS_BIN_DIR`, or `EOS_PYTHON`.
 
+## What changed in 2.2.1
+
+- A failed run whose lesson reads close to an older one still finishes: the
+  lesson is written with `differs: lesson of run <id>` instead of refusing.
+- The similar-note check weighs a word no live note uses the most, so a new
+  word makes a title different ("Kafka consumer lag" beside "Kafka topic
+  names" passes); a title with no comparable words is still checked against
+  notes of the same `source`.
+- `eos note amend` keeps the note's `projects`.
+
 ## What changed in 2.2
 
 - **`eos note amend` keeps a note's history in the note:** `--supersedes`
