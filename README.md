@@ -39,6 +39,20 @@ canonical `core/` runtime to `~/.local/share/eos/<version>/` and installs an
 executable launcher under `~/.local/bin/eos`. Override the locations with
 `EOS_INSTALL_PREFIX`, `EOS_DATA_DIR`, `EOS_BIN_DIR`, or `EOS_PYTHON`.
 
+## What changed in 2.3.0
+
+- **A note whose file moved says so wherever it is read.** A hand-written
+  note whose scope file changed since it was written -- by an edit, a pull, a
+  rebase or a teammate's commit -- is marked `[STALE: <file> changed]` in the
+  brief, `eos note search` and the subagent handoff; `eos note show` prints
+  above it what moved and the `amend --reaffirm` / `--body` that clears it, and
+  the Read digest's mark carries the same command.
+- **The Stop gate asks about any file a note scopes**, not only source: a
+  note on a shell script, a runbook or a config file went false unasked.
+  "Record something" still asks for source only.
+- **`[hooks] stale = true`** turns on just that half: a workspace keeps its
+  own notes true without being asked for a note on every script edit.
+
 ## What changed in 2.2.1
 
 - A failed run whose lesson reads close to an older one still finishes: the
