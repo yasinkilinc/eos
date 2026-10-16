@@ -28,9 +28,9 @@ def _init(root: Path, hooks_table: str = "") -> Path:
     return root
 
 
-def _note(root: Path, title: str, scope: str) -> None:
+def _note(root: Path, title: str, scope: str, body: str = "Run it with --dry-run first.") -> None:
     done = subprocess.run(EOS + ["note", "add", str(root), "--kind", "finding", "--tags", "deploy",
-                                 "--title", title, "--body", "Run it with --dry-run first.", "--scope", scope,
+                                 "--title", title, "--body", body, "--scope", scope,
                                  "--session", "s0"], capture_output=True, text=True)
     assert done.returncode == 0, done.stderr
 
@@ -127,3 +127,32 @@ def test_show_and_search_mark_the_drift_and_say_how_to_clear_it(state):
                           capture_output=True).returncode == 0
     again = subprocess.run(EOS + ["note", "show", str(root), "dry run"], capture_output=True, text=True)
     assert "STALE" not in again.stdout
+
+
+def test_an_expired_or_replaced_note_is_not_stale(state):
+    root = _init(state / "proj")
+    script = _script(root, "echo deploy\n")
+    _note(root, "deploy.sh needs a dry run first", "scripts/deploy.sh")
+    _note(root, "deploy.sh force flag is refused on main", "scripts/deploy.sh",
+          body="The main branch protection rejects --force pushes from the script.")
+    by_title = {n.title: n for n in notes.load_notes(root)}
+    assert subprocess.run(EOS + ["note", "amend", str(by_title["deploy.sh needs a dry run first"].path), str(root),
+                                 "--expire", "the script dropped dry runs"], capture_output=True).returncode == 0
+    script.write_text("echo deploy --force\n", encoding="utf-8")
+    assert [item["note"] for item in notes.stale_notes(root)] == [
+        by_title["deploy.sh force flag is refused on main"].path.name]
+    shown = subprocess.run(EOS + ["note", "show", str(root), "needs a dry run"], capture_output=True, text=True)
+    assert "STALE" not in shown.stdout
+
+
+def test_a_git_ignored_file_is_refused_as_scope(state):
+    root = _init(state / "proj")
+    assert subprocess.run(["git", "init", "-q", str(root)]).returncode == 0
+    (root / ".gitignore").write_text("local.toml\n", encoding="utf-8")
+    (root / "local.toml").write_text("x = 1\n", encoding="utf-8")
+    _script(root, "echo deploy\n")
+    done = subprocess.run(EOS + ["note", "add", str(root), "--kind", "finding", "--tags", "deploy",
+                                 "--title", "local.toml sets x", "--body", "x is one here.", "--scope", "local.toml"],
+                          capture_output=True, text=True)
+    assert done.returncode != 0 and "ignored by git" in done.stderr
+    _note(root, "deploy.sh needs a dry run first", "scripts/deploy.sh")

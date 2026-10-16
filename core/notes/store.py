@@ -287,7 +287,24 @@ def _resolve_scope_entry(project: Path, entry: str) -> Path:
         raise ValueError(f"Scope entry escapes the {kind} root: {entry!r}") from exc
     if _is_sensitive(candidate):
         raise ValueError(f"Scope entry names a sensitive file: {entry!r}")
+    if candidate.is_file() and _git_ignored(root, candidate):
+        raise ValueError(f"Scope entry is ignored by git: {entry!r}. Every other clone has its own copy, so the "
+                         "note would read stale there; scope the tracked file that writes it.")
     return candidate
+
+
+def _git_ignored(root: Path, path: Path) -> bool:
+    """Whether git ignores `path` in the repository holding `root`; False when
+    there is no repository or git cannot answer (the check never blocks a write
+    on its own failure)."""
+    import subprocess
+
+    try:
+        done = subprocess.run(["git", "-C", str(root), "check-ignore", "-q", str(path)],
+                              capture_output=True, timeout=5, check=False)
+    except (OSError, subprocess.SubprocessError):
+        return False
+    return done.returncode == 0
 
 
 def _hash_file(path: Path) -> str | None:
@@ -613,7 +630,15 @@ def stale_notes(project_root: str | Path) -> list[dict]:
     "removed" regardless of the parent file's real state.
     """
     stale = []
-    for note in load_notes(project_root):
+    recorded = load_notes(project_root)
+    # An expired or replaced note is already the record of what was believed
+    # before: its file moving on is expected, and naming it at Stop asked a
+    # session to re-confirm a note nobody reads as current (measured
+    # 2026-10-17: 12 of 33 swept notes were expired).
+    replaced = superseded(recorded)
+    for note in recorded:
+        if expired(note) or note.path.name in replaced:
+            continue
         issues = scope_drift(project_root, note)
         if issues:
             # `source`/`generated` are additive: verify-journey-docs.py reads

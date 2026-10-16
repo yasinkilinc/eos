@@ -159,7 +159,7 @@ def cmd_note_show(args: argparse.Namespace) -> int:
     if replacements:
         print(f"Superseded by {', '.join(replacements)} -- read that; this is the record of what was believed "
               "before.\n")
-    elif not notes.is_generated(matches[0]):
+    elif not notes.is_generated(matches[0]) and not notes.expired(matches[0]):
         notice = notes.drift_notice(args.path, matches[0], notes.scope_drift(args.path, matches[0]))
         if notice:
             print(notice)
