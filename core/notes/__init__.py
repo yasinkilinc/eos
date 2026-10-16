@@ -18,7 +18,7 @@ from core.notes.store import (
     belongs_in_generated, move_generated, PROJECT_PREFIX, shared_notes, PROVENANCES, expired, _slug, _front_matter, _SAFE_SCALAR, _scalar, KINDS,
     GENERATOR_SOURCES, BULK_INDEX_SOURCES, is_generated, is_bulk_index, _is_sensitive,
     _scope_anchor, _resolve_scope_entry, _hash_file, _one_note, superseded, Note,
-    _unscalar, parse_note, _count, load_notes, load_dir, _WORD, stale_notes, unhashed_notes,
+    _unscalar, parse_note, _count, load_notes, load_dir, _WORD, stale_notes, unhashed_notes, scope_drift, drift_mark, drift_notice,
     is_notes_dir_gitignored, _gitignore_pattern_matches, _HEADING, _LIST_ITEM,
     section_in, _items, steps_in, _set_front, append_bullet, append_to_note_section,
 )  # noqa: F401

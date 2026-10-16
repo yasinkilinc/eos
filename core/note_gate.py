@@ -233,16 +233,21 @@ def fallback(pending: dict, stale: dict, session: str) -> str:
     return "\n".join(lines)
 
 
-def decide(edited: dict[str, tuple[Path, dict[str, list[str]]]], session: str) -> str:
+def decide(edited: dict[str, tuple[Path, dict[str, list[str]]]], session: str,
+           watched: dict[str, tuple[Path, dict[str, list[str]]]] | None = None) -> str:
     """The block reason for the projects this session edited, '' for none.
 
     `edited`: {project name: (project root, {relative path: [absolute paths]})},
-    already narrowed to gated projects and source files."""
+    narrowed to `notes` projects and source files -- what may need a new note.
+    `watched`: the same shape over every changed file a note may scope, in
+    `notes` or `stale` projects -- what may have left a note false; `edited`
+    when not given."""
     pending, stale = {}, {}
     for name, (root, files) in edited.items():
         paths = [path for copies in files.values() for path in copies]
         if not recorded(root, session):
             pending[name] = (root, paths)
+    for name, (root, files) in (edited if watched is None else watched).items():
         found = stale_handwritten(root, files)
         if found:
             stale[name] = (root, found)

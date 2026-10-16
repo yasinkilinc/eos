@@ -134,9 +134,14 @@ def build(project_root: str | Path, *, session: str | None = None,
 STATUS_WARN_DAYS = 3
 
 
-def note_label(note) -> str:
+def note_label(note, root: str | Path | None = None) -> str:
     """`[kind, age]` for a note a brief names (2.x roadmap C2): a two-day-old
     lesson and a quarter-old finding weigh differently.
+
+    Given the project `root` reading it, a hand-written note whose scope file
+    changed since it was written gets `[STALE: <file> changed]`: a pull or a
+    teammate's commit moves the file without any session editing it, and the
+    brief is where a session decides whether to trust the note.
 
     A lesson naming neither the run that taught it nor other evidence gets a
     short `[no evidence]` mark appended (N10): nothing here says why it can be
@@ -159,6 +164,13 @@ def note_label(note) -> str:
             label = f"[{note.kind}, {age}, until {str(note.valid_until)[:10]}]"
     if note.kind == "lesson" and not note.execution and not note.evidence:
         label += " [no evidence]"
+    if root is not None and not notes.is_generated(note):
+        try:
+            mark = notes.drift_mark(notes.scope_drift(root, note))
+        except OSError:  # an unreadable scope file costs the mark, never the brief
+            mark = ""
+        if mark:
+            label += " " + mark
     return label
 
 
@@ -207,7 +219,7 @@ def for_subagent(project_root: str | Path, task: str, *, session: str | None = N
                and notes.canonical_words(notes._words(n.title) | notes._words(" ".join(n.tags)), canon)
                & words][:RELATED_LIMIT]
     if related:
-        lines.append("- known here: " + "; ".join(f"{n.title} {note_label(n)}" for n in related)
+        lines.append("- known here: " + "; ".join(f"{n.title} {note_label(n, root)}" for n in related)
                      + ' (eos note show . "<title>")')
     if not lines:
         return ""
@@ -366,7 +378,7 @@ def _branch_text(root: Path, facts: dict, *, session: str | None, work_limit: in
     if matched:
         lines.append(f"KNOWN HERE ({len(matched)} of {recorded} notes match this branch)")
         for note in matched:
-            lines.append(f"  - {note.title}  {note_label(note)}")
+            lines.append(f"  - {note.title}  {note_label(note, root)}")
         lines.append('  Read one: eos note show . "<title>"')
     elif recorded:
         # "Nothing matched" and "nothing was written" send a session to
@@ -653,7 +665,7 @@ def _task_sections(root: Path, task: str) -> tuple[list[list[str]], bool]:
                ][:RELATED_LIMIT]
     if related:
         found = True
-        sections.append(["RELATED NOTES"] + [f"  - {n.title}  {note_label(n)}" for n in related]
+        sections.append(["RELATED NOTES"] + [f"  - {n.title}  {note_label(n, root)}" for n in related]
                         + ['  Read one: eos note show . "<title>"'])
 
     # The note graph: what the procedure, or the nearest note, is linked to --
@@ -669,7 +681,7 @@ def _task_sections(root: Path, task: str) -> tuple[list[list[str]], bool]:
         if linked:
             found = True
             sections.append([f"LINKED TO {_clip(anchor.title, 60)}"]
-                            + [f"  - {n.title}  {note_label(n)}  ({why})" for n, why in linked]
+                            + [f"  - {n.title}  {note_label(n, root)}  ({why})" for n, why in linked]
                             + ['  All of them: eos note related . "<title>"'])
 
     slug = procedure.procedure if procedure is not None else "<slug>"

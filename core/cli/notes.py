@@ -159,6 +159,10 @@ def cmd_note_show(args: argparse.Namespace) -> int:
     if replacements:
         print(f"Superseded by {', '.join(replacements)} -- read that; this is the record of what was believed "
               "before.\n")
+    elif not notes.is_generated(matches[0]):
+        notice = notes.drift_notice(args.path, matches[0], notes.scope_drift(args.path, matches[0]))
+        if notice:
+            print(notice)
     print(matches[0].path.read_text(encoding="utf-8"))
     _record_read(args.path, matches[0])
     return 0
@@ -223,7 +227,8 @@ def cmd_note_graph(args: argparse.Namespace) -> int:
 def cmd_note_search(args: argparse.Namespace) -> int:
     matches = notes.search_notes(args.path, args.query, limit=args.limit, generated=args.generated)
     for note in matches:
-        print(f"{note.path.name}\t{note.kind}\t{note.title}")
+        mark = "" if notes.is_generated(note) else notes.drift_mark(notes.scope_drift(args.path, note))
+        print(f"{note.path.name}\t{note.kind}\t{note.title}" + (f"\t{mark}" if mark else ""))
     if matches:
         return 0
     recorded = notes.load_notes(args.path)

@@ -59,7 +59,8 @@ INSTRUCTION_NAMES = frozenset({"CLAUDE.md", "AGENTS.md", "SKILL.md", "MEMORY.md"
 INSTRUCTION_DIRS = ("/.claude/agents/", "/.claude/rules/", "/.devin/agents/", "/.devin/rules/")
 
 _TRUNCATED = "\n\n[truncated: note context exceeded the injection budget]"
-_STALE_MARK = "[STALE: this note was written on {created}, the file has changed since]"
+_STALE_MARK = ("[STALE: this note was written on {created}, the file has changed since. Check it; then "
+               "`eos note amend {path} {root} --reaffirm '<why it still holds>'` or `--body '<what is true now>'`]")
 _STALE_SUFFIX = " [STALE {created}]"
 
 
@@ -182,7 +183,7 @@ def context_for(targets: list[tuple[str, Path, str, str, str]], seen: set, *, po
             if loaded_text.get(name) and dedup.already_loaded(note.body, loaded_text[name]):
                 left_out += 1
                 continue
-            mark = (_STALE_MARK.format(created=note.created or "?") + "\n") \
+            mark = (_STALE_MARK.format(created=note.created or "?", path=note.path, root=roots[name][0]) + "\n") \
                 if _stale_for(note, relative, digests) else ""
             text = f"### Known about {relative}\n{mark}{note.title}\n\n{narrowed_body(note, terms[name])}"
             # A body larger than the whole budget can never be delivered; the

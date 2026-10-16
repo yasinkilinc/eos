@@ -69,8 +69,9 @@ SETTINGS = ("brief", "capture", "hints", "subagents", "loaded", "sessions", "clo
 # the session changed this project's source and recorded nothing, and names a
 # hand-written note the change left false (`core.note_gate`). Read from the
 # config of the project that owns the changed file, so a workspace gates its
-# projects and not its own scripts.
-OPT_IN = ("notes",)
+# projects and not its own scripts. `stale`: only the second half -- a file this
+# session changed left a hand-written note on it false.
+OPT_IN = ("notes", "stale")
 # Numeric settings, 0 = off. outline_lines: a main-session Read of a longer file
 # with no range is answered once with its outline instead; clear_hint_tokens: a
 # finished run in a session holding more context than this gets one /clear hint.
@@ -1540,23 +1541,31 @@ def _note_reasons(root: Path, hook: Hook) -> list[str]:
 
     changed = list(dict.fromkeys(line["changed"] for line in _state(hook.session)
                                  if isinstance(line.get("changed"), str)))
-    changed = [path for path in changed if path.endswith(note_gate.SOURCE_SUFFIXES)]
     if not changed:
         return []
     projects = workspace.load_quiet(root)
     worktrees = workspace.worktree_dirs(root)
+    # Two halves, two scopes: "record something" is asked for source in a
+    # `notes` project; "a note here is now false" for any file a note scopes --
+    # a script or a runbook goes false as surely as a class -- in a `notes` or
+    # a `stale` project (a workspace that wants its notes kept true without
+    # being asked for one per script edit).
     edited: dict = {}
-    gated: dict[Path, bool] = {}
+    watched: dict = {}
+    gated: dict[Path, dict] = {}
     for path in changed:
         found = workspace.owner(root, projects, path, worktrees)
         if found is None:
             continue
         name, project_root, relative = found
         if project_root not in gated:
-            gated[project_root] = settings(project_root)["notes"]
-        if gated[project_root]:
+            gated[project_root] = settings(project_root)
+        cfg = gated[project_root]
+        if cfg["notes"] and path.endswith(note_gate.SOURCE_SUFFIXES):
             edited.setdefault(name, (project_root, {}))[1].setdefault(relative, []).append(path)
-    reason = note_gate.decide(edited, hook.session) if edited else ""
+        if cfg["notes"] or cfg["stale"]:
+            watched.setdefault(name, (project_root, {}))[1].setdefault(relative, []).append(path)
+    reason = note_gate.decide(edited, hook.session, watched=watched) if watched else ""
     return [reason] if reason else []
 
 

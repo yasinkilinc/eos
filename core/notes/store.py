@@ -553,6 +553,49 @@ def unhashed_notes(project_root: str | Path) -> list[dict]:
     return found
 
 
+def scope_drift(project_root: str | Path, note: Note) -> list[dict]:
+    """`{"scope", "reason"}` for each of the note's scope files that was removed
+    or changed since the note recorded its hash, resolved against the project
+    reading it (a `shared_notes` view is already re-rooted there). How the file
+    changed is not asked: an edit, a pull, a rebase and a teammate's commit all
+    leave the same hash behind."""
+    project = Path(project_root).expanduser().resolve()
+    issues = []
+    for scope_entry, stored_hash in zip(note.scope, note.scope_hashes):
+        if stored_hash is None:
+            continue
+        anchor = _scope_anchor(project, scope_entry)
+        resolved = anchor[1] if anchor else None
+        if resolved is None or not resolved.exists():
+            issues.append({"scope": scope_entry, "reason": "removed"})
+        elif _hash_file(resolved) != stored_hash:
+            issues.append({"scope": scope_entry, "reason": "changed"})
+    return issues
+
+
+def drift_mark(issues: list[dict]) -> str:
+    """`[STALE: a changed; b removed]` for a title line, '' for none."""
+    if not issues:
+        return ""
+    return "[STALE: " + "; ".join(f"{issue['scope']} {issue['reason']}" for issue in issues) + "]"
+
+
+def drift_notice(project_root: str | Path, note: Note, issues: list[dict]) -> str:
+    """The lines a reader of the whole note gets above it: what moved, and the
+    one amend that clears the mark either way."""
+    if not issues:
+        return ""
+    moved = "; ".join(f"{issue['scope']} {issue['reason']}" for issue in issues)
+    prefix = f"eos note amend {note.path} {Path(project_root).expanduser()}"
+    if any(issue["reason"] == "removed" for issue in issues):
+        # --body and --reaffirm re-hash every scope entry and refuse on a gone one.
+        return (f"STALE: {moved} since this note was written. Point it at where the code went:\n"
+                f"  {prefix} --scope '<the paths it is still about>' --body '<what is true now>'\n")
+    return (f"STALE: {moved} since this note was written. Check it against the file, then either\n"
+            f"  {prefix} --reaffirm '<why it still holds>'\n"
+            f"  {prefix} --body '<what is true now>'\n")
+
+
 def stale_notes(project_root: str | Path) -> list[dict]:
     """Notes whose scope files have moved since they were recorded.
 
@@ -569,19 +612,9 @@ def stale_notes(project_root: str | Path) -> list[dict]:
     exist under the project root and every such note would be reported
     "removed" regardless of the parent file's real state.
     """
-    project = Path(project_root).expanduser().resolve()
     stale = []
     for note in load_notes(project_root):
-        issues = []
-        for scope_entry, stored_hash in zip(note.scope, note.scope_hashes):
-            if stored_hash is None:
-                continue
-            anchor = _scope_anchor(project, scope_entry)
-            resolved = anchor[1] if anchor else None
-            if resolved is None or not resolved.exists():
-                issues.append({"scope": scope_entry, "reason": "removed"})
-            elif _hash_file(resolved) != stored_hash:
-                issues.append({"scope": scope_entry, "reason": "changed"})
+        issues = scope_drift(project_root, note)
         if issues:
             # `source`/`generated` are additive: verify-journey-docs.py reads
             # `note` and `issues` and must keep working unchanged. The gate
