@@ -39,6 +39,13 @@ canonical `core/` runtime to `~/.local/share/eos/<version>/` and installs an
 executable launcher under `~/.local/bin/eos`. Override the locations with
 `EOS_INSTALL_PREFIX`, `EOS_DATA_DIR`, `EOS_BIN_DIR`, or `EOS_PYTHON`.
 
+## What changed in 2.3.1
+
+- An expired or replaced note is never stale: its file moving on is expected,
+  and the Stop gate asked sessions to re-confirm notes nobody reads as current.
+- A git-ignored file is refused as a scope entry: every other clone hashes its
+  own copy, so the note would read stale on every machine but the writer's.
+
 ## What changed in 2.3.0
 
 - **A note whose file moved says so wherever it is read.** A hand-written
