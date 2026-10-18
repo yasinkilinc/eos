@@ -135,6 +135,7 @@ WORKTREE_HASH_LIMIT_BYTES = 4 * 1024 * 1024
 WORKTREE_TIMEOUT = 3
 LOADED_FILE = "loaded.jsonl"
 SESSIONS_FILE = "sessions.jsonl"
+BRIEFS_FILE = "briefs.jsonl"
 MAX_LOG_BYTES = 2 * 1024 * 1024
 
 
@@ -828,9 +829,14 @@ def _user_prompt(root: Path, hook: Hook, cfg: dict, agent: str | None) -> str:
         return ""
     from core import brief, workspace
 
+    decisions: list[dict] = []
+
     def task_brief(project_root: Path) -> str:
-        return (brief.build(project_root, session=hook.session or None, agent=agent, task=prompt,
-                            task_only=True) or "").strip()
+        decision: dict = {}
+        text = (brief.build(project_root, session=hook.session or None, agent=agent, task=prompt,
+                            task_only=True, decision=decision) or "").strip()
+        decisions.append(decision)
+        return text
 
     # A workspace root briefs itself and every project the prompt names by a
     # whole alias (2.x roadmap C5); without projects.toml this is one block.
@@ -864,6 +870,7 @@ def _user_prompt(root: Path, hook: Hook, cfg: dict, agent: str | None) -> str:
         return True
 
     offer(task_brief(root))
+    _log_decision(root, hook, decisions[0])
     home = workspace.of(root) if not projects else None
     if home is not None:
         # A session started in a project of a workspace: the workspace's own
@@ -892,6 +899,17 @@ def _user_prompt(root: Path, hook: Hook, cfg: dict, agent: str | None) -> str:
         except OSError:
             pass
     return "\n\n".join(blocks)
+
+
+def _log_decision(root: Path, hook: Hook, decision: dict) -> None:
+    """One line per prompt in briefs.jsonl: what the brief decided, never the prompt (ADR-019)."""
+    from core import brief
+
+    if not decision or not brief.brief_setting(root, "decision_log", True):
+        return
+    entry = {"ts": _utc_now(), "session": hook.session or None, **{
+        key: decision.get(key) for key in ("outcome", "reason", "sections", "best_score", "chars")}}
+    _append_log(root, BRIEFS_FILE, entry)
 
 
 def _git_head(root: Path) -> str | None:

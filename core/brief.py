@@ -37,6 +37,7 @@ DETAIL_CHARS = 140
 
 RUN_LIMIT = 3
 RELATED_LIMIT = 3
+RELATED_MIN_SCORE = 0.3
 FAILURE_LIMIT = 3
 # How much of a prompt's information a procedure's title and tags must hold to
 # count as named when the coverage share is diluted (see `best_procedure`):
@@ -109,7 +110,8 @@ def query_from(branch: str | None, keys: list[str]) -> str:
 
 def build(project_root: str | Path, *, session: str | None = None,
           agent: str | None = None, task: str | None = None,
-          budget: int | None = None, task_only: bool = False) -> str:
+          budget: int | None = None, task_only: bool = False,
+          decision: dict | None = None) -> str:
     """The session-start block, as text meant to be read once and acted on.
 
     With `task`, the block leads with what this task needs and nothing else
@@ -121,11 +123,16 @@ def build(project_root: str | Path, *, session: str | None = None,
     `task_only` is for the hook that fires on every prompt: it returns only
     the task sections, and an empty string when none of them found anything,
     so a prompt with nothing recorded behind it costs nothing.
+
+    `decision`, when passed, is filled with what was decided and why: outcome
+    ("injected" | "abstained"), reason ("filler" | "nothing-found" | "injected"),
+    the section headings, the best RELATED relevance and the chars returned.
+    It never holds the task text (ADR-019).
     """
     root = Path(project_root).expanduser().resolve()
     if task and task.strip():
         return _with_task(root, task, session=session, agent=agent,
-                          budget=budget or TASK_BUDGET, task_only=task_only)
+                          budget=budget or TASK_BUDGET, task_only=task_only, decision=decision)
     if task_only:
         return ""
     return _branch_brief(root, session=session, agent=agent)
@@ -560,8 +567,27 @@ def _run_line(record, parsed=None) -> str:
     return "  ".join(parts)
 
 
-def _task_sections(root: Path, task: str) -> tuple[list[list[str]], bool]:
-    """The task brief as prioritised sections, and whether any found anything."""
+def brief_setting(root: Path, key: str, default):
+    """`[brief] <key>` from the project's config, or `default` when absent or malformed."""
+    try:
+        from core.lib.config_io import ConfigIO
+
+        value = (ConfigIO.read_toml(Path(root) / ".eos" / "config.toml").get("brief") or {}).get(key)
+    except Exception:  # noqa: BLE001 - a malformed table leaves the default
+        return default
+    if isinstance(default, bool):
+        return value if isinstance(value, bool) else default
+    if isinstance(default, float):
+        return float(value) if isinstance(value, (int, float)) and not isinstance(value, bool) else default
+    return default if value is None else value
+
+
+def _task_sections(root: Path, task: str, stats: dict | None = None) -> tuple[list[list[str]], bool]:
+    """The task brief as prioritised sections, and whether any found anything.
+
+    `stats`, when given, receives `best_score`: the best relevance among the
+    RELATED candidates, before the `[brief] related_min_score` floor.
+    """
     from core import executions
 
     corpus = notes.load_notes(root)
@@ -659,10 +685,19 @@ def _task_sections(root: Path, task: str) -> tuple[list[list[str]], bool]:
     # session that asked for nothing. The brief is unrequested context; it
     # owes a higher bar than a search somebody typed.
     task_words = notes._words(task)
-    related = [n for n in notes.search_notes(root, task, limit=RELATED_LIMIT + 6)
-               if n.kind != "procedure" and not notes.is_bulk_index(n)
-               and (notes._words(n.title) | notes._words(" ".join(n.tags))) & task_words
-               ][:RELATED_LIMIT]
+    candidates = [n for n in notes.search_notes(root, task, limit=RELATED_LIMIT + 6)
+                  if n.kind != "procedure" and not notes.is_bulk_index(n)
+                  and (notes._words(n.title) | notes._words(" ".join(n.tags))) & task_words]
+    # A shared word is not relevance: the note must also cover enough of the
+    # prompt, weighted by rarity, to clear `[brief] related_min_score`.
+    weights = notes.word_weights(corpus, task_words) if candidates else None
+    if weights is not None and not any(weight > 0 for weight in weights.values()):
+        weights = None
+    scored = [(notes.relevance(n, task_words, weights, body=False), n) for n in candidates]
+    if stats is not None:
+        stats["best_score"] = max((score for score, _ in scored), default=0.0)
+    floor = brief_setting(root, "related_min_score", RELATED_MIN_SCORE)
+    related = [n for score, n in scored if score >= floor][:RELATED_LIMIT]
     if related:
         found = True
         sections.append(["RELATED NOTES"] + [f"  - {n.title}  {note_label(n, root)}" for n in related]
@@ -762,15 +797,24 @@ def is_conversation(root: Path, task: str) -> bool:
     return not (notes._words(task) - _filler(root))
 
 
-def _with_task(root: Path, task: str, *, session, agent, budget: int, task_only: bool) -> str:
+def _with_task(root: Path, task: str, *, session, agent, budget: int, task_only: bool,
+               decision: dict | None = None) -> str:
+    def decide(outcome: str, reason: str, sections=(), best_score: float = 0.0, chars: int = 0) -> None:
+        if decision is not None:
+            decision.update(outcome=outcome, reason=reason, sections=list(sections),
+                            best_score=round(best_score, 3), chars=chars)
+
     if task_only and is_conversation(root, task):
+        decide("abstained", "filler")
         return ""
-    sections, found = _task_sections(root, task)
+    stats: dict = {}
+    sections, found = _task_sections(root, task, stats)
     route_lines, route_alone = _route_section(root, task, session=session, agent=agent)
     if route_lines:
         sections.append(route_lines)
         found = found or route_alone
     if task_only and not found:
+        decide("abstained", "nothing-found", best_score=stats.get("best_score", 0.0))
         return ""
     lines = [f"EOS brief for this task — {root.name}"]
     if not task_only:
@@ -798,7 +842,10 @@ def _with_task(root: Path, task: str, *, session, agent, budget: int, task_only:
             lines.append(line)
     if trimmed:
         lines.append("…trimmed to the brief's budget — eos procedure show / eos run list / eos note search for the rest")
-    return "\n".join(lines).rstrip() + "\n"
+    text = "\n".join(lines).rstrip() + "\n"
+    decide("injected", "injected", (s[0].split("  ")[0].strip() for s in sections if s and s[0]),
+           stats.get("best_score", 0.0), len(text))
+    return text
 
 
 def _catalogue_state(root: Path, task: str) -> list[tuple]:
