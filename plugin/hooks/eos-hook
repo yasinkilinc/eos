@@ -16,7 +16,8 @@ host=
 if [ "${2-}" = "--host" ]; then host=${3-}; fi
 if [ "$host" = "devin" ]; then
   # Devin blocks on exit 2 and shows stderr to the agent. Only a real deny passes
-  # (exit 2, a reason on stderr, not an old engine's argparse `usage:` error);
+  # (exit 2 with the engine's `EOS: ` marker first on stderr: a missing script or an
+  # old engine's argparse error also exits 2, and must not block every call);
   # every other outcome is silent exit 0 (ADR-021). Needs no CLAUDE_PLUGIN_* variable.
   errfile=$(mktemp 2>/dev/null) || exit 0
   rc=0
@@ -38,8 +39,7 @@ if [ "$host" = "devin" ]; then
   if [ "$rc" -eq 2 ] && [ -s "$errfile" ]; then
     first=$(head -n 1 "$errfile")
     case "$first" in
-      usage:*) ;;
-      *) cat "$errfile" >&2; rm -f "$errfile"; exit 2 ;;
+      "EOS: "*) cat "$errfile" >&2; rm -f "$errfile"; exit 2 ;;
     esac
   fi
   rm -f "$errfile"

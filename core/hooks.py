@@ -331,17 +331,26 @@ def main(argv: list[str] | None = None) -> int:
 
 
 def _devin_block(output: str) -> tuple[str, str]:
-    """(stdout, stderr reason): a `permissionDecision: deny` answer becomes the
-    reason alone, which the caller prints to stderr and exits 2 on."""
-    if '"deny"' not in output:
+    """(stdout, stderr reason): a deny (`permissionDecision: deny`) or a Stop
+    block (`decision: block`) becomes the reason alone, prefixed `EOS: ` exactly
+    once -- the marker the plugin entry passes exit 2 through on -- which the
+    caller prints to stderr and exits 2 on."""
+    if '"deny"' not in output and '"block"' not in output:
         return output, ""
     try:
-        specific = json.loads(output)["hookSpecificOutput"]
-    except (ValueError, KeyError, TypeError):
+        data = json.loads(output)
+    except ValueError:
         return output, ""
-    if not isinstance(specific, dict) or specific.get("permissionDecision") != "deny":
+    if not isinstance(data, dict):
         return output, ""
-    return "", str(specific.get("permissionDecisionReason") or "blocked")
+    specific = data.get("hookSpecificOutput")
+    if isinstance(specific, dict) and specific.get("permissionDecision") == "deny":
+        reason = specific.get("permissionDecisionReason")
+    elif data.get("decision") == "block":
+        reason = data.get("reason")
+    else:
+        return output, ""
+    return "", "EOS: " + re.sub(r"^EOS:?\s*", "", str(reason or "blocked"))
 
 
 def _probe(root: Path, event: str, payload: object, hook: Hook) -> None:
@@ -350,10 +359,7 @@ def _probe(root: Path, event: str, payload: object, hook: Hook) -> None:
         keys = sorted(str(key) for key in payload) if isinstance(payload, dict) else []
         line = {"event": event, "host": hook.host or "claude", "keys": keys,
                 "input_keys": sorted(str(key) for key in hook.tool_input)}
-        folder = root / ".eos" / "data"
-        folder.mkdir(parents=True, exist_ok=True)
-        with open(folder / PROBE_FILE, "a", encoding="utf-8") as handle:
-            handle.write(json.dumps(line, ensure_ascii=False) + "\n")
+        _append_log(root, PROBE_FILE, line)
     except Exception:  # noqa: BLE001 - a probe never disturbs the session
         pass
 

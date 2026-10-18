@@ -91,7 +91,8 @@ def test_devin_read_reaches_pre_read_and_a_deny_is_stderr_with_exit_2(project, m
     read = _devin(project, tool_name="read", tool_input={"path": str(target)})
     code, out, err = _run(monkeypatch, capsys, "pre-read", read, "--host", "devin")
     assert (code, out) == (2, "")
-    assert "1: # Title" in err and "permissionDecision" not in err
+    assert err.startswith("EOS: ") and not err.startswith("EOS: EOS") and "1: # Title" in err \
+        and "permissionDecision" not in err
     assert _run(monkeypatch, capsys, "pre-read", read, "--host", "devin") == (0, "", "")   # asking again reads it
 
 
@@ -135,7 +136,7 @@ def test_devin_session_id_records_on_the_run_with_agent_devin(project, monkeypat
     assert [(e.kind, e.tool, e.ref, e.agent) for e in events] == [("changed", "edit", "a.py", "devin")]
 
 
-def test_devin_exec_is_not_clipped_but_a_failure_still_records(project, monkeypatch, capsys):
+def test_devin_exec_output_is_never_clipped(project, monkeypatch, capsys):
     _config(project, "bash_clip_chars = 100\n")
     code, out, err = _run(monkeypatch, capsys, "post-tool", _devin(
         project, tool_name="exec", tool_input={"cmd": "seq 1 5000"},
@@ -178,6 +179,7 @@ HOOK = REPO / "plugin" / "hooks" / "eos-hook"
 
 
 def _entry(tmp_path, fake_body, *args):
+    tmp_path.mkdir(exist_ok=True)
     bin_dir = tmp_path / "fakebin"
     bin_dir.mkdir()
     fake = bin_dir / "eos"
@@ -191,13 +193,15 @@ def _entry(tmp_path, fake_body, *args):
 
 
 def test_entry_lets_a_devin_deny_through(tmp_path):
-    done, seen = _entry(tmp_path, 'echo "denied: x" >&2\nexit 2\n', "pre-read", "--host", "devin")
-    assert (done.returncode, done.stderr) == (2, "denied: x\n")
+    done, seen = _entry(tmp_path, 'echo "EOS: denied" >&2\nexit 2\n', "pre-read", "--host", "devin")
+    assert (done.returncode, done.stderr) == (2, "EOS: denied\n")
     assert "--agent devin" in seen and "--host devin" in seen
 
 
-def test_entry_ignores_an_old_engines_usage_error(tmp_path):
-    done, _ = _entry(tmp_path, 'echo "usage: eos ..." >&2\nexit 2\n', "pre-read", "--host", "devin")
+def test_entry_ignores_a_missing_script_or_usage_error(tmp_path):
+    done, _ = _entry(tmp_path, 'echo "python3: cannot open file" >&2\nexit 2\n', "pre-read", "--host", "devin")
+    assert (done.returncode, done.stderr) == (0, "")
+    done, _ = _entry(tmp_path / "u", 'echo "usage: eos ..." >&2\nexit 2\n', "pre-read", "--host", "devin")
     assert (done.returncode, done.stderr) == (0, "")
 
 
@@ -210,3 +214,62 @@ def test_entry_without_host_is_todays_silent_exit_0(tmp_path):
     done, seen = _entry(tmp_path, 'echo "denied: x" >&2\nexit 2\n', "pre-read")
     assert (done.returncode, done.stderr) == (0, "")
     assert "--agent claude" in seen
+
+
+def test_a_stop_block_under_devin_is_stderr_with_exit_2(project, monkeypatch, capsys):
+    record = executions.start(project, "a run", session="dv1")
+    code, out, err = _run(monkeypatch, capsys, "stop", _devin(project))
+    assert (code, out) == (2, "")
+    assert err.startswith("EOS: ") and not err.startswith("EOS: EOS") and record.id in err
+
+
+def test_a_subagent_stop_block_under_devin_is_stderr_with_exit_2(project, monkeypatch, capsys):
+    executions.start(project, "a run", session="dv1")
+    source = project / "svc.py"
+    source.write_text("x = 1\n", encoding="utf-8")
+    code, out, err = _run(monkeypatch, capsys, "subagent-stop", _devin(
+        project, agent_id="a1", agent_type="Explore", last_assistant_message=f"set at {source}:120."))
+    assert (code, out) == (2, "")
+    assert err.startswith("EOS: ") and "cannot be right" in err
+
+
+def test_the_probe_log_is_bounded(project, monkeypatch, capsys):
+    _config(project, "probe = true\n")
+    log = project / ".eos" / "data" / "hook-probe.jsonl"
+    log.parent.mkdir(parents=True, exist_ok=True)
+    log.write_text('{"event": "x"}\n' * 300_000, encoding="utf-8")
+    assert log.stat().st_size > hooks.MAX_LOG_BYTES
+    _run(monkeypatch, capsys, "post-tool", _devin(project, tool_name="exec", tool_input={"cmd": "ls"}))
+    assert log.stat().st_size < hooks.MAX_LOG_BYTES
+
+
+def test_devin_read_of_a_note_is_a_read_event(project, monkeypatch, capsys):
+    store = project / ".eos" / "knowledge"
+    store.mkdir(parents=True, exist_ok=True)
+    note = store / "20260901-a-note.md"
+    note.write_text("---\nkind: finding\ntitle: A note\ncreated: 2026-09-01\n---\n\nBody.\n", encoding="utf-8")
+    executions.start(project, "a run", session="dv1")
+    _run(monkeypatch, capsys, "post-tool", _devin(
+        project, tool_name="read", tool_input={"path": str(note)}, tool_use_id="t1"))
+    [event] = executions.load(project)[-1].events
+    assert (event.kind, event.tool, event.ref, event.agent) == ("read", None, f"note:{note.name}", "devin")
+
+
+def test_devin_read_reaches_the_post_batch_note_injection(project, monkeypatch, capsys):
+    store = project / ".eos" / "knowledge"
+    store.mkdir(parents=True, exist_ok=True)
+    (project / "src").mkdir()
+    target = project / "src" / "Foo.py"
+    target.write_text("x = 1\n", encoding="utf-8")
+    (store / "20260901-foo.md").write_text(
+        "---\nkind: finding\ntitle: About Foo\ncreated: 2026-09-01\nscope:\n  - src/Foo.py\n---\n\nBody.\n",
+        encoding="utf-8")
+
+    def batch(host_payload, tool, key):
+        call = {"tool_name": tool, "tool_input": {key: str(target)}}
+        return _run(monkeypatch, capsys, "post-batch", {**host_payload, "tool_calls": [call]})
+
+    devin = batch(_devin(project), "read", "path")
+    claude = batch({"session_id": "c1", "cwd": str(project), "transcript_path": "/t.jsonl"}, "Read", "file_path")
+    assert devin[0] == 0 and "About Foo" in json.loads(devin[1])["hookSpecificOutput"]["additionalContext"]
+    assert "About Foo" in json.loads(claude[1])["hookSpecificOutput"]["additionalContext"]
