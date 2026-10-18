@@ -102,3 +102,34 @@
 
 - [ ] Bump `core/VERSION` 2.4.0, README release note, `plugin/.claude-plugin/plugin.json`, `plugin/skills/eos/SKILL.md` (pattern of commit 8074366); `pytest -q` + `tools/check-clean.sh`; commit `chore(release): 2.4.0`; push.
 - [ ] Nexus: subtree pull `--squash`, `install-eos-cli.sh`, `ensure-eos-index.sh --all`; `.eos/config.toml`: `hook_dry_run = false`, `route_types = ["Explore", "Plan"]`, `[hooks] read_cache = true`, `bash_clip_chars = 12000`, `[notes] stem = true` if Task 3 numbers held, Turkish synonyms; new `docs/eos-evals/golden/turkish-prompts.tsv` (≥20 Turkish queries → expected English note) measured before/after; commit and push nexus.
+
+---
+
+## Added 2026-10-18 after the token audit
+
+Source: nexus `docs/eos-evals/2026-10-18-token-audit.md`. EOS's own injections
+are 1.4% of cost; model choice (main sessions on opus while ROUTE says sonnet:
+170/192 sessions) and context length dominate. Execution order is now
+1, 8, 7, 10, 11, 3, 2, 4, 5, 6, 9, 12. Task 7 default for nexus: 4000 chars.
+Task 8 also lists `atlas` in nexus `route_types`; `general-purpose` is already
+routed once `hook_dry_run = false`.
+
+### Task 10: Session model mismatch hint
+
+**Files:** `core/hooks.py` (`_session_start` and `_user_prompt`), `core/routing/` (reuse the decision the brief's ROUTE line prints). Test: `tests/test_model_hint.py`.
+
+**Interfaces:** the session's model comes from the hook input `model` when present, else the last assistant `message.model` in `transcript_path`. Config `[model_routing] session_hint = true` (default false upstream). When the routed model is cheaper than the session's (ordering haiku < sonnet < opus by name substring) and route confidence ≥ `hook_min_confidence`, append once per context window one line: `MODEL  this session runs <session-model>; the route for this task is <model>/<effort> — switch with /model <model>`. Never more than once per window; never in subagents.
+
+- [ ] Steps: tests (opus session + sonnet route → line once, not on next prompt; sonnet session → nothing; low confidence → nothing; hint off by default; subagent → nothing), FAIL, implement, suite. Commit `feat(routing): hint when the session model costs more than its route`.
+
+### Task 11: Resume after a long gap
+
+**Files:** `core/hooks.py` (`_session_start`, source `resume`). Test: `tests/test_resume_gap.py`.
+
+**Interfaces:** gap = now − last entry timestamp in `transcript_path`; context = last assistant usage (`input + cache_read + cache_creation`). Config `[hooks] resume_gap_minutes = 0` (off). When gap ≥ it and context ≥ `[hooks] resume_context_tokens` (default 100000): one line `RESUME  <gap> since the last turn; the cache is cold and the next call rewrites <N>k tokens. Cheaper: /compact, or a new session (the brief carries the task).`
+
+- [ ] Steps: tests (gap 90 min + 180k → line; gap 10 min → nothing; small context → nothing; off by default; unreadable transcript → nothing, no raise), FAIL, implement, suite. Commit `feat(hooks): warn on a cold-cache resume of a large session`.
+
+### Task 12 (nexus, after Task 9): deny raw source reads
+
+**Files:** nexus `automation/hooks/wrapper_guard.py` and its test. `sed -n`, `cat`, `head`, `tail` on a single existing text file inside the workspace → refuse with "use Read with offset/limit". Pipelines that feed another command, files under the scratchpad, and `# guard:allow` stay allowed. Nexus config: `outline_lines` on (large unranged Read gets the outline first).
