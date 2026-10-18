@@ -133,3 +133,31 @@ routed once `hook_dry_run = false`.
 ### Task 12 (nexus, after Task 9): deny raw source reads
 
 **Files:** nexus `automation/hooks/wrapper_guard.py` and its test. `sed -n`, `cat`, `head`, `tail` on a single existing text file inside the workspace → refuse with "use Read with offset/limit". Pipelines that feed another command, files under the scratchpad, and `# guard:allow` stay allowed. Nexus config: `outline_lines` on (large unranged Read gets the outline first).
+
+## Added 2026-10-18: Devin parity (user request)
+
+Devin CLI hooks (docs.devin.ai/cli/extensibility/hooks/lifecycle-hooks) carry
+the Claude Code event names (SessionStart, UserPromptSubmit, PreToolUse,
+PostToolUse, Stop, SessionEnd, plus PostCompaction, PermissionRequest), send
+`session_id` and `prompt_id` on every payload, honour `hookSpecificOutput`
+(`additionalContext`, PreToolUse `updatedInput`), block on exit 2, and name
+tools `exec`, `read`, `write`, `edit`, `apply_patch`, `grep`, `glob`,
+`run_subagent`, `webfetch`, `skill`. Nexus `.devin/hooks.v1.json` wires only
+the wrapper guard; 0 of 368 runs carry `agent=devin`. Task 10 dropped (user:
+main session stays on opus). Order: 1, 8, 7, 11, 13, 3, 2, 4, 5, 6, 9, 14, 12.
+
+### Task 13: Devin hook parity
+
+**Files:** `core/hooks.py` (`normalize`, every `hook.tool == "Bash"|"Read"|...` comparison, the deny path), `plugin/hooks/` (a host-neutral entry if `eos-hook` assumes `CLAUDE_PLUGIN_ROOT`). Tests: `tests/test_devin_hooks.py`.
+
+**Interfaces:**
+- `normalize` maps tool names to the engine's canonical ones through `TOOL_ALIASES = {"exec": "Bash", "read": "Read", "write": "Write", "edit": "Edit", "apply_patch": "Edit", "grep": "Grep", "glob": "Glob", "run_subagent": "Agent", "webfetch": "WebFetch", "skill": "Skill"}`; `Hook.tool` holds the canonical name, `Hook.raw_tool` the original. Tool input keys: `command`|`cmd`, `file_path`|`path`, `subagent_type`|`agent`|`type`, `model`.
+- `eos hook <event> --host devin` (also auto when the payload has `prompt_id` and no `transcript_path`): a deny is printed to stderr with exit 2 instead of `permissionDecision`; records `agent=devin` on run events; `updatedInput` keeps Devin's own key names (`cmd` stays `cmd`).
+- Opt-in probe `[hooks] probe = true`: appends the payload's key names per event (never values) to `.eos/data/hook-probe.jsonl`, so the first real Devin session confirms the field names.
+
+- [ ] Steps: tests (Devin `exec` PreToolUse with `{"cmd": …}` reaches the wrapper-bypass hint and, with clip on, gets `updatedInput.cmd`; Devin `read` gets the outline/read-cache path; `run_subagent` reaches routing; Devin deny → exit 2 + stderr; `session_id` from Devin opens/records the run with `agent=devin`; probe writes key names only; every Claude payload test unchanged), FAIL, implement, suite. Commit `feat(hooks): Devin CLI hook parity`.
+
+### Task 14 (nexus, after Task 9): wire EOS into Devin
+
+**Files:** nexus `.devin/hooks.v1.json` (same events as `tools/eos/plugin/hooks/hooks.json`, Devin tool-name matchers `exec`, `read`, `run_subagent`, commands with `--host devin`, wrapper guard kept first), `automation/hooks/check-agent-hooks.sh` (also checks the EOS hooks for both agents), `.devin/rules/global_rules.md` and `.devin/agents/atlas.md` (`--agent devin` on `eos brief`/`run start`/`note add`; the Stop hook now asks for notes), `.devin/skills/dev-atlas/SKILL.md:30` text, nexus `CLAUDE.md` "Devin has no hooks" wording if present. `[hooks] probe = true` in nexus config until one Devin session has logged its payloads.
+- [ ] Verify with `bash automation/hooks/check-agent-hooks.sh` and by piping a recorded Devin-shaped payload into each configured command. Commit and push nexus.
