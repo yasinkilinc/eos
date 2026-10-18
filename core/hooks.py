@@ -75,12 +75,16 @@ OPT_IN = ("notes", "stale")
 # Numeric settings, 0 = off. outline_lines: a main-session Read of a longer file
 # with no range is answered once with its outline instead; clear_hint_tokens: a
 # finished run in a session holding more context than this gets one /clear hint.
-NUMERIC = {"outline_lines": 0, "clear_hint_tokens": 150_000, "handoff_tokens": 0, "bash_clip_chars": 0}
+NUMERIC = {"outline_lines": 0, "clear_hint_tokens": 150_000, "handoff_tokens": 0, "bash_clip_chars": 0,
+           "resume_gap_minutes": 0, "resume_context_tokens": 100_000}
 # `bash_clip_chars` > 0: a Bash call whose output (stdout + stderr) is longer has
 # it kept whole in `.eos/data/clip/` (newest CLIP_KEEP files) and replaced, before
 # the model reads it, by its head and tail (PostToolUse `updatedToolOutput`).
 # `bash_clip_skip`: regexes of commands left alone.
 CLIP_KEEP = 50
+# `resume_gap_minutes` > 0: resuming a session idle that long while it holds at
+# least `resume_context_tokens` gets one line, the prompt cache being cold.
+RESUME_TAIL = 1024 * 1024
 # A host's own lines, appended to what EOS says (2.x roadmap C5): a command run
 # at the project root with the event on stdin as JSON (`session_id`, `cwd`,
 # `source`, `prompt`, and `projects` -- the workspace projects this brief
@@ -620,6 +624,59 @@ def _context_tokens(transcript: str) -> int | None:
     return None
 
 
+def _gap_text(minutes: int) -> str:
+    days, rest = divmod(minutes, 1440)
+    hours, mins = divmod(rest, 60)
+    if days:
+        return f"{days}d{hours}h" if hours else f"{days}d"
+    if hours:
+        return f"{hours}h{mins:02d}m" if mins else f"{hours}h"
+    return f"{mins}m"
+
+
+def _resume_line(transcript: str, cfg: dict) -> str:
+    """One line when a resumed session is idle past `resume_gap_minutes` and large;
+    '' on any doubt. Reads only the transcript's tail."""
+    if not cfg["resume_gap_minutes"] or not transcript:
+        return ""
+    import datetime
+
+    try:
+        with open(transcript, "rb") as handle:
+            size = handle.seek(0, os.SEEK_END)
+            handle.seek(max(0, size - RESUME_TAIL))
+            lines = handle.read().decode("utf-8", errors="replace").splitlines()
+            if size > RESUME_TAIL:
+                lines = lines[1:]
+        stamp, tokens = None, None
+        for line in reversed(lines):
+            try:
+                entry = json.loads(line)
+            except ValueError:
+                continue
+            if not isinstance(entry, dict):
+                continue
+            if stamp is None and isinstance(entry.get("timestamp"), str):
+                stamp = datetime.datetime.fromisoformat(entry["timestamp"].replace("Z", "+00:00"))
+            usage = (entry.get("message") or {}).get("usage") if isinstance(entry.get("message"), dict) else None
+            if tokens is None and entry.get("type") == "assistant" and isinstance(usage, dict):
+                tokens = sum(int(usage.get(key) or 0) for key in
+                             ("input_tokens", "cache_read_input_tokens", "cache_creation_input_tokens"))
+            if stamp is not None and tokens is not None:
+                break
+        if stamp is None or tokens is None:
+            return ""
+        if stamp.tzinfo is None:
+            stamp = stamp.replace(tzinfo=datetime.timezone.utc)
+        gap = int((datetime.datetime.now(datetime.timezone.utc) - stamp).total_seconds() // 60)
+    except (OSError, ValueError, TypeError, OverflowError):
+        return ""
+    if gap < cfg["resume_gap_minutes"] or tokens < cfg["resume_context_tokens"]:
+        return ""
+    return (f"RESUME  {_gap_text(gap)} since the last turn; the cache is cold and the next call rewrites "
+            f"{round(tokens / 1000)}k tokens. Cheaper: /compact, or a new session (the brief carries the task).")
+
+
 def _kept(root: Path, session: str) -> dict:
     """What must outlive a compaction: the session's open run, the work it
     holds, the files it changed."""
@@ -696,6 +753,8 @@ def _session_start(root: Path, hook: Hook, cfg: dict, agent: str | None) -> str:
             parts.append(f"…{len(live) - WORKSPACE_LIVE_LIMIT} more projects have something live: "
                          f"eos brief <project>")
         parts.append(_host_lines(root, cfg["start_command"], hook, live[:WORKSPACE_LIVE_LIMIT]))
+    if hook.source == "resume":
+        parts.append(_resume_line(hook.transcript, cfg))
     return "\n\n".join(part for part in parts if part)
 
 

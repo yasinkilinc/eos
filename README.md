@@ -48,6 +48,10 @@ executable launcher under `~/.local/bin/eos`. Override the locations with
   and the file path instead (PostToolUse `updatedToolOutput`; the command itself
   is never rewritten, so permission rules keep matching). `[hooks] bash_clip_skip`
   lists regexes of commands left alone.
+- Opt-in cold-cache warning: `[hooks] resume_gap_minutes = N` (off at 0) adds
+  one `RESUME` line to the start of a resumed session idle for N minutes or more
+  whose last model call carried at least `resume_context_tokens` (default
+  100000) tokens: the cache is cold, `/compact` or a new session is cheaper.
 - An expired or replaced note is never stale: its file moving on is expected,
   and the Stop gate asked sessions to re-confirm notes nobody reads as current.
 - A git-ignored file is refused as a scope entry: every other clone hashes its
