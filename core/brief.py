@@ -37,7 +37,7 @@ DETAIL_CHARS = 140
 
 RUN_LIMIT = 3
 RELATED_LIMIT = 3
-RELATED_MIN_SCORE = 0.3
+RELATED_MIN_SCORE = notes._RELEVANCE_THRESHOLD
 FAILURE_LIMIT = 3
 # How much of a prompt's information a procedure's title and tags must hold to
 # count as named when the coverage share is diluted (see `best_procedure`):

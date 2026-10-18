@@ -17,7 +17,7 @@ def test_related_notes_show_kind_and_age(tmp_path):
     root.mkdir()
     assert subprocess.run(EOS + ["init", str(root), "--no-ai"], capture_output=True).returncode == 0
     notes.add_note(root, "finding", "Billing retries need the idempotency key", "Without it a retry charges twice.")
-    text = brief.build(root, task="billing retries charge", task_only=True)
+    text = brief.build(root, task="why do billing retries charge twice", task_only=True)
     assert "Billing retries need the idempotency key  [finding, " in text
     assert brief.note_label(notes.load_notes(root)[0]) == "[finding, today]"
 

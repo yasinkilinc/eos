@@ -88,7 +88,7 @@ executable launcher under `~/.local/bin/eos`. Override the locations with
   the hash. A hand-edited `scope_hashes: null` reads as none recorded.
 - **`[brief] procedure_stopwords`:** words that never count toward picking a
   procedure (a project's generic verbs, e.g. "gözden geçir").
-- **`[brief] related_min_score` (default 0.3) and `decision_log` (default true):** a RELATED
+- **`[brief] related_min_score` (default 0.15) and `decision_log` (default true):** a RELATED
   note must clear a relevance floor, not share one word; every prompt brief decision
   (injected or abstained, why, sections, best score, chars) is one line in
   `.eos/data/briefs.jsonl`, never the prompt text.

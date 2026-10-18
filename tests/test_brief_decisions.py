@@ -82,7 +82,7 @@ def test_related_needs_min_score(tmp_path):
 def test_one_common_word_is_not_related(tmp_path):
     root = _project(tmp_path)
     _note(root, "Gateway timeout while uploading attachments to storage bucket", "Detail.", tags="gateway")
-    text = brief.build(root, task="storage quota alerting", task_only=True)
+    text = brief.build(root, task="storage quota alerting dashboard layout", task_only=True)
     assert "Gateway timeout" not in text
 
 
