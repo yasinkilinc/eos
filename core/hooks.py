@@ -76,15 +76,11 @@ OPT_IN = ("notes", "stale")
 # with no range is answered once with its outline instead; clear_hint_tokens: a
 # finished run in a session holding more context than this gets one /clear hint.
 NUMERIC = {"outline_lines": 0, "clear_hint_tokens": 150_000, "handoff_tokens": 0, "bash_clip_chars": 0}
-# `bash_clip_chars` > 0: a Bash call's output (stdout and stderr merged) is kept in
-# `.eos/data/clip/` and only its first and last half of that many characters
-# reach the model. `bash_clip_skip`: regexes of commands left alone; calls piping
-# to head/tail/less/more are always left alone.
+# `bash_clip_chars` > 0: a Bash call whose output (stdout + stderr) is longer has
+# it kept whole in `.eos/data/clip/` (newest CLIP_KEEP files) and replaced, before
+# the model reads it, by its head and tail (PostToolUse `updatedToolOutput`).
+# `bash_clip_skip`: regexes of commands left alone.
 CLIP_KEEP = 50
-CLIP_PAGER = re.compile(r"\|\s*(?:head|tail|less|more)\b")
-# A command that sets its own exit trap or redirects the shell's own output would
-# leave the clip unprinted, its output only on disk: never wrapped.
-CLIP_OWNS_OUTPUT = re.compile(r"\btrap\b|\bexec\s+(?:\d*[<>&]|&>)")
 # A host's own lines, appended to what EOS says (2.x roadmap C5): a command run
 # at the project root with the event on stdin as JSON (`session_id`, `cwd`,
 # `source`, `prompt`, and `projects` -- the workspace projects this brief
@@ -176,6 +172,8 @@ class Hook:
     compact_summary: str = ""
     # PostToolBatch: every call of the batch, `{tool_name, tool_input}`.
     tool_calls: list = dataclasses.field(default_factory=list)
+    # PostToolUse: what the tool returned (Bash: {stdout, stderr, interrupted, isImage}).
+    tool_response: object = None
 
     @property
     def command(self) -> str:
@@ -227,7 +225,7 @@ def normalize(payload: dict) -> Hook:
         error_type=text("error_type", "error"), prompt=text("prompt", "user_input"),
         effort=str(effort.get("level") or "") if isinstance(effort, dict) else "",
         transcript=text("transcript_path"), stop_active=bool(payload.get("stop_hook_active")),
-        compact_summary=text("compact_summary"),
+        compact_summary=text("compact_summary"), tool_response=payload.get("tool_response"),
         tool_calls=[call for call in payload.get("tool_calls") or [] if isinstance(call, dict)]
         if isinstance(payload.get("tool_calls"), list) else [],
     )
@@ -771,62 +769,6 @@ def _pre_read(root: Path, hook: Hook, cfg: dict, agent: str | None) -> str:
 
 
 def _pre_tool_bash(root: Path, hook: Hook, cfg: dict, agent: str | None) -> str:
-    """Before a Bash call: the worktree snapshot below, and the output clip."""
-    if hook.tool != "Bash":
-        return ""
-    _pre_bash_snapshot(root, hook, cfg)
-    return _clip_bash(root, hook, cfg)
-
-
-def _clip_bash(root: Path, hook: Hook, cfg: dict) -> str:
-    """`[hooks] bash_clip_chars`: the call runs as it was, its output going to a
-    file, and a trap on EXIT prints that file clipped and re-exits with the
-    command's own status. A trap and a plain `{ }` group, not a subshell and not
-    a pipe: `cd`/`export` in the command still reach the shell that follows it,
-    an explicit `exit N` still ends in the clip, and a heredoc or multi-line
-    command is passed through as it is. stdout and stderr arrive merged. The
-    harness takes `updatedInput` as the tool's whole input: every field is
-    kept, the command only under the key the payload used."""
-    limit = cfg["bash_clip_chars"]
-    key = next((k for k in ("command", "cmd") if isinstance(hook.tool_input.get(k), str)), "")
-    command = hook.tool_input.get(key, "") if key else ""
-    if not limit or not command.strip() or hook.tool_input.get("run_in_background"):
-        return ""
-    if CLIP_PAGER.search(command) or CLIP_OWNS_OUTPUT.search(command) or any(_matches(pattern, command) for pattern in cfg["bash_clip_skip"]):
-        return ""
-    import shlex
-
-    folder = root / ".eos" / "data" / "clip"
-    target = folder / f"{re.sub(r'[^A-Za-z0-9_.-]', '_', hook.session or 'x')}-{time.time_ns()}.log"
-    try:
-        folder.mkdir(parents=True, exist_ok=True)
-        try:
-            with open(folder / ".gitignore", "x", encoding="utf-8") as ignore:
-                ignore.write("*\n")
-        except FileExistsError:
-            pass
-        target.touch()
-        for old in sorted(folder.glob("*.log"), key=lambda f: f.stat().st_mtime_ns, reverse=True)[CLIP_KEEP:]:
-            old.unlink(missing_ok=True)
-    except OSError:
-        return ""
-    helper = Path(__file__).resolve().with_name("clip.py")
-    restore = f'__eos_rc=$?; {shlex.quote(sys.executable)} {shlex.quote(str(helper))} "$__eos_f" {limit}; exit "$__eos_rc"'
-    wrapped = (f"__eos_f={shlex.quote(str(target))}; trap {shlex.quote(restore)} EXIT\n"
-               f"{{ {command}\n}} > \"$__eos_f\" 2>&1")
-    return json.dumps({"hookSpecificOutput": {"hookEventName": "PreToolUse",
-                                              "updatedInput": {**hook.tool_input, key: wrapped}}},
-                      ensure_ascii=False)
-
-
-def _matches(pattern: str, command: str) -> bool:
-    try:
-        return re.search(pattern, command) is not None
-    except re.error:
-        return False
-
-
-def _pre_bash_snapshot(root: Path, hook: Hook, cfg: dict) -> None:
     """Before a Bash call whose git verb mutates the working tree, a snapshot
     of every dirty path's status and content hash -- so `_bash_worktree_changed`
     (PostToolUse) can see what changed even when the call never moves HEAD
@@ -836,17 +778,18 @@ def _pre_bash_snapshot(root: Path, hook: Hook, cfg: dict) -> None:
     command (`capabilities.programs`) costs nothing; the git subprocess only
     runs when that parse actually names a mutating git verb, so an ordinary
     command's latency is unaffected."""
-    if not cfg["capture"] or not hook.session or not hook.tool_use_id:
-        return
+    if hook.tool != "Bash" or not cfg["capture"] or not hook.session or not hook.tool_use_id:
+        return ""
     from core import capabilities
 
     if not any(program == "git" and capabilities.worth_recording(program, verb)
                for program, verb in capabilities.programs(hook.command)):
-        return
+        return ""
     snapshot = _worktree_snapshot(root)
     if snapshot is None:
-        return
+        return ""
     _note_state(hook.session, pretool_snapshot=hook.tool_use_id, snapshot=snapshot)
+    return ""
 
 
 def _section_digest(section: str) -> str:
@@ -1136,6 +1079,64 @@ def _bash_worktree_changed(root: Path, hook: Hook, run, status: str, exclude: se
 
 
 def _post_tool(root: Path, hook: Hook, cfg: dict, agent: str | None, failed: bool = False) -> str:
+    output = _post_tool_record(root, hook, cfg, agent, failed)
+    if failed or hook.tool != "Bash":
+        return output
+    updated = _clip_output(root, hook, cfg)
+    if updated is None:
+        return output
+    try:
+        data = json.loads(output) if output else {"hookSpecificOutput": {"hookEventName": "PostToolUse"}}
+        data["hookSpecificOutput"]["updatedToolOutput"] = updated
+    except (ValueError, KeyError, TypeError):
+        return output
+    return json.dumps(data, ensure_ascii=False)
+
+
+def _clip_output(root: Path, hook: Hook, cfg: dict) -> dict | None:
+    """`[hooks] bash_clip_chars`: the tool output to send instead, or None. The
+    response keeps every field it came with (`interrupted`, `isImage`, ...);
+    only `stdout` and `stderr` change. Only the raw tool name `Bash` (Claude
+    Code); an unfamiliar response shape is left alone."""
+    from core import clip
+
+    limit = cfg["bash_clip_chars"]
+    response = hook.tool_response
+    if not limit or not isinstance(response, dict) or not isinstance(response.get("stdout"), str):
+        return None
+    stdout, stderr = response["stdout"], response.get("stderr")
+    stderr = stderr if isinstance(stderr, str) else ""
+    if len(stdout) + len(stderr) <= limit or any(_matches(p, hook.command) for p in cfg["bash_clip_skip"]):
+        return None
+    folder = root / ".eos" / "data" / "clip"
+    target = folder / f"{re.sub(r'[^A-Za-z0-9_.-]', '_', hook.session or 'x')}-{time.time_ns()}.log"
+    try:
+        folder.mkdir(parents=True, exist_ok=True)
+        try:
+            with open(folder / ".gitignore", "x", encoding="utf-8") as ignore:
+                ignore.write("*\n")
+        except FileExistsError:
+            pass
+        with open(target, "w", encoding="utf-8") as saved:
+            saved.write(stdout + (f"\n--- stderr ---\n{stderr}" if stderr else ""))
+        for old in sorted(folder.glob("*.log"), key=lambda f: f.stat().st_mtime_ns, reverse=True)[CLIP_KEEP:]:
+            old.unlink(missing_ok=True)
+    except OSError:
+        return None
+    clipped = clip.clip_streams(stdout, stderr, limit, str(target))
+    if clipped is None:
+        return None
+    return {**response, "stdout": clipped[0], **({"stderr": clipped[1]} if "stderr" in response else {})}
+
+
+def _matches(pattern: str, command: str) -> bool:
+    try:
+        return re.search(pattern, command) is not None
+    except re.error:
+        return False
+
+
+def _post_tool_record(root: Path, hook: Hook, cfg: dict, agent: str | None, failed: bool = False) -> str:
     exit_code = None
     if failed:
         found_exit = _EXIT.search(hook.error or "")

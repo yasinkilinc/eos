@@ -1,39 +1,29 @@
-"""Print a saved Bash output, clipped: `python clip.py <file> <chars>`.
+"""Clip a Bash call's output to its head and tail (`[hooks] bash_clip_chars`).
 
-Used by the `[hooks] bash_clip_chars` rewrite of a Bash call (core/hooks.py).
-Standalone on purpose -- it runs inside the user's shell after the command and
-must never fail: whatever it cannot read it says so and exits 0.
+Pure functions, no shell and no subprocess: the PostToolUse hook in
+core/hooks.py hands them the call's stdout and stderr and sends the result back
+as `updatedToolOutput`.
 """
-import sys
 
 
-def main(argv: list[str]) -> int:
-    path = argv[0] if argv else ""
-    try:
-        limit = int(argv[1]) if len(argv) > 1 else 0
-    except ValueError:
-        limit = 0
-    try:
-        with open(path, encoding="utf-8", errors="replace", newline="") as handle:
-            text = handle.read()
-    except Exception as error:  # noqa: BLE001 - the shell this runs in must go on
-        _write(f"[clip: cannot read {path}: {error.__class__.__name__}]\n")
-        return 0
-    if limit <= 0 or len(text) <= limit:
-        _write(text)
-        return 0
+def clip_text(text: str, limit: int) -> str:
+    """`text` as it is when it fits `limit` chars, else its first and last
+    half of `limit` with a line saying what was left out."""
+    if limit < 0 or len(text) <= limit:
+        return text
     half = limit // 2
-    _write(f"{text[:half]}\n[clipped: full output in {path}]\n{text[-half:]}")
-    return 0
+    head, tail = text[:half], text[len(text) - half:] if half else ""
+    return f"{head}\n[... {len(text) - len(head) - len(tail)} chars omitted ...]\n{tail}"
 
 
-def _write(text: str) -> None:
-    try:
-        sys.stdout.write(text)
-        sys.stdout.flush()
-    except Exception:  # noqa: BLE001 - a closed pipe is not worth a traceback
-        pass
-
-
-if __name__ == "__main__":
-    sys.exit(main(sys.argv[1:]))
+def clip_streams(stdout: str, stderr: str, limit: int, path: str) -> tuple[str, str] | None:
+    """The two streams clipped to `limit` chars together (each gets a share
+    in proportion to its length), the pointer line last on stdout; None when
+    together they fit."""
+    total = len(stdout) + len(stderr)
+    if limit <= 0 or total <= limit:
+        return None
+    share = limit * len(stdout) // total
+    out = clip_text(stdout, share)
+    err = clip_text(stderr, limit - share)
+    return f"{out}\n[clipped: full output in {path}]", err

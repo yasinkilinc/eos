@@ -1,6 +1,5 @@
-"""`[hooks] bash_clip_chars`: a Bash call's output is kept on disk and only its
-head and tail reach the model. Every test that matters runs the rewritten
-command through a real `bash -c`."""
+"""`[hooks] bash_clip_chars`: after a Bash call, a long output is replaced
+(PostToolUse `updatedToolOutput`) by its head and tail; the whole stays on disk."""
 import io
 import json
 import subprocess
@@ -13,6 +12,7 @@ from core import clip, hooks
 
 REPO = Path(__file__).resolve().parents[1]
 EOS = [sys.executable, str(REPO / "core" / "eos.py")]
+RESPONSE = {"stdout": "", "stderr": "", "interrupted": False, "isImage": False}
 
 
 @pytest.fixture
@@ -30,147 +30,116 @@ def _config(project, text):
     config.write_text(config.read_text(encoding="utf-8") + "\n[hooks]\n" + text, encoding="utf-8")
 
 
-def _pre(project, monkeypatch, capsys, tool_input):
-    payload = {"session_id": "s1", "cwd": str(project), "tool_name": "Bash", "tool_input": tool_input}
+def _post(project, monkeypatch, capsys, response, command="seq 1 5000", tool="Bash", key="command"):
+    payload = {"session_id": "s1", "cwd": str(project), "tool_name": tool, "tool_use_id": "t1",
+               "tool_input": {key: command}, "tool_response": response}
     monkeypatch.setattr(sys, "stdin", io.StringIO(json.dumps(payload)))
-    assert hooks.main(["pre-tool"]) == 0
-    return capsys.readouterr().out
-
-
-def _rewrite(project, monkeypatch, capsys, command, key="command", **extra):
-    """The command the hook asks the harness to run instead, or None."""
-    out = _pre(project, monkeypatch, capsys, {key: command, **extra})
-    if not out.strip():
+    assert hooks.main(["post-tool"]) == 0
+    out = capsys.readouterr().out.strip()
+    if not out:
         return None
     specific = json.loads(out)["hookSpecificOutput"]
-    assert specific["hookEventName"] == "PreToolUse"
-    return specific["updatedInput"][key]
+    assert specific["hookEventName"] == "PostToolUse"
+    return specific.get("updatedToolOutput")
 
 
-def _bash(script, cwd=None):
-    return subprocess.run(["bash", "-c", script], capture_output=True, text=True, cwd=cwd)
+def _files(project):
+    return list((project / ".eos" / "data" / "clip").glob("*.log"))
+
+
+LONG = "".join(f"{n}\n" for n in range(1, 5001))
 
 
 def test_off_by_default(project, monkeypatch, capsys):
-    assert _rewrite(project, monkeypatch, capsys, "echo hi") is None
+    assert _post(project, monkeypatch, capsys, {**RESPONSE, "stdout": LONG}) is None
 
 
-def test_background_calls_are_untouched(project, monkeypatch, capsys):
-    _config(project, "bash_clip_chars = 100\n")
-    assert _rewrite(project, monkeypatch, capsys, "echo hi", run_in_background=True) is None
-
-
-def test_skip_patterns_and_pagers_are_untouched(project, monkeypatch, capsys):
-    _config(project, 'bash_clip_chars = 100\nbash_clip_skip = ["^npm run dev"]\n')
-    assert _rewrite(project, monkeypatch, capsys, "npm run dev --watch") is None
-    assert _rewrite(project, monkeypatch, capsys, "seq 1 500 | head -5") is None
-    assert _rewrite(project, monkeypatch, capsys, "seq 1 500 | tail -n 5") is None
-    assert _rewrite(project, monkeypatch, capsys, "echo hi") is not None
-
-
-def test_the_rest_of_the_input_is_kept_and_the_payloads_key_is_preserved(project, monkeypatch, capsys):
-    _config(project, "bash_clip_chars = 100\n")
-    out = _pre(project, monkeypatch, capsys, {"cmd": "echo hi", "timeout": 5000, "description": "d"})
-    updated = json.loads(out)["hookSpecificOutput"]["updatedInput"]
-    assert set(updated) == {"cmd", "timeout", "description"}
-    assert updated["timeout"] == 5000 and updated["cmd"] != "echo hi"
-
-
-def test_short_output_and_exit_code_are_unchanged(project, monkeypatch, capsys):
-    _config(project, "bash_clip_chars = 1000\n")
-    command = _rewrite(project, monkeypatch, capsys, "echo out; echo err >&2; false")
-    run = _bash(command)
-    assert run.returncode == 1
-    assert sorted((run.stdout + run.stderr).split()) == ["err", "out"]
-    assert _bash(command.replace("false", "true")).returncode == 0
-
-
-def test_an_explicit_exit_keeps_its_code_and_still_prints(project, monkeypatch, capsys):
-    _config(project, "bash_clip_chars = 1000\n")
-    command = _rewrite(project, monkeypatch, capsys, "echo before; exit 3; echo never")
-    run = _bash(command)
-    assert run.returncode == 3
-    assert run.stdout == "before\n"
-
-
-def test_no_subshell_cd_stays_in_effect(project, monkeypatch, capsys, tmp_path):
-    _config(project, "bash_clip_chars = 1000\n")
-    target = tmp_path.resolve()
-    command = _rewrite(project, monkeypatch, capsys, f"cd {target}\nexport EOS_CLIP_X=1")
-    run = _bash(command + '\npwd -P; echo "x=$EOS_CLIP_X"', cwd="/")
-    assert run.stdout.split() == [str(target), "x=1"]
-
-
-def test_a_heredoc_command_works(project, monkeypatch, capsys):
-    _config(project, "bash_clip_chars = 1000\n")
-    command = _rewrite(project, monkeypatch, capsys, "python3 - <<'EOF'\nprint('from heredoc')\nEOF")
-    run = _bash(command)
-    assert run.returncode == 0 and run.stdout == "from heredoc\n"
-
-
-def test_a_multiline_and_chain_works(project, monkeypatch, capsys):
-    _config(project, "bash_clip_chars = 1000\n")
-    command = _rewrite(project, monkeypatch, capsys, "echo a &&\n  echo b && \\\n  echo c # trailing comment")
-    run = _bash(command)
-    assert run.returncode == 0 and run.stdout == "a\nb\nc\n"
-
-
-def test_long_output_is_clipped_with_the_path_and_kept_whole_on_disk(project, monkeypatch, capsys):
+def test_long_stdout_is_clipped_to_head_tail_and_path_and_kept_whole(project, monkeypatch, capsys):
     _config(project, "bash_clip_chars = 200\n")
-    command = _rewrite(project, monkeypatch, capsys, "seq 1 2000")
-    run = _bash(command)
-    assert run.returncode == 0
-    files = list((project / ".eos" / "data" / "clip").glob("s1-*.log"))
-    assert len(files) == 1
-    assert files[0].read_text() == "".join(f"{n}\n" for n in range(1, 2001))
-    assert f"[clipped: full output in {files[0]}]" in run.stdout
-    assert run.stdout.startswith("1\n2\n") and run.stdout.rstrip().endswith("2000")
-    assert len(run.stdout) < 400
+    updated = _post(project, monkeypatch, capsys, {**RESPONSE, "stdout": LONG})
+    (saved,) = _files(project)
+    assert saved.read_text() == LONG
+    assert updated["stdout"].startswith(LONG[:100])
+    assert LONG[-100:] in updated["stdout"]
+    assert updated["stdout"].endswith(f"[clipped: full output in {saved}]")
+    assert len(updated["stdout"]) < 200 + 80 + len(str(saved))
 
 
-def test_only_the_newest_fifty_clip_files_are_kept(project, monkeypatch, capsys):
+def test_other_fields_are_preserved_verbatim(project, monkeypatch, capsys):
+    _config(project, "bash_clip_chars = 200\n")
+    response = {**RESPONSE, "stdout": LONG, "interrupted": True, "extra": {"a": [1]}}
+    updated = _post(project, monkeypatch, capsys, response)
+    assert updated["interrupted"] is True and updated["isImage"] is False and updated["extra"] == {"a": [1]}
+    assert updated["stderr"] == "" and set(updated) == set(response)
+
+
+def test_short_output_is_untouched(project, monkeypatch, capsys):
+    _config(project, "bash_clip_chars = 200\n")
+    assert _post(project, monkeypatch, capsys, {**RESPONSE, "stdout": "hi\n"}) is None
+    assert _files(project) == []
+
+
+def test_stderr_only_long_output_is_clipped(project, monkeypatch, capsys):
+    _config(project, "bash_clip_chars = 200\n")
+    updated = _post(project, monkeypatch, capsys, {**RESPONSE, "stderr": LONG})
+    (saved,) = _files(project)
+    assert LONG in saved.read_text()
+    assert updated["stderr"].startswith("1\n2\n") and len(updated["stderr"]) < 250
+    assert updated["stdout"].endswith(f"[clipped: full output in {saved}]")
+
+
+def test_both_streams_share_the_budget(project, monkeypatch, capsys):
+    _config(project, "bash_clip_chars = 200\n")
+    updated = _post(project, monkeypatch, capsys, {**RESPONSE, "stdout": LONG, "stderr": LONG})
+    assert len(updated["stdout"]) + len(updated["stderr"]) < 500
+
+
+def test_skip_regex_leaves_the_call_alone(project, monkeypatch, capsys):
+    _config(project, 'bash_clip_chars = 200\nbash_clip_skip = ["^seq "]\n')
+    assert _post(project, monkeypatch, capsys, {**RESPONSE, "stdout": LONG}) is None
+
+
+@pytest.mark.parametrize("response", ["text", None, ["x"], {"stderr": "x" * 999}, {"stdout": 5}])
+def test_an_unfamiliar_response_shape_is_left_alone(project, monkeypatch, capsys, response):
+    _config(project, "bash_clip_chars = 200\n")
+    assert _post(project, monkeypatch, capsys, response) is None
+
+
+def test_devin_exec_is_not_clipped(project, monkeypatch, capsys):
+    _config(project, "bash_clip_chars = 200\n")
+    assert _post(project, monkeypatch, capsys, {**RESPONSE, "stdout": LONG}, tool="exec", key="cmd") is None
+
+
+def test_only_the_newest_fifty_files_are_kept_and_the_dir_ignores_itself(project, monkeypatch, capsys):
     _config(project, "bash_clip_chars = 100\n")
     for _ in range(55):
-        _rewrite(project, monkeypatch, capsys, "echo hi")
-    assert len(list((project / ".eos" / "data" / "clip").glob("*.log"))) == 50
+        _post(project, monkeypatch, capsys, {**RESPONSE, "stdout": LONG})
+    assert len(_files(project)) == 50
+    assert (project / ".eos" / "data" / "clip" / ".gitignore").read_text() == "*\n"
 
 
-def test_the_helper_runs_with_the_hooks_interpreter(project, monkeypatch, capsys):
+def test_an_unwritable_data_dir_costs_nothing(project, monkeypatch, capsys):
     _config(project, "bash_clip_chars = 100\n")
-    command = _rewrite(project, monkeypatch, capsys, "echo hi")
-    assert sys.executable in command and str(REPO / "core" / "clip.py") in command
+    (project / ".eos" / "data").mkdir(exist_ok=True)
+    (project / ".eos" / "data" / "clip").write_text("a file, not a directory")
+    assert _post(project, monkeypatch, capsys, {**RESPONSE, "stdout": LONG}) is None
 
 
-def test_the_helper_never_raises(tmp_path, capsys):
-    assert clip.main([str(tmp_path / "missing.log"), "100"]) == 0
-    assert clip.main([str(tmp_path), "100"]) == 0
-    assert clip.main([]) == 0
-    assert clip.main([str(tmp_path / "x"), "notanumber"]) == 0
-    capsys.readouterr()
-
-
-def test_the_helper_splits_head_and_tail(tmp_path, capsys):
-    f = tmp_path / "o.log"
-    f.write_text("A" * 50 + "M" * 100 + "Z" * 50)
-    assert clip.main([str(f), "100"]) == 0
-    out = capsys.readouterr().out
-    assert out.startswith("A" * 50) and out.rstrip().endswith("Z" * 50) and "M" not in out
-    assert f"[clipped: full output in {f}]" in out
-
-
-def test_a_command_owning_its_trap_or_output_is_untouched(project, monkeypatch, capsys):
+def test_the_clip_rides_along_with_a_hook_note(project, monkeypatch, capsys):
     _config(project, "bash_clip_chars = 100\n")
-    assert _rewrite(project, monkeypatch, capsys, "trap 'echo bye' EXIT; echo hi") is None
-    assert _rewrite(project, monkeypatch, capsys, "exec >/dev/null; echo hi") is None
-    assert _rewrite(project, monkeypatch, capsys, "exec 2>/tmp/e; echo hi") is None
-    assert _rewrite(project, monkeypatch, capsys, "exec 1>/tmp/o; echo hi") is None
-    assert _rewrite(project, monkeypatch, capsys, "echo hi") is not None
+    monkeypatch.setattr(hooks, "_post_tool_record",
+                        lambda *a, **k: json.dumps({"hookSpecificOutput": {
+                            "hookEventName": "PostToolUse", "additionalContext": "note"}}))
+    payload = {"session_id": "s1", "cwd": str(project), "tool_name": "Bash",
+               "tool_input": {"command": "x"}, "tool_response": {**RESPONSE, "stdout": LONG}}
+    monkeypatch.setattr(sys, "stdin", io.StringIO(json.dumps(payload)))
+    hooks.main(["post-tool"])
+    specific = json.loads(capsys.readouterr().out)["hookSpecificOutput"]
+    assert specific["additionalContext"] == "note" and "updatedToolOutput" in specific
 
 
-def test_the_clip_dir_ignores_itself_and_pruning_keeps_that_file(project, monkeypatch, capsys):
-    _config(project, "bash_clip_chars = 100\n")
-    for _ in range(55):
-        _rewrite(project, monkeypatch, capsys, "echo hi")
-    folder = project / ".eos" / "data" / "clip"
-    assert (folder / ".gitignore").read_text() == "*\n"
-    assert len(list(folder.glob("*.log"))) == 50
+def test_clip_text_pure_function():
+    assert clip.clip_text("abc", 10) == "abc"
+    out = clip.clip_text("A" * 50 + "M" * 100 + "Z" * 50, 100)
+    assert out.startswith("A" * 50) and out.endswith("Z" * 50) and "M" not in out
+    assert clip.clip_streams("ab", "cd", 10, "/p") is None
