@@ -172,3 +172,41 @@ def test_a_probe_write_failure_never_raises(project, monkeypatch, capsys):
     code, out, err = _run(monkeypatch, capsys, "post-tool", _devin(
         project, tool_name="exec", tool_input={"cmd": "ls"}))
     assert (code, err) == (0, "")
+
+
+HOOK = REPO / "plugin" / "hooks" / "eos-hook"
+
+
+def _entry(tmp_path, fake_body, *args):
+    bin_dir = tmp_path / "fakebin"
+    bin_dir.mkdir()
+    fake = bin_dir / "eos"
+    fake.write_text("#!/bin/sh\necho \"$@\" > \"$FAKE_ARGS\"\n" + fake_body, encoding="utf-8")
+    fake.chmod(0o755)
+    env = {"PATH": f"{bin_dir}:/usr/bin:/bin", "FAKE_ARGS": str(tmp_path / "args"), "PWD": str(tmp_path)}
+    done = subprocess.run(["/bin/sh", str(HOOK), *args], input="{}", capture_output=True, text=True,
+                          env=env, cwd=tmp_path)
+    args_seen = (tmp_path / "args").read_text(encoding="utf-8") if (tmp_path / "args").exists() else ""
+    return done, args_seen
+
+
+def test_entry_lets_a_devin_deny_through(tmp_path):
+    done, seen = _entry(tmp_path, 'echo "denied: x" >&2\nexit 2\n', "pre-read", "--host", "devin")
+    assert (done.returncode, done.stderr) == (2, "denied: x\n")
+    assert "--agent devin" in seen and "--host devin" in seen
+
+
+def test_entry_ignores_an_old_engines_usage_error(tmp_path):
+    done, _ = _entry(tmp_path, 'echo "usage: eos ..." >&2\nexit 2\n', "pre-read", "--host", "devin")
+    assert (done.returncode, done.stderr) == (0, "")
+
+
+def test_entry_swallows_any_other_devin_failure(tmp_path):
+    done, _ = _entry(tmp_path, 'echo boom >&2\nexit 1\n', "pre-read", "--host", "devin")
+    assert (done.returncode, done.stderr) == (0, "")
+
+
+def test_entry_without_host_is_todays_silent_exit_0(tmp_path):
+    done, seen = _entry(tmp_path, 'echo "denied: x" >&2\nexit 2\n', "pre-read")
+    assert (done.returncode, done.stderr) == (0, "")
+    assert "--agent claude" in seen

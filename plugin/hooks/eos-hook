@@ -12,6 +12,39 @@
 # plugin's environment.
 event=${1-}
 [ -n "$event" ] || exit 0
+host=
+if [ "${2-}" = "--host" ]; then host=${3-}; fi
+if [ "$host" = "devin" ]; then
+  # Devin blocks on exit 2 and shows stderr to the agent. Only a real deny passes
+  # (exit 2, a reason on stderr, not an old engine's argparse `usage:` error);
+  # every other outcome is silent exit 0 (ADR-021). Needs no CLAUDE_PLUGIN_* variable.
+  errfile=$(mktemp 2>/dev/null) || exit 0
+  rc=0
+  if command -v eos >/dev/null 2>&1; then
+    eos hook "$event" --host devin --agent devin 2>"$errfile" || rc=$?
+  else
+    runtime="${CLAUDE_PROJECT_DIR:-$PWD}/.eos/runtime/eos.py"
+    rc=1
+    if [ -f "$runtime" ]; then
+      for python in python3.14 python3.13 python3.12 python3.11 python3; do
+        if command -v "$python" >/dev/null 2>&1; then
+          rc=0
+          "$python" "$runtime" hook "$event" --host devin --agent devin 2>"$errfile" || rc=$?
+          break
+        fi
+      done
+    fi
+  fi
+  if [ "$rc" -eq 2 ] && [ -s "$errfile" ]; then
+    first=$(head -n 1 "$errfile")
+    case "$first" in
+      usage:*) ;;
+      *) cat "$errfile" >&2; rm -f "$errfile"; exit 2 ;;
+    esac
+  fi
+  rm -f "$errfile"
+  exit 0
+fi
 if [ -n "${CLAUDE_PLUGIN_DATA-}" ] && [ -z "${EOS_HOOK_STATE_DIR-}" ]; then
   EOS_HOOK_STATE_DIR="$CLAUDE_PLUGIN_DATA/hooks"
   export EOS_HOOK_STATE_DIR
