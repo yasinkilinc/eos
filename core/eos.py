@@ -705,6 +705,8 @@ def main(argv: list[str] | None = None) -> int:
                                       "stop-failure, session-end, pre-agent")
     hook_p.add_argument("--agent", default=None, help="Which agent the harness is, e.g. claude")
     hook_p.add_argument("--project", default=None, help="Project root (default: from the event's cwd)")
+    hook_p.add_argument("--host", default=None, help="The harness's dialect: devin (default: claude, or devin "
+                                                     "when the payload has prompt_id and no transcript_path)")
 
     args = parser.parse_args(argv)
 

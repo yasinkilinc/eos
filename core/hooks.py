@@ -71,7 +71,10 @@ SETTINGS = ("brief", "capture", "hints", "subagents", "loaded", "sessions", "clo
 # config of the project that owns the changed file, so a workspace gates its
 # projects and not its own scripts. `stale`: only the second half -- a file this
 # session changed left a hand-written note on it false.
-OPT_IN = ("notes", "stale")
+OPT_IN = ("notes", "stale", "probe")
+# `probe`: append the key names (never the values) of every hook payload to
+# `.eos/data/hook-probe.jsonl`, so a first session on a new host (Devin) shows
+# which fields it sends.
 # Numeric settings, 0 = off. outline_lines: a main-session Read of a longer file
 # with no range is answered once with its outline instead; clear_hint_tokens: a
 # finished run in a session holding more context than this gets one /clear hint.
@@ -126,6 +129,12 @@ _EXIT = re.compile(r"exit code (-?\d+)", re.I)
 # markdown link to a line, a note, a run id.
 _CITATION = re.compile(r"[\w./-]+\.\w{1,6}:\d+|\]\([^)\s]+#L\d+|\bnote:\S+|\bx-[a-z0-9]+-[0-9a-f]{4}\b")
 SUBAGENT_TOOLS = ("Agent", "Task")
+# Devin CLI's tool names, in the engine's (Claude Code's) terms.
+TOOL_ALIASES = {"exec": "Bash", "read": "Read", "write": "Write", "edit": "Edit", "apply_patch": "Edit",
+                "grep": "Grep", "glob": "Glob", "run_subagent": "Agent", "webfetch": "WebFetch",
+                "skill": "Skill"}
+DEVIN = "devin"
+PROBE_FILE = "hook-probe.jsonl"
 SUBAGENT_MODELS = ("haiku", "sonnet", "opus", "fable")
 GENERIC_TYPES = ("", "general-purpose")
 EDIT_TOOLS = {"Edit": "edit", "Write": "write", "NotebookEdit": "notebook", "MultiEdit": "edit"}
@@ -155,7 +164,9 @@ class Hook:
     cwd: str = ""
     agent_id: str = ""
     agent_type: str = ""
-    tool: str = ""
+    tool: str = ""            # canonical name (Claude Code's); `raw_tool` is what the host sent
+    raw_tool: str = ""
+    host: str = ""            # "devin" for Devin CLI; "" for Claude Code
     tool_input: dict = dataclasses.field(default_factory=dict)
     tool_use_id: str = ""
     error: str = ""
@@ -178,6 +189,26 @@ class Hook:
     tool_calls: list = dataclasses.field(default_factory=list)
     # PostToolUse: what the tool returned (Bash: {stdout, stderr, interrupted, isImage}).
     tool_response: object = None
+
+    def __post_init__(self) -> None:
+        if not self.raw_tool:
+            self.raw_tool = self.tool
+
+    @property
+    def target_path(self) -> str:
+        for key in ("file_path", "path", "notebook_path"):
+            value = self.tool_input.get(key)
+            if isinstance(value, str) and value:
+                return value
+        return ""
+
+    @property
+    def subagent_kind(self) -> str:
+        for key in ("subagent_type", "agent", "type"):
+            value = self.tool_input.get(key)
+            if isinstance(value, str) and value.strip():
+                return value.strip()
+        return ""
 
     @property
     def command(self) -> str:
@@ -214,12 +245,15 @@ def normalize(payload: dict) -> Hook:
             tool_input = json.loads(tool_input)
         except ValueError:
             tool_input = {"command": tool_input}
+    raw_tool = text("tool_name", "tool")
+    devin = bool(payload.get("prompt_id")) and not payload.get("transcript_path")
     effort = payload.get("effort")
     duration = payload.get("duration_ms")
     return Hook(
         event=text("hook_event_name"), session=text("session_id", "sessionId")[:64],
         cwd=text("cwd"), agent_id=text("agent_id"), agent_type=text("agent_type"),
-        tool=text("tool_name", "tool"), tool_input=tool_input if isinstance(tool_input, dict) else {},
+        tool=TOOL_ALIASES.get(raw_tool, raw_tool), raw_tool=raw_tool, host=DEVIN if devin else "",
+        tool_input=tool_input if isinstance(tool_input, dict) else {},
         tool_use_id=text("tool_use_id"), error=text("error"),
         interrupted=bool(payload.get("is_interrupt")),
         duration_ms=duration if isinstance(duration, int) and not isinstance(duration, bool) else None,
@@ -239,22 +273,31 @@ def normalize(payload: dict) -> Hook:
 
 
 def main(argv: list[str] | None = None) -> int:
-    """`eos hook <event> [--agent NAME] [--project PATH]`, the event JSON on stdin."""
+    """`eos hook <event> [--agent NAME] [--project PATH] [--host devin]`, the event JSON on stdin.
+
+    A deny from a Devin payload is its reason on stderr with exit 2 (Devin's
+    way to block); Claude Code gets the `permissionDecision` JSON."""
     started = time.perf_counter()
     args = list(argv or [])
     event = args.pop(0) if args else ""
-    agent, project = None, None
+    agent, project, host = None, None, ""
     while args:
         flag = args.pop(0)
         if flag == "--agent" and args:
             agent = args.pop(0)
         elif flag == "--project" and args:
             project = args.pop(0)
-    root, hook, output = None, Hook(), ""
+        elif flag == "--host" and args:
+            host = args.pop(0)
+    root, hook, output, blocked = None, Hook(), "", ""
     try:
         raw = sys.stdin.read() if not sys.stdin.isatty() else ""
         payload = json.loads(raw) if raw.strip() else {}
         hook = normalize(payload if isinstance(payload, dict) else {})
+        if host:
+            hook.host = DEVIN if host == DEVIN else ""
+        if hook.host == DEVIN and not agent:
+            agent = DEVIN
         root = project_root(project or hook.cwd or os.environ.get("EOS_PROJECT_DIR") or os.getcwd())
         if root is None and not project:
             # A session that cd'd into a checkout with no `.eos`, or a subagent
@@ -262,10 +305,21 @@ def main(argv: list[str] | None = None) -> int:
             # started in -- whose run its pointer names (E1, measured).
             root = project_root(os.environ.get("CLAUDE_PROJECT_DIR") or os.environ.get("EOS_PROJECT_DIR"))
         handler = HANDLERS.get(event)
-        if root is not None and handler is not None:
-            output = handler(root, hook, settings(root), agent) or ""
+        if root is not None:
+            cfg = settings(root)
+            if cfg["probe"]:
+                _probe(root, event, payload, hook)
+            if handler is not None:
+                output = handler(root, hook, cfg, agent) or ""
+        if hook.host == DEVIN:
+            output, blocked = _devin_block(output)
     except Exception:  # noqa: BLE001 - a hook never disturbs the session it serves
         output = ""
+    if blocked:
+        try:
+            sys.stderr.write(blocked if blocked.endswith("\n") else blocked + "\n")
+        except Exception:  # noqa: BLE001
+            pass
     if output:
         try:
             sys.stdout.write(output if output.endswith("\n") else output + "\n")
@@ -273,7 +327,35 @@ def main(argv: list[str] | None = None) -> int:
             pass
     if root is not None:
         _telemetry(root, event, started, _delivered_chars(output), hook.session)
-    return 0
+    return 2 if blocked else 0
+
+
+def _devin_block(output: str) -> tuple[str, str]:
+    """(stdout, stderr reason): a `permissionDecision: deny` answer becomes the
+    reason alone, which the caller prints to stderr and exits 2 on."""
+    if '"deny"' not in output:
+        return output, ""
+    try:
+        specific = json.loads(output)["hookSpecificOutput"]
+    except (ValueError, KeyError, TypeError):
+        return output, ""
+    if not isinstance(specific, dict) or specific.get("permissionDecision") != "deny":
+        return output, ""
+    return "", str(specific.get("permissionDecisionReason") or "blocked")
+
+
+def _probe(root: Path, event: str, payload: object, hook: Hook) -> None:
+    """One line of key names (top-level and tool-input), never a value."""
+    try:
+        keys = sorted(str(key) for key in payload) if isinstance(payload, dict) else []
+        line = {"event": event, "host": hook.host or "claude", "keys": keys,
+                "input_keys": sorted(str(key) for key in hook.tool_input)}
+        folder = root / ".eos" / "data"
+        folder.mkdir(parents=True, exist_ok=True)
+        with open(folder / PROBE_FILE, "a", encoding="utf-8") as handle:
+            handle.write(json.dumps(line, ensure_ascii=False) + "\n")
+    except Exception:  # noqa: BLE001 - a probe never disturbs the session
+        pass
 
 
 def _delivered_chars(output: str) -> int:
@@ -473,7 +555,7 @@ def _record(root: Path, hook: Hook, found, **fields) -> bool:
     os.environ[executions.EXECUTION_ENV], os.environ[executions.LEDGER_ENV] = execution, str(ledger)
     try:
         entry = executions.event(root, None, session=hook.session, source="hook",
-                                 agent=hook.agent_type or None, **fields)
+                                 agent=hook.agent_type or hook.host or None, **fields)
     except Exception:  # noqa: BLE001 - capture never fails the session
         entry = None
     finally:
@@ -796,7 +878,7 @@ def _pre_read(root: Path, hook: Hook, cfg: dict, agent: str | None) -> str:
     args = hook.tool_input
     if any(args.get(key) not in (None, "", 0) for key in ("offset", "limit", "pages")):
         return ""
-    path = str(args.get("file_path") or "")
+    path = hook.target_path
     from core import outline
 
     kind = outline.kind_of(path)
@@ -1139,7 +1221,7 @@ def _bash_worktree_changed(root: Path, hook: Hook, run, status: str, exclude: se
 
 def _post_tool(root: Path, hook: Hook, cfg: dict, agent: str | None, failed: bool = False) -> str:
     output = _post_tool_record(root, hook, cfg, agent, failed)
-    if failed or hook.tool != "Bash":
+    if failed or hook.raw_tool != "Bash":
         return output
     updated = _clip_output(root, hook, cfg)
     if updated is None:
@@ -1207,12 +1289,12 @@ def _post_tool_record(root: Path, hook: Hook, cfg: dict, agent: str | None, fail
 
     if hook.tool == "Read":
         if main_session and not failed:
-            _watch(hook.session, str(hook.tool_input.get("file_path") or ""))
+            _watch(hook.session, hook.target_path)
         if run is not None and not failed:
-            _record_note_reads(root, hook, run, [str(hook.tool_input.get("file_path") or "")])
+            _record_note_reads(root, hook, run, [hook.target_path])
         return ""
     if hook.tool in EDIT_TOOLS:
-        path = str(hook.tool_input.get("file_path") or hook.tool_input.get("notebook_path") or "")
+        path = hook.target_path
         if hook.session and not failed and path:
             if main_session:
                 # What the session holds now is the edited text: the new mtime is the baseline.
@@ -1220,7 +1302,7 @@ def _post_tool_record(root: Path, hook: Hook, cfg: dict, agent: str | None, fail
             else:
                 _note_state(hook.session, changed=path)
         if run is not None:
-            ref = _relative(root, str(hook.tool_input.get("file_path") or hook.tool_input.get("notebook_path") or ""))
+            ref = _relative(root, path)
             if ref:
                 _record(root, hook, run, kind="changed", tool=EDIT_TOOLS[hook.tool], ref=ref,
                         status=status, tool_use_id=hook.tool_use_id or None, ms=hook.duration_ms)
@@ -1323,8 +1405,9 @@ def _post_batch(root: Path, hook: Hook, cfg: dict, agent: str | None) -> str:
     targets = []
     for call in hook.tool_calls or [{"tool_name": hook.tool, "tool_input": hook.tool_input}]:
         tool_input = call.get("tool_input") if isinstance(call.get("tool_input"), dict) else {}
-        path = str(tool_input.get("file_path") or "")
-        if call.get("tool_name") not in inject.FILE_TOOLS or not path or inject.is_instruction_file(path):
+        path = str(tool_input.get("file_path") or tool_input.get("path") or "")
+        name = call.get("tool_name")
+        if TOOL_ALIASES.get(name, name) not in inject.FILE_TOOLS or not path or inject.is_instruction_file(path):
             continue
         if not Path(path).is_absolute():
             path = str(Path(hook.cwd or root) / path)
@@ -1548,7 +1631,7 @@ def _route_subagent(root: Path, hook: Hook) -> str | None:
     routing = routing_config.load(root)
     if not (routing.configured and routing.enabled and routing.hook):
         return None
-    kind = str(hook.tool_input.get("subagent_type") or "").strip()
+    kind = hook.subagent_kind
     if hook.tool_input.get("model") or (kind not in GENERIC_TYPES and kind not in routing.route_types):
         return None
     task = str(hook.tool_input.get("prompt") or hook.tool_input.get("description") or "").strip()[:MAX_TASK_CHARS]
