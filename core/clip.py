@@ -17,13 +17,19 @@ def clip_text(text: str, limit: int) -> str:
 
 
 def clip_streams(stdout: str, stderr: str, limit: int, path: str) -> tuple[str, str] | None:
-    """The two streams clipped to `limit` chars together (each gets a share
-    in proportion to its length), the pointer line last on stdout; None when
-    together they fit."""
-    total = len(stdout) + len(stderr)
-    if limit <= 0 or total <= limit:
+    """The two streams clipped to about `limit` chars together, the pointer
+    line last on stdout; None when together they fit. A stream that fits in
+    half of `limit` stays whole (a short error beside a huge log is what the
+    agent needs), the other gets the rest; otherwise each gets half."""
+    if limit <= 0 or len(stdout) + len(stderr) <= limit:
         return None
-    share = limit * len(stdout) // total
+    half = limit // 2
+    if len(stderr) <= half:
+        share = limit - len(stderr)
+    elif len(stdout) <= half:
+        share = len(stdout)
+    else:
+        share = half
     out = clip_text(stdout, share)
     err = clip_text(stderr, limit - share)
     return f"{out}\n[clipped: full output in {path}]", err

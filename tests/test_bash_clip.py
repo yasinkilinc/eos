@@ -94,6 +94,15 @@ def test_both_streams_share_the_budget(project, monkeypatch, capsys):
     assert len(updated["stdout"]) + len(updated["stderr"]) < 500
 
 
+def test_a_short_stream_beside_a_huge_one_is_kept_whole():
+    error = "fatal: the real error message here"
+    out, err = clip.clip_streams("x" * 1_000_000, error, 200, "F")
+    assert err == error
+    assert len(out) < 200 + 80
+    out, err = clip.clip_streams(error, "y" * 1_000_000, 200, "F")
+    assert out == error + "\n[clipped: full output in F]"
+
+
 def test_skip_regex_leaves_the_call_alone(project, monkeypatch, capsys):
     _config(project, 'bash_clip_chars = 200\nbash_clip_skip = ["^seq "]\n')
     assert _post(project, monkeypatch, capsys, {**RESPONSE, "stdout": LONG}) is None
