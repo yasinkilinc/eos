@@ -156,3 +156,21 @@ def test_the_helper_splits_head_and_tail(tmp_path, capsys):
     out = capsys.readouterr().out
     assert out.startswith("A" * 50) and out.rstrip().endswith("Z" * 50) and "M" not in out
     assert f"[clipped: full output in {f}]" in out
+
+
+def test_a_command_owning_its_trap_or_output_is_untouched(project, monkeypatch, capsys):
+    _config(project, "bash_clip_chars = 100\n")
+    assert _rewrite(project, monkeypatch, capsys, "trap 'echo bye' EXIT; echo hi") is None
+    assert _rewrite(project, monkeypatch, capsys, "exec >/dev/null; echo hi") is None
+    assert _rewrite(project, monkeypatch, capsys, "exec 2>/tmp/e; echo hi") is None
+    assert _rewrite(project, monkeypatch, capsys, "exec 1>/tmp/o; echo hi") is None
+    assert _rewrite(project, monkeypatch, capsys, "echo hi") is not None
+
+
+def test_the_clip_dir_ignores_itself_and_pruning_keeps_that_file(project, monkeypatch, capsys):
+    _config(project, "bash_clip_chars = 100\n")
+    for _ in range(55):
+        _rewrite(project, monkeypatch, capsys, "echo hi")
+    folder = project / ".eos" / "data" / "clip"
+    assert (folder / ".gitignore").read_text() == "*\n"
+    assert len(list(folder.glob("*.log"))) == 50

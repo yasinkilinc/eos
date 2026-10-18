@@ -82,6 +82,9 @@ NUMERIC = {"outline_lines": 0, "clear_hint_tokens": 150_000, "handoff_tokens": 0
 # to head/tail/less/more are always left alone.
 CLIP_KEEP = 50
 CLIP_PAGER = re.compile(r"\|\s*(?:head|tail|less|more)\b")
+# A command that sets its own exit trap or redirects the shell's own output would
+# leave the clip unprinted, its output only on disk: never wrapped.
+CLIP_OWNS_OUTPUT = re.compile(r"\btrap\b|\bexec\s+(?:\d*[<>&]|&>)")
 # A host's own lines, appended to what EOS says (2.x roadmap C5): a command run
 # at the project root with the event on stdin as JSON (`session_id`, `cwd`,
 # `source`, `prompt`, and `projects` -- the workspace projects this brief
@@ -789,7 +792,7 @@ def _clip_bash(root: Path, hook: Hook, cfg: dict) -> str:
     command = hook.tool_input.get(key, "") if key else ""
     if not limit or not command.strip() or hook.tool_input.get("run_in_background"):
         return ""
-    if CLIP_PAGER.search(command) or any(_matches(pattern, command) for pattern in cfg["bash_clip_skip"]):
+    if CLIP_PAGER.search(command) or CLIP_OWNS_OUTPUT.search(command) or any(_matches(pattern, command) for pattern in cfg["bash_clip_skip"]):
         return ""
     import shlex
 
@@ -797,6 +800,11 @@ def _clip_bash(root: Path, hook: Hook, cfg: dict) -> str:
     target = folder / f"{re.sub(r'[^A-Za-z0-9_.-]', '_', hook.session or 'x')}-{time.time_ns()}.log"
     try:
         folder.mkdir(parents=True, exist_ok=True)
+        try:
+            with open(folder / ".gitignore", "x", encoding="utf-8") as ignore:
+                ignore.write("*\n")
+        except FileExistsError:
+            pass
         target.touch()
         for old in sorted(folder.glob("*.log"), key=lambda f: f.stat().st_mtime_ns, reverse=True)[CLIP_KEEP:]:
             old.unlink(missing_ok=True)
