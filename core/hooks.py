@@ -75,7 +75,13 @@ OPT_IN = ("notes", "stale")
 # Numeric settings, 0 = off. outline_lines: a main-session Read of a longer file
 # with no range is answered once with its outline instead; clear_hint_tokens: a
 # finished run in a session holding more context than this gets one /clear hint.
-NUMERIC = {"outline_lines": 0, "clear_hint_tokens": 150_000, "handoff_tokens": 0}
+NUMERIC = {"outline_lines": 0, "clear_hint_tokens": 150_000, "handoff_tokens": 0, "bash_clip_chars": 0}
+# `bash_clip_chars` > 0: a Bash call's output (stdout and stderr merged) is kept in
+# `.eos/data/clip/` and only its first and last half of that many characters
+# reach the model. `bash_clip_skip`: regexes of commands left alone; calls piping
+# to head/tail/less/more are always left alone.
+CLIP_KEEP = 50
+CLIP_PAGER = re.compile(r"\|\s*(?:head|tail|less|more)\b")
 # A host's own lines, appended to what EOS says (2.x roadmap C5): a command run
 # at the project root with the event on stdin as JSON (`session_id`, `cwd`,
 # `source`, `prompt`, and `projects` -- the workspace projects this brief
@@ -316,6 +322,8 @@ def settings(root: Path) -> dict:
     for name in TEXTS:
         if isinstance(table.get(name), str) and table[name].strip():
             values[name] = table[name].strip()
+    skip = table.get("bash_clip_skip")
+    values["bash_clip_skip"] = [p for p in skip if isinstance(p, str)] if isinstance(skip, list) else []
     return values
 
 
@@ -760,6 +768,57 @@ def _pre_read(root: Path, hook: Hook, cfg: dict, agent: str | None) -> str:
 
 
 def _pre_tool_bash(root: Path, hook: Hook, cfg: dict, agent: str | None) -> str:
+    """Before a Bash call: the worktree snapshot below, and the output clip."""
+    if hook.tool != "Bash":
+        return ""
+    _pre_bash_snapshot(root, hook, cfg)
+    return _clip_bash(root, hook, cfg)
+
+
+def _clip_bash(root: Path, hook: Hook, cfg: dict) -> str:
+    """`[hooks] bash_clip_chars`: the call runs as it was, its output going to a
+    file, and a trap on EXIT prints that file clipped and re-exits with the
+    command's own status. A trap and a plain `{ }` group, not a subshell and not
+    a pipe: `cd`/`export` in the command still reach the shell that follows it,
+    an explicit `exit N` still ends in the clip, and a heredoc or multi-line
+    command is passed through as it is. stdout and stderr arrive merged. The
+    harness takes `updatedInput` as the tool's whole input: every field is
+    kept, the command only under the key the payload used."""
+    limit = cfg["bash_clip_chars"]
+    key = next((k for k in ("command", "cmd") if isinstance(hook.tool_input.get(k), str)), "")
+    command = hook.tool_input.get(key, "") if key else ""
+    if not limit or not command.strip() or hook.tool_input.get("run_in_background"):
+        return ""
+    if CLIP_PAGER.search(command) or any(_matches(pattern, command) for pattern in cfg["bash_clip_skip"]):
+        return ""
+    import shlex
+
+    folder = root / ".eos" / "data" / "clip"
+    target = folder / f"{re.sub(r'[^A-Za-z0-9_.-]', '_', hook.session or 'x')}-{time.time_ns()}.log"
+    try:
+        folder.mkdir(parents=True, exist_ok=True)
+        target.touch()
+        for old in sorted(folder.glob("*.log"), key=lambda f: f.stat().st_mtime_ns, reverse=True)[CLIP_KEEP:]:
+            old.unlink(missing_ok=True)
+    except OSError:
+        return ""
+    helper = Path(__file__).resolve().with_name("clip.py")
+    restore = f'__eos_rc=$?; {shlex.quote(sys.executable)} {shlex.quote(str(helper))} "$__eos_f" {limit}; exit "$__eos_rc"'
+    wrapped = (f"__eos_f={shlex.quote(str(target))}; trap {shlex.quote(restore)} EXIT\n"
+               f"{{ {command}\n}} > \"$__eos_f\" 2>&1")
+    return json.dumps({"hookSpecificOutput": {"hookEventName": "PreToolUse",
+                                              "updatedInput": {**hook.tool_input, key: wrapped}}},
+                      ensure_ascii=False)
+
+
+def _matches(pattern: str, command: str) -> bool:
+    try:
+        return re.search(pattern, command) is not None
+    except re.error:
+        return False
+
+
+def _pre_bash_snapshot(root: Path, hook: Hook, cfg: dict) -> None:
     """Before a Bash call whose git verb mutates the working tree, a snapshot
     of every dirty path's status and content hash -- so `_bash_worktree_changed`
     (PostToolUse) can see what changed even when the call never moves HEAD
@@ -769,18 +828,17 @@ def _pre_tool_bash(root: Path, hook: Hook, cfg: dict, agent: str | None) -> str:
     command (`capabilities.programs`) costs nothing; the git subprocess only
     runs when that parse actually names a mutating git verb, so an ordinary
     command's latency is unaffected."""
-    if hook.tool != "Bash" or not cfg["capture"] or not hook.session or not hook.tool_use_id:
-        return ""
+    if not cfg["capture"] or not hook.session or not hook.tool_use_id:
+        return
     from core import capabilities
 
     if not any(program == "git" and capabilities.worth_recording(program, verb)
                for program, verb in capabilities.programs(hook.command)):
-        return ""
+        return
     snapshot = _worktree_snapshot(root)
     if snapshot is None:
-        return ""
+        return
     _note_state(hook.session, pretool_snapshot=hook.tool_use_id, snapshot=snapshot)
-    return ""
 
 
 def _section_digest(section: str) -> str:

@@ -41,6 +41,12 @@ executable launcher under `~/.local/bin/eos`. Override the locations with
 
 ## What changed in 2.3.1
 
+- Opt-in Bash output clip: `[hooks] bash_clip_chars = N` (off at 0) runs each
+  Bash call with its output (stdout and stderr merged) in
+  `.eos/data/clip/`, newest 50 kept, and shows the model the first and last N/2
+  characters plus the file path when it is longer. Exit code, `cd` and `export`
+  are kept; background calls, `| head/tail/less/more` and `[hooks] bash_clip_skip`
+  regexes are left alone.
 - An expired or replaced note is never stale: its file moving on is expected,
   and the Stop gate asked sessions to re-confirm notes nobody reads as current.
 - A git-ignored file is refused as a scope entry: every other clone hashes its
