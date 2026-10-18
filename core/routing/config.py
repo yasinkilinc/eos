@@ -21,7 +21,7 @@ TABLE = "model_routing"
 BRIEF_MODES = ("with-brief", "always", "never")
 _KEYS = ("enabled", "default_model", "default_effort", "default_task_type", "brief", "hook",
          "hook_dry_run", "hook_min_confidence", "record_prompts", "models", "keywords", "rules",
-         "factors", "corpus")
+         "factors", "corpus", "route_types")
 # A stem (`word*`) shorter than this matches too much to mean anything.
 MIN_STEM = 3
 
@@ -53,6 +53,9 @@ class RoutingConfig:
     # Project-relative TSVs in the `route --eval` format. Read by `consolidate`
     # (dev rows only); never part of a decision (ADR-025 addendum, L1).
     corpus: tuple = ()
+    # Named subagent types the hook routes too, when the call has no model.
+    # Empty: only untyped and general-purpose calls are routed.
+    route_types: tuple = ()
 
 
 def config_path(project_root: str | Path) -> Path:
@@ -122,6 +125,9 @@ def parse(table: object) -> RoutingConfig:
     factors = _word_table(table.get("factors", {}), "factors", tuple(FACTOR_LISTS), "factor")
 
     corpus = _corpus(table.get("corpus", ()))
+    route_types = table.get("route_types", [])
+    if not isinstance(route_types, list) or not all(isinstance(t, str) and t.strip() for t in route_types):
+        raise ValueError(f"[{TABLE}] route_types must be a list of subagent type names")
     # Naming where the labels live is not asking for routing: a table holding
     # only `corpus` keeps the brief's ROUTE line off.
     configured = set(table) != {"corpus"}
@@ -130,7 +136,8 @@ def parse(table: object) -> RoutingConfig:
                          brief=brief, hook=hook,
                          hook_dry_run=hook_dry_run, hook_min_confidence=float(hook_min_confidence),
                          record_prompts=record_prompts, models=dict(models), keywords=cleaned,
-                         rules=rules, factors=factors, corpus=corpus)
+                         rules=rules, factors=factors, corpus=corpus,
+                         route_types=tuple(t.strip() for t in route_types))
 
 
 def _corpus(value: object) -> tuple[str, ...]:

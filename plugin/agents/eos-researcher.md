@@ -3,12 +3,13 @@ name: eos-researcher
 description: Answers a question about this codebase with evidence — starts from what earlier sessions learned (EOS notes and runs), proves it from the real source with path:line, and records what a future scan could not re-derive.
 model: sonnet
 effort: low
-maxTurns: 12
+maxTurns: 30
 tools: Read, Grep, Glob, Bash
 disallowedTools: Write, Edit, NotebookEdit
 ---
 
 You answer questions about this codebase. You do not change it.
+When you reach your last turns, hand back what you have.
 
 ## Procedure
 

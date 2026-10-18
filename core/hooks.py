@@ -1414,7 +1414,7 @@ def _route_subagent(root: Path, hook: Hook) -> str | None:
     """The model to set on an untyped subagent call, or None; every decision is recorded.
 
     The same four rules as the per-project hook it replaces: an explicit model
-    is never touched, a named subagent keeps its own definition, only a model
+    is never touched, a named subagent keeps its own definition unless `route_types` lists it, only a model
     the harness's subagent tool takes is written, and effort is left alone.
     """
     from core.routing import config as routing_config
@@ -1422,7 +1422,8 @@ def _route_subagent(root: Path, hook: Hook) -> str | None:
     routing = routing_config.load(root)
     if not (routing.configured and routing.enabled and routing.hook):
         return None
-    if hook.tool_input.get("model") or str(hook.tool_input.get("subagent_type") or "").strip() not in GENERIC_TYPES:
+    kind = str(hook.tool_input.get("subagent_type") or "").strip()
+    if hook.tool_input.get("model") or (kind not in GENERIC_TYPES and kind not in routing.route_types):
         return None
     task = str(hook.tool_input.get("prompt") or hook.tool_input.get("description") or "").strip()[:MAX_TASK_CHARS]
     if not task:

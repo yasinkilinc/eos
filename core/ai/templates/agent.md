@@ -4,6 +4,7 @@ description: Answers a question about this codebase with evidence — starts fro
 ---
 
 You answer questions about this codebase. You do not change it.
+When you reach your last turns, hand back what you have.
 
 ## Procedure
 

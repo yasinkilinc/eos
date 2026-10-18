@@ -582,6 +582,21 @@ def test_a_named_subagent_or_an_explicit_model_is_never_routed(project, monkeypa
             project, tool_name="Agent", tool_input=tool_input)).out == ""
 
 
+def test_a_named_subagent_type_in_route_types_is_routed_when_it_has_no_model(project, monkeypatch, capsys):
+    config = project / ".eos" / "config.toml"
+    config.write_text(config.read_text(encoding="utf-8") + "\n[model_routing]\nhook = true\n"
+                      "hook_dry_run = false\nroute_types = [\"Explore\"]\n", encoding="utf-8")
+    prompt = "design the service boundary for billing"
+    routed = json.loads(_hook(monkeypatch, capsys, "pre-agent", _payload(
+        project, tool_name="Agent", tool_input={"prompt": prompt, "subagent_type": "Explore"})).out)
+    updated = routed["hookSpecificOutput"]["updatedInput"]
+    assert updated["model"] in hooks.SUBAGENT_MODELS and updated["subagent_type"] == "Explore"
+    for tool_input in ({"prompt": prompt, "subagent_type": "Plan"},
+                       {"prompt": prompt, "subagent_type": "Explore", "model": "haiku"}):
+        assert _hook(monkeypatch, capsys, "pre-agent", _payload(
+            project, tool_name="Agent", tool_input=tool_input)).out == ""
+
+
 @pytest.mark.parametrize("stdin", ["", "not json", "[1, 2]", '{"cwd": "/nonexistent/path"}'])
 def test_anything_malformed_exits_zero_silently(project, monkeypatch, capsys, stdin):
     for event in hooks.EVENTS + ("no-such-event",):
