@@ -299,3 +299,35 @@ def test_a_note_written_with_no_scope_hashes_at_all_is_listed(tmp_path):
     note.write_text(text[:start] + "scope_hashes: null" + text[end:], encoding="utf-8")
     assert notes.parse_note(note).scope_hashes == []
     assert "UNHASHED" in _audit(tmp_path)
+
+
+def _count_note(directory: Path, name: str, kind: str, body: str) -> Path:
+    path = directory / f"{name}.md"
+    path.write_text("\n".join(["---", f"kind: {kind}", f'title: "{name}"', "created: 2026-01-01", "---", "", body, ""]),
+                    encoding="utf-8")
+    return path
+
+
+def test_audit_warns_on_an_undated_present_tense_count_and_keeps_exit_zero(tmp_path, capsys):
+    from core.cli import notes as cli_notes
+
+    directory = tmp_path / ".eos" / "knowledge"
+    directory.mkdir(parents=True)
+    _count_note(directory, "undated-deals", "finding", "The pipeline has 13 deals. Other text.")
+    _count_note(directory, "undated-prs", "status", "Right now there are 5 open PRs.")
+    _count_note(directory, "undated-remain", "status", "13 notes remain")
+    _count_note(directory, "dated", "finding", "On 2026-10-01 the pipeline had 13 deals.")
+    _count_note(directory, "dated-same-sentence", "finding", "As of 2026-10-01 the pipeline has 13 deals.")
+    _count_note(directory, "version", "finding", "It ships in version 2.4 of the service.")
+    _count_note(directory, "other-kind", "lesson", "The pipeline has 13 deals.")
+
+    import argparse
+
+    assert cli_notes.cmd_note_audit(argparse.Namespace(path=str(tmp_path))) == 0
+    out = capsys.readouterr().out
+    warned = [line for line in out.splitlines() if line.startswith("UNDATED COUNT")]
+    assert len(warned) == 3
+    joined = "\n".join(warned)
+    assert "undated-deals" in joined and "undated-prs" in joined and "undated-remain" in joined
+    for quiet in ("dated'", "dated-same-sentence", "version", "other-kind"):
+        assert quiet not in joined.replace("undated-", "")

@@ -12,6 +12,7 @@ from __future__ import annotations
 import datetime
 import itertools
 import re
+import shlex
 from pathlib import Path
 
 LIMIT = 5
@@ -500,8 +501,11 @@ def report(project_root: str | Path, *, since: float | None = None) -> dict:
         if len(ga) >= notes.PARAPHRASE_MIN_TRIGRAMS and len(gb) >= notes.PARAPHRASE_MIN_TRIGRAMS:
             share = len(ga & gb) / len(ga | gb)
             if share >= NEAR_DUPLICATE:
-                pairs.append((round(share, 2), a.title, b.title))
-    pairs.sort(reverse=True)
+                older, newer = sorted((a, b), key=lambda n: (str(n.created)[:10], n.path.name))
+                command = (f"eos note amend {shlex.quote(str(newer.path))} {shlex.quote(str(root))} "
+                           f"--supersedes {shlex.quote(older.path.name)}")
+                pairs.append((round(share, 2), a.title, b.title, command))
+    pairs.sort(key=lambda pair: pair[:3], reverse=True)
 
     from core import note_graph
 
@@ -678,8 +682,9 @@ def render(data: dict) -> str:
     lines += block("STEPS NO RUN RECORDED", [f"{slug}: {', '.join(found)}"
                                              for slug, found in data["procedures"].get("silent_steps", {}).items()],
                    "their tool records no event, so no run says how they went")
-    lines += block("NOTES THAT READ ALIKE", [f"{share:.0%}  {a}  ~  {b}" for share, a, b in data["near_duplicates"]],
-                   "keep one, or say what differs")
+    lines += block("NOTES THAT READ ALIKE", [f"{share:.0%}  {a}  ~  {b}\n    {command}"
+                    for share, a, b, command in data["near_duplicates"]],
+                   "keep one: the command makes the newer note replace the older, or say what differs")
     lines += block("NOTES CITING A REPLACED NOTE", [f"{a}  ->  {b}" for a, b in data.get("cites_replaced", [])],
                    "point them at the replacement: eos note show . \"<replaced title>\"")
     lines += block("NOTES WHOSE FILES CHANGED", data["stale_notes"], "eos note audit .")

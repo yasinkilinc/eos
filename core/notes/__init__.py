@@ -19,6 +19,7 @@ from core.notes.store import (
     GENERATOR_SOURCES, BULK_INDEX_SOURCES, is_generated, is_bulk_index, _is_sensitive,
     _scope_anchor, _resolve_scope_entry, _hash_file, _one_note, superseded, Note,
     _unscalar, parse_note, _count, load_notes, load_dir, _WORD, stale_notes, unhashed_notes, scope_drift, drift_mark, drift_notice,
+    review_after_days, review_due, review_mark,
     is_notes_dir_gitignored, _gitignore_pattern_matches, _HEADING, _LIST_ITEM,
     section_in, _items, steps_in, _set_front, append_bullet, append_to_note_section,
 )  # noqa: F401
@@ -38,7 +39,7 @@ from core.notes.procedures import (
 )  # noqa: F401
 from core.notes.validate import (
     _REQUIRED_SECTIONS, _compose_body, _PLACEHOLDER_RE, _is_placeholder, _refuse_scope,
-    _refuse_placeholder, _DEFECT_SECTIONS, _DEFECT_HEADING, _canonical_scope,
+    _refuse_placeholder, undated_count, _DEFECT_SECTIONS, _DEFECT_HEADING, _canonical_scope,
 )  # noqa: F401
 from core.notes.render import (
     _RELEVANCE_THRESHOLD, SCORE_FLOOR, _KEY, _words, word_weights, relevance, NARROWED_KINDS,

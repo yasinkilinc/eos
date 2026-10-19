@@ -178,6 +178,9 @@ def note_label(note, root: str | Path | None = None) -> str:
             mark = ""
         if mark:
             label += " " + mark
+        review = notes.review_mark(note, notes.review_after_days(root))
+        if review:
+            label += " " + review
     return label
 
 

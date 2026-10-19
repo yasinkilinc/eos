@@ -314,3 +314,29 @@ def test_a_run_open_for_days_is_given_its_close_command(tmp_path):
     data["open_runs_older"] = [("x-old-run-1a2b", "Deploy the wallet", 9)]
     text = consolidate.render(data)
     assert "eos run finish . x-old-run-1a2b --outcome abandoned" in text
+
+
+def test_a_near_duplicate_pair_proposes_the_command_that_makes_the_newer_replace_the_older(tmp_path):
+    import shlex
+
+    root = tmp_path / "proj"
+    root.mkdir()
+    assert subprocess.run(EOS + ["init", str(root), "--no-ai"], capture_output=True).returncode == 0
+    alike = BASE.replace("two days", "three days").replace("same pool", "same number pool")
+    older = notes.add_note(root, "finding", "Pending orders are failed by the nightly job", BASE)
+    newer = notes.add_note(root, "finding", "Reconciliation releases 'reserved' numbers", alike)
+    for path, day in ((older, "2026-01-01"), (newer, "2026-02-01")):
+        path.write_text(path.read_text().replace(f"created: {notes.parse_note(path).created}", f"created: {day}"))
+    before = sorted(p.read_text() for p in (root / ".eos" / "knowledge").glob("*.md"))
+
+    text = consolidate.render(consolidate.report(root))
+    command = next(line.strip() for line in text.splitlines() if line.strip().startswith("eos note amend"))
+    parts = shlex.split(command)
+    assert parts[:3] == ["eos", "note", "amend"] and parts[3] == str(newer)
+    assert parts[-2:] == ["--supersedes", older.name]
+    assert sorted(p.read_text() for p in (root / ".eos" / "knowledge").glob("*.md")) == before
+
+    # the proposal is runnable as printed and links the pair: the older note is hidden afterwards
+    done = subprocess.run(EOS + parts[1:], capture_output=True, text=True)
+    assert done.returncode == 0, done.stderr
+    assert notes.parse_note(newer).supersedes == (older.name,)

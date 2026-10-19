@@ -166,3 +166,24 @@ def _canonical_scope(entries) -> frozenset:
     working ways to re-hash a note while re-pointing nothing.
     """
     return frozenset(entries)
+
+
+# A count stated as true now ("has 13 deals", "there are 5 open PRs", "13 notes
+# remain") and a date in the same sentence. English only and small on purpose: a
+# warning to check a number, not a parser.
+_PRESENT_COUNT = re.compile(r"\b(?:(?:has|have|are)\s+|there\s+(?:is|are)\s+)\d+\b"
+                            r"|\b\d+\s+(?:\w+\s+){0,2}(?:remains?|are\s+(?:open|left))\b", re.IGNORECASE)
+_DATED = re.compile(r"\b\d{4}-\d{2}-\d{2}\b|\b(?:on|as\s+of)\s+(?:\d|[A-Z][a-z]{2,8}\s+\d)")
+UNDATED_COUNT_KINDS = ("status", "finding")
+
+
+def undated_count(kind: str, body: str) -> str | None:
+    """The first sentence of a status or finding body that states a present-tense
+    count with no date in it, or None. Such a number is true on the day it was
+    written and reads as true forever."""
+    if kind not in UNDATED_COUNT_KINDS:
+        return None
+    for sentence in re.split(r"(?<=[.!?])\s+|\n+", body or ""):
+        if _PRESENT_COUNT.search(sentence) and not _DATED.search(sentence):
+            return sentence.strip()
+    return None

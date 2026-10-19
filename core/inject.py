@@ -132,7 +132,7 @@ def context_for(targets: list[tuple[str, Path, str, str, str]], seen: set, *, po
     true ones before this grouping). `pointer` is the command that reads the
     rest, formatted with `{path}` and `{words}`."""
     from core.context import dedup
-    from core.notes import is_bulk_index, load_notes, shared_notes
+    from core.notes import is_bulk_index, load_notes, review_after_days, review_mark, shared_notes, superseded
     from core.notes.render import narrowed_body, word_terms
 
     prior = set(seen)
@@ -154,6 +154,18 @@ def context_for(targets: list[tuple[str, Path, str, str, str]], seen: set, *, po
     loaded_text = {name: dedup.always_loaded_text(root) for name, (root, _label) in roots.items()}
     terms = {name: word_terms(root, task_words) if task_words else None for name, (root, _label) in roots.items()}
     left_out = 0
+    review_cache: dict[str, tuple[dict, set]] = {}
+
+    def review_of(name: str, note) -> str:
+        """`[REVIEW: Nd]` for a live note of project `name`, '' for none; never raises."""
+        try:
+            if name not in review_cache:
+                review_cache[name] = (review_after_days(roots[name][0]), set(superseded(corpus[name])))
+            defaults, replaced = review_cache[name]
+            return "" if note.path.name in replaced else review_mark(note, defaults)
+        except Exception:  # noqa: BLE001 - a freshness mark never costs the injection
+            return ""
+
     by_project: dict[str, list] = {}
     for name, relative in digests_by_target:
         by_project.setdefault(name, []).append((relative, digests_by_target[(name, relative)]))
@@ -185,7 +197,9 @@ def context_for(targets: list[tuple[str, Path, str, str, str]], seen: set, *, po
                 continue
             mark = (_STALE_MARK.format(created=note.created or "?", path=note.path, root=roots[name][0]) + "\n") \
                 if _stale_for(note, relative, digests) else ""
-            text = f"### Known about {relative}\n{mark}{note.title}\n\n{narrowed_body(note, terms[name])}"
+            review = review_of(name, note)
+            title = f"{note.title} {review}" if review else note.title
+            text = f"### Known about {relative}\n{mark}{title}\n\n{narrowed_body(note, terms[name])}"
             # A body larger than the whole budget can never be delivered; the
             # slot is declined so its title still reaches the digest tier.
             if len(text) > limit:
@@ -214,7 +228,8 @@ def context_for(targets: list[tuple[str, Path, str, str, str]], seen: set, *, po
             stale = any(_stale_for(note, rel, digs) for rel, digs in by_project.get(name, []))
             suffix = _STALE_SUFFIX.format(created=note.created or "?") if stale else ""
             first = listed.get(name, 0) == 0 and index == 0
-            line = f"- {note.title}{suffix}"
+            review = review_of(name, note)
+            line = f"- {note.title}{suffix}" + (f" {review}" if review else "")
             digest_segments.append(((("digest", note.path.name),),
                                     f"### Other notes on {name}\n{line}" if first else line, not first, name))
         shown = min(room, len(pool))

@@ -164,6 +164,10 @@ def cmd_note_show(args: argparse.Namespace) -> int:
         notice = notes.drift_notice(args.path, matches[0], notes.scope_drift(args.path, matches[0]))
         if notice:
             print(notice)
+        review = notes.review_mark(matches[0], notes.review_after_days(args.path))
+        if review:
+            print(f"{review} not confirmed since {matches[0].updated or matches[0].created}: still true? "
+                  f"`eos note amend {matches[0].path} {args.path} --reaffirm '<why it still holds>'`\n")
     print(matches[0].path.read_text(encoding="utf-8"))
     _record_read(args.path, matches[0])
     return 0
@@ -227,8 +231,11 @@ def cmd_note_graph(args: argparse.Namespace) -> int:
 
 def cmd_note_search(args: argparse.Namespace) -> int:
     matches = notes.search_notes(args.path, args.query, limit=args.limit, generated=args.generated)
+    defaults = notes.review_after_days(args.path)
     for note in matches:
         mark = "" if notes.is_generated(note) else notes.drift_mark(notes.scope_drift(args.path, note))
+        if not notes.is_generated(note):
+            mark = " ".join(part for part in (mark, notes.review_mark(note, defaults)) if part)
         print(f"{note.path.name}\t{note.kind}\t{note.title}" + (f"\t{mark}" if mark else ""))
     if matches:
         return 0
@@ -438,6 +445,18 @@ def cmd_note_audit(args: argparse.Namespace) -> int:
         for item in unhashed:
             print(f"  {_title(item)!r} ({_note_path(item)})  [{', '.join(item['scope'])}]")
             print(f"  eos note amend {_note_path(item)} {root} --reaffirm '<why it still holds>'")
+    corpus = notes.load_notes(args.path)
+    replaced = notes.superseded(corpus)
+    for note in corpus:
+        if notes.is_generated(note) or notes.is_bulk_index(note) or notes.expired(note) \
+                or note.path.name in replaced:
+            continue
+        sentence = notes.undated_count(note.kind, note.body)
+        if sentence is None:
+            continue
+        clipped = sentence if len(sentence) <= 100 else sentence[:99] + "…"
+        print(f"UNDATED COUNT: {note.title!r} ({note.path})  \"{clipped}\" -- say when it was true "
+              "(a date in the sentence) or leave the number out")
     if not handwritten and not generated and not unhashed:
         # How many were examined, not just that none failed. "No stale notes."
         # reads the same whether it checked forty notes or found the knowledge

@@ -397,6 +397,10 @@ class Note:
     projects: tuple[str, ...] = ()
     # Other names for the note (another language's words), scored as its title.
     aliases: tuple[str, ...] = ()
+    # The day its content last changed (amend writes it), and the day its author
+    # wants it looked at again (`review_by:`, hand-written).
+    updated: str | None = None
+    review_by: str | None = None
 
 
 def _names(value) -> tuple[str, ...]:
@@ -473,6 +477,8 @@ def parse_note(path: Path) -> Note:
         valid_until=meta.get("valid_until") or None,
         projects=_names(meta.get("projects")),
         aliases=_names(meta.get("aliases")),
+        updated=meta.get("updated") or None,
+        review_by=meta.get("review_by") or None,
     )
 
 
@@ -489,6 +495,72 @@ def expired(note: Note, today: datetime.date | None = None) -> bool:
     except ValueError:
         return False
     return until < (today or datetime.date.today())
+
+
+REVIEW_AFTER_DAYS = {"status": 7}
+
+
+def review_after_days(project_root: str | Path) -> dict[str, int]:
+    """`[notes] review_after_days` of a project: days of silence after which a note of
+    that kind wants a second look, over the default (`status` 7). Kinds not named are
+    off. A value that is not a whole number above zero is ignored for its kind (0 turns
+    the default off), and a config that cannot be read leaves the default."""
+    from core.lib.config_io import ConfigIO
+
+    found = dict(REVIEW_AFTER_DAYS)
+    try:
+        config = Path(project_root).expanduser().resolve() / ".eos" / "config.toml"
+        section = ConfigIO.read_toml(config).get("notes") if config.is_file() else None
+        table = section.get("review_after_days") if isinstance(section, dict) else None
+    except Exception:  # noqa: BLE001 - a malformed config leaves the default
+        return found
+    if not isinstance(table, dict):
+        return found
+    for kind, days in table.items():
+        if isinstance(days, int) and not isinstance(days, bool) and days >= 0:
+            if days:
+                found[kind] = days
+            else:
+                found.pop(kind, None)
+    return found
+
+
+def _day(value) -> datetime.date | None:
+    try:
+        return datetime.date.fromisoformat(str(value)[:10])
+    except ValueError:
+        return None
+
+
+def review_due(note: Note, today: datetime.date | None = None,
+               defaults: dict[str, int] | None = None) -> int | None:
+    """Days a note is overdue for a second look, None when it is not.
+
+    `review_by` (any kind) is the author's date and wins over age. Otherwise a kind
+    named in `defaults` is due that many days after the note's last change
+    (`updated`, else `created`); a note with a hash-tracked scope is never due by
+    age, since drift already covers it. An expired note is not due, and neither is
+    a superseded one: callers read the corpus without those."""
+    today = today or datetime.date.today()
+    if expired(note, today):
+        return None
+    due = _day(note.review_by) if note.review_by else None
+    if due is None:
+        days = (defaults if defaults is not None else REVIEW_AFTER_DAYS).get(note.kind)
+        if not days or any(h is not None for h in note.scope_hashes):
+            return None
+        base = _day(note.updated) or _day(note.created)
+        if base is None:
+            return None
+        due = base + datetime.timedelta(days=days)
+    overdue = (today - due).days
+    return overdue if overdue > 0 else None
+
+
+def review_mark(note: Note, defaults: dict[str, int] | None = None) -> str:
+    """`[REVIEW: 3d]` for a title line, '' for a note not due."""
+    overdue = review_due(note, None, defaults)
+    return f"[REVIEW: {overdue}d]" if overdue else ""
 
 
 def _count(value) -> int | None:
