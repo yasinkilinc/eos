@@ -131,6 +131,7 @@ def add_note(
     projects: list[str] | None = None,
     differs: str | None = None,
     aliases: list[str] | None = None,
+    summary: str | None = None,
     strict: bool = False,
 ) -> Path:
     """Write one note and return its path.
@@ -181,6 +182,7 @@ def add_note(
     if kind == "status" and valid_until is None:
         valid_until = (datetime.date.today() + datetime.timedelta(days=STATUS_DAYS)).isoformat()
     _check_projects(project_root, projects)
+    summary = _check_summary(summary)
     content = _compose_body(kind, body, cause, solution, metric)
 
     found = _find_credential(f"{title}\n{content}\n{evidence or ''}")
@@ -282,6 +284,7 @@ def add_note(
             "projects": projects,
             "differs": differs,
             "aliases": list(dict.fromkeys(a.strip() for a in aliases or [] if a.strip())),
+            "summary": summary,
         }
     )
     path.write_text(f"{document}\n\n{content}\n", encoding="utf-8")
@@ -442,6 +445,27 @@ def _check_projects(project_root: str | Path, projects: list[str] | None) -> Non
                          f"(known: {', '.join(sorted(known))})")
 
 
+SUMMARY_MAX_CHARS = 160
+
+
+def _check_summary(summary: str | None) -> str | None:
+    """The one line a list shows after a title: a single line, at most SUMMARY_MAX_CHARS."""
+    if summary is None:
+        return None
+    summary = summary.strip()
+    if not summary:
+        raise ValueError("--summary must not be empty")
+    if "\n" in summary or "\r" in summary:
+        raise ValueError("--summary must be one line")
+    if len(summary) > SUMMARY_MAX_CHARS:
+        raise ValueError(f"--summary is {len(summary)} characters; the limit is {SUMMARY_MAX_CHARS}")
+    _refuse_placeholder(summary, "note summary")
+    found = _find_credential(summary)
+    if found:
+        raise ValueError(f"Refusing a summary containing what looks like a credential: {found}.")
+    return summary
+
+
 def _check_valid_until(valid_until: str | None) -> str | None:
     """An ISO date, today or later: a note already expired when written would
     never be offered by search."""
@@ -470,6 +494,7 @@ def amend_note(
     expire: str | None = None,
     append: str | None = None,
     aliases: list[str] | None = None,
+    summary: str | None = None,
 ) -> Path:
     """Rewrite one note in place and re-hash its scope.
 
@@ -579,9 +604,9 @@ def amend_note(
     if expire is not None and valid_until is not None:
         raise ValueError("--expire sets valid_until itself; drop --valid-until")
     if (not rewrites and scope is None and supersedes is None and not aliases
-            and provenance is None and agent is None and valid_until is None):
+            and provenance is None and agent is None and valid_until is None and summary is None):
         raise ValueError("amend needs at least one of --body, --reaffirm, --append, --expire, --supersedes, "
-                         "--scope, --alias, --provenance, --agent, or --valid-until")
+                         "--scope, --alias, --summary, --provenance, --agent, or --valid-until")
     for value, what in ((append, "amend --append text"), (expire, "amend --expire reason")):
         if value is not None:
             if not value.strip():
@@ -594,6 +619,7 @@ def amend_note(
             "is not supported today."
         )
     _refuse_scope(scope)
+    summary = _check_summary(summary)
 
     project = Path(project_root).expanduser().resolve()
     path = Path(note_path).expanduser().resolve()
@@ -877,6 +903,7 @@ def amend_note(
             "agent": effective_agent,
             "valid_until": effective_valid_until,
             "review_by": review_by,
+            "summary": summary if summary is not None else note.summary,
         }
     )
     path.write_text(f"{document}\n\n{content}\n", encoding="utf-8")

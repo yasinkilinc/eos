@@ -78,7 +78,7 @@ def test_the_digest_lists_only_notes_scoped_into_the_touched_folder(ws, monkeypa
     times in 272 sessions, measured 2026-10-14)."""
     _, hub, svc = ws
     text = _touch(monkeypatch, capsys, hub, "s2", svc / "src" / "pkg" / "Foo.java")
-    assert text.startswith("### Other notes on svc-a")
+    assert text.startswith(hooks.DATA_FRAME + "\n\n### Other notes on svc-a")
     assert "- Other class in the same package" in text
     assert "Far note" not in text and "AGENTS.md: Critical Rules" not in text
     assert "more on svc-a" not in text

@@ -401,6 +401,8 @@ class Note:
     # wants it looked at again (`review_by:`, hand-written).
     updated: str | None = None
     review_by: str | None = None
+    # One line (<= 160 chars) a list or digest shows after the title (`--summary`).
+    summary: str | None = None
 
 
 def _names(value) -> tuple[str, ...]:
@@ -479,6 +481,7 @@ def parse_note(path: Path) -> Note:
         aliases=_names(meta.get("aliases")),
         updated=meta.get("updated") or None,
         review_by=meta.get("review_by") or None,
+        summary=meta.get("summary") or None,
     )
 
 

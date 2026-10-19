@@ -138,7 +138,7 @@ def test_without_projects_toml_the_brief_is_what_it_was(ws, monkeypatch, capsys)
     (hub / ".eos" / "projects.toml").unlink()
     from core import brief
 
-    assert _start(monkeypatch, capsys, hub, "b2") == brief.build(hub, session="b2") + "\n"
+    assert _start(monkeypatch, capsys, hub, "b2") == hooks.DATA_FRAME + "\n\n" + brief.build(hub, session="b2") + "\n"
     assert "order-capture" in with_file
 
 

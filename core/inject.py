@@ -64,6 +64,25 @@ _STALE_MARK = ("[STALE: this note was written on {created}, the file has changed
 _STALE_SUFFIX = " [STALE {created}]"
 
 
+SUMMARY_SEP = " — "
+
+
+class _Segment(str):
+    """A segment with a shorter form (`short`): tried before the segment is skipped."""
+
+    short: str
+
+
+def _summed(line: str, note) -> str:
+    """`line`, then ` — summary` when the note has one."""
+    return f"{line}{SUMMARY_SEP}{note.summary}" if note.summary else line
+
+
+def _drop_summaries(lines: list[str]) -> list[str]:
+    """Digest lines without the part after the last separator, for a block over its cap."""
+    return [line.rpartition(SUMMARY_SEP)[0] or line for line in lines]
+
+
 def is_instruction_file(path: str) -> bool:
     return Path(path).name in INSTRUCTION_NAMES or any(part in path for part in INSTRUCTION_DIRS)
 
@@ -117,7 +136,7 @@ def _in_folder(notes: list, relative: str) -> list:
 
 
 def context_for(targets: list[tuple[str, Path, str, str, str]], seen: set, *, pointer: str,
-                task_words: frozenset = frozenset()) -> tuple[str, set]:
+                task_words: frozenset = frozenset(), reserve: int = 0) -> tuple[str, set]:
     """(text, seen after) for touched files, each `(project name, project root,
     project path as the session types it, relative path, absolute path)`;
     `seen` holds `(tier, note file name)`. `task_words` are the words of what
@@ -130,7 +149,9 @@ def context_for(targets: list[tuple[str, Path, str, str, str]], seen: set, *, po
     left. Notes are grouped by project so a `pom.xml` of one project is never
     compared with another project's `pom.xml` (953 false stale marks against 72
     true ones before this grouping). `pointer` is the command that reads the
-    rest, formatted with `{path}` and `{words}`."""
+    rest, formatted with `{path}` and `{words}`. `reserve` is the width of what
+    the hook puts in front of the result (the data frame): it is taken out of
+    the cap."""
     from core.context import dedup
     from core.notes import is_bulk_index, load_notes, review_after_days, review_mark, shared_notes, superseded
     from core.notes.render import narrowed_body, word_terms
@@ -170,7 +191,7 @@ def context_for(targets: list[tuple[str, Path, str, str, str]], seen: set, *, po
     for name, relative in digests_by_target:
         by_project.setdefault(name, []).append((relative, digests_by_target[(name, relative)]))
 
-    limit = int(MAX_TOKENS * CHARS_PER_TOKEN) - len(_TRUNCATED)
+    limit = int(MAX_TOKENS * CHARS_PER_TOKEN) - len(_TRUNCATED) - reserve
     per_path, body_segments = [], []
     corpus: dict[str, list] = {}
     for name, relative in digests_by_target:
@@ -230,8 +251,9 @@ def context_for(targets: list[tuple[str, Path, str, str, str]], seen: set, *, po
             first = listed.get(name, 0) == 0 and index == 0
             review = review_of(name, note)
             line = f"- {note.title}{suffix}" + (f" {review}" if review else "")
-            digest_segments.append(((("digest", note.path.name),),
-                                    f"### Other notes on {name}\n{line}" if first else line, not first, name))
+            text = _Segment(f"### Other notes on {name}\n{_summed(line, note)}" if first else _summed(line, note))
+            text.short = f"### Other notes on {name}\n{line}" if first else line
+            digest_segments.append(((("digest", note.path.name),), text, not first, name))
         shown = min(room, len(pool))
         listed[name] = listed.get(name, 0) + shown
         if len(pool) > shown and listed[name]:
@@ -246,7 +268,11 @@ def context_for(targets: list[tuple[str, Path, str, str, str]], seen: set, *, po
         if continues and not header_ok.get(group):
             truncated = True
             continue
-        candidate = buf + ("\n" if (continues and buf) else ("\n\n" if buf else "")) + text
+        joiner = "\n" if (continues and buf) else ("\n\n" if buf else "")
+        candidate = buf + joiner + text
+        if len(candidate) > limit and getattr(text, "short", None):
+            text = text.short  # the summary goes before the title does
+            candidate = buf + joiner + text
         if len(candidate) > limit:
             truncated = True
             if not continues:
@@ -261,12 +287,15 @@ def context_for(targets: list[tuple[str, Path, str, str, str]], seen: set, *, po
     return buf, prior | delivered
 
 
-def budgeted(text: str, spent: int, digest_used: int, *, pointer: str) -> tuple[str, int, int]:
-    """`text` cut to what the session has left; (text, spent, digest lines used)."""
+def budgeted(text: str, spent: int, digest_used: int, *, pointer: str,
+             reserve: int = 0) -> tuple[str, int, int]:
+    """`text` cut to what the session has left; (text, spent, digest lines used).
+    `reserve` is what the hook adds in front of a delivery (the data frame): it
+    counts against the session's caps and is spent with the delivery."""
     if not text:
         return text, spent, digest_used
-    hard = int(SESSION_MAX_TOKENS * CHARS_PER_TOKEN)
-    budget = int(BODY_MAX_TOKENS * CHARS_PER_TOKEN)
+    hard = int(SESSION_MAX_TOKENS * CHARS_PER_TOKEN) - reserve
+    budget = int(BODY_MAX_TOKENS * CHARS_PER_TOKEN) - reserve
     blocks: list[list[str]] = []
     for part in text.split("\n\n"):
         if part.startswith("### ") or not blocks:
@@ -289,6 +318,8 @@ def budgeted(text: str, spent: int, digest_used: int, *, pointer: str) -> tuple[
             tail = more[:1] or ([f"- … {cut} more: " + pointer.format(path=".", words="<words>")] if cut else [])
             body = "\n".join([lines[0]] + kept + tail)
             if spent + len(body) > budget:
+                body = "\n".join([lines[0]] + _drop_summaries(kept) + tail)  # the summaries go first
+            if spent + len(body) > budget:
                 continue
             digest_used += len(kept)
         elif head.startswith("### Known about ") and spent + len(body) > budget:
@@ -299,11 +330,14 @@ def budgeted(text: str, spent: int, digest_used: int, *, pointer: str) -> tuple[
             body = (f"### Known about {path}: notes withheld, this session's note budget "
                     f"({SESSION_MAX_TOKENS:,} tokens) is spent -- " + pointer.format(path=".", words=path))
         cost = len(body) + (2 if out else 0)  # the blank line joining it to the block before
+        if spent + cost > hard and head.startswith("### Other notes on"):
+            body = "\n".join([body.splitlines()[0]] + _drop_summaries(body.splitlines()[1:]))
+            cost = len(body) + (2 if out else 0)
         if spent + cost > hard:
             continue
         spent += cost
         out.append(body)
-    return "\n\n".join(out), spent, digest_used
+    return "\n\n".join(out), spent + (reserve if out else 0), digest_used
 
 
 # --- per-session state: which notes were delivered, and what was spent ----------------

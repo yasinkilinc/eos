@@ -314,6 +314,8 @@ def main(argv: list[str] | None = None) -> int:
     note_add_p.add_argument("--tags", help="Comma-separated tags")
     note_add_p.add_argument("--alias", action="append", help="Another name for the note, e.g. its title in "
                             "the language prompts are written in; repeatable, scored as the title")
+    note_add_p.add_argument("--summary", help="One line (max 160 characters) shown after the title in lists, "
+                            "briefs and digests")
     note_add_p.add_argument("--scope", help="Comma-separated files/classes this note is about")
     note_add_p.add_argument("--source", help="Issue or PR reference, e.g. TICKET-123")
     note_add_p.add_argument("--cause", help="Root cause (required for 'defect')")
@@ -399,6 +401,7 @@ def main(argv: list[str] | None = None) -> int:
                             "body opens with `> Expired <today>: REASON`")
     note_amend_p.add_argument("--alias", action="append", help="Add another name for the note; "
                               "repeatable, kept with the ones it has")
+    note_amend_p.add_argument("--summary", help="Set the note's one-line summary (max 160 characters)")
     note_amend_p.add_argument("--supersedes", help="Note file(s) this one replaces, comma-separated; "
                               "added to what it already replaces, body and scope unchanged")
     note_amend_p.add_argument(

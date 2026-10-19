@@ -111,7 +111,7 @@ def query_from(branch: str | None, keys: list[str]) -> str:
 def build(project_root: str | Path, *, session: str | None = None,
           agent: str | None = None, task: str | None = None,
           budget: int | None = None, task_only: bool = False,
-          decision: dict | None = None) -> str:
+          decision: dict | None = None, reserve: int = 0) -> str:
     """The session-start block, as text meant to be read once and acted on.
 
     With `task`, the block leads with what this task needs and nothing else
@@ -128,14 +128,17 @@ def build(project_root: str | Path, *, session: str | None = None,
     ("injected" | "abstained"), reason ("filler" | "nothing-found" | "injected"),
     the section headings, the best RELATED relevance and the chars returned.
     It never holds the task text (ADR-019).
+
+    `reserve` is characters the caller will add around the block (the data
+    frame), taken out of the budget so the whole stays inside it.
     """
     root = Path(project_root).expanduser().resolve()
     if task and task.strip():
         return _with_task(root, task, session=session, agent=agent,
-                          budget=budget or TASK_BUDGET, task_only=task_only, decision=decision)
+                          budget=budget or TASK_BUDGET, task_only=task_only, decision=decision, reserve=reserve)
     if task_only:
         return ""
-    return _branch_brief(root, session=session, agent=agent)
+    return _branch_brief(root, session=session, agent=agent, reserve=reserve)
 
 
 STATUS_WARN_DAYS = 3
@@ -188,7 +191,7 @@ HANDOFF_BUDGET = 400
 
 
 def for_subagent(project_root: str | Path, task: str, *, session: str | None = None,
-                 budget: int = HANDOFF_BUDGET) -> str:
+                 budget: int = HANDOFF_BUDGET, reserve: int = 0) -> str:
     """What a subagent should know before it starts (2.x roadmap C6).
 
     A subagent starts with none of the brief its parent session was given: it
@@ -230,12 +233,22 @@ def for_subagent(project_root: str | Path, task: str, *, session: str | None = N
                and notes.canonical_words(notes._words(notes.heading(n), stem) | notes._words(" ".join(n.tags), stem),
                                          canon) & words][:RELATED_LIMIT]
     if related:
-        lines.append("- known here: " + "; ".join(f"{n.title} {note_label(n, root)}" for n in related)
-                     + ' (eos note show . "<title>")')
+
+        def known(summed: bool) -> str:
+            return ("- known here: " + "; ".join(
+                f"{n.title} {note_label(n, root)}" + (f" — {n.summary}" if summed and n.summary else "")
+                for n in related) + ' (eos note show . "<title>")')
+
+        lines.append(known(True))
+        known_at = len(lines) - 1
     if not lines:
         return ""
-    text = "EOS handoff (this project's knowledge for your task):\n" + "\n".join(lines)
-    cap = int(budget * CHARS_PER_TOKEN)
+    header = "EOS handoff (this project's knowledge for your task):\n"
+    cap = int(budget * CHARS_PER_TOKEN) - reserve
+    text = header + "\n".join(lines)
+    if len(text) > cap and related and any(n.summary for n in related):
+        lines[known_at] = known(False)  # the summaries go before a title is cut
+        text = header + "\n".join(lines)
     return text if len(text) <= cap else text[:cap - 1].rstrip() + "…"
 
 
@@ -273,7 +286,7 @@ def resume(project_root: str | Path, session: str) -> str:
     return "\n".join(lines) + "\n"
 
 
-def _branch_brief(root: Path, *, session: str | None, agent: str | None) -> str:
+def _branch_brief(root: Path, *, session: str | None, agent: str | None, reserve: int = 0) -> str:
     """Within BRANCH_BUDGET: fewer work items are shown until it fits (the count stays)."""
     import datetime
 
@@ -291,7 +304,7 @@ def _branch_brief(root: Path, *, session: str | None, agent: str | None) -> str:
         "state": work.sync_state(root),
         "elsewhere": _elsewhere(root, keys, now) if keys else [],
     }
-    cap = int(BRANCH_BUDGET * CHARS_PER_TOKEN)
+    cap = int(BRANCH_BUDGET * CHARS_PER_TOKEN) - reserve
     text = ""
     for shown in range(WORK_LIMIT, 0, -1):
         text = _branch_text(root, facts, session=session, work_limit=shown)
@@ -301,6 +314,23 @@ def _branch_brief(root: Path, *, session: str | None, agent: str | None) -> str:
 
 
 ELSEWHERE_LIMIT = 3
+
+
+class _Line(str):
+    """A brief line that has a shorter form (`short`): the budget loop falls back to
+    it before it drops the line, so a summary goes before a title does."""
+
+    short: str
+
+
+def _summed(line: str, note) -> str:
+    """`line`, then ` — summary` when the note has one; the line alone is the fallback."""
+    if not note.summary:
+        return line
+    full = _Line(f"{line} — {note.summary}")
+    full.short = line
+    return full
+
 LINK_LIMIT = 3
 
 
@@ -712,7 +742,7 @@ def _task_sections(root: Path, task: str, stats: dict | None = None) -> tuple[li
     related = [n for score, n in scored if score >= floor][:RELATED_LIMIT]
     if related:
         found = True
-        sections.append(["RELATED NOTES"] + [f"  - {n.title}  {note_label(n, root)}" for n in related]
+        sections.append(["RELATED NOTES"] + [_summed(f"  - {n.title}  {note_label(n, root)}", n) for n in related]
                         + ['  Read one: eos note show . "<title>"'])
 
     # The note graph: what the procedure, or the nearest note, is linked to --
@@ -728,7 +758,7 @@ def _task_sections(root: Path, task: str, stats: dict | None = None) -> tuple[li
         if linked:
             found = True
             sections.append([f"LINKED TO {_clip(anchor.title, 60)}"]
-                            + [f"  - {n.title}  {note_label(n, root)}  ({why})" for n, why in linked]
+                            + [_summed(f"  - {n.title}  {note_label(n, root)}  ({why})", n) for n, why in linked]
                             + ['  All of them: eos note related . "<title>"'])
 
     slug = procedure.procedure if procedure is not None else "<slug>"
@@ -810,7 +840,7 @@ def is_conversation(root: Path, task: str) -> bool:
 
 
 def _with_task(root: Path, task: str, *, session, agent, budget: int, task_only: bool,
-               decision: dict | None = None) -> str:
+               decision: dict | None = None, reserve: int = 0) -> str:
     def decide(outcome: str, reason: str, sections=(), best_score: float = 0.0, chars: int = 0) -> None:
         if decision is not None:
             decision.update(outcome=outcome, reason=reason, sections=list(sections),
@@ -834,7 +864,7 @@ def _with_task(root: Path, task: str, *, session, agent, budget: int, task_only:
         while branch_lines and not branch_lines[0].strip():
             branch_lines.pop(0)
         sections.append(branch_lines)
-    cap = int(budget * CHARS_PER_TOKEN)
+    cap = int(budget * CHARS_PER_TOKEN) - reserve
     trimmed = False
     for section in sections:
         for line in [""] + section:
@@ -847,8 +877,12 @@ def _with_task(root: Path, task: str, *, session, agent, budget: int, task_only:
             if trimmed and not exempt:
                 continue
             if not exempt and len("\n".join(lines + [line])) > cap:
-                trimmed = True
-                continue
+                short = getattr(line, "short", None)
+                if short is not None and len("\n".join(lines + [short])) <= cap:
+                    line = short
+                else:
+                    trimmed = True
+                    continue
             if trimmed and line.startswith(ROUTE_MARKS[0]) and lines[-1]:
                 lines.append("")
             lines.append(line)
