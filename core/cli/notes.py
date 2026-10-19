@@ -81,6 +81,7 @@ def cmd_note_add(args: argparse.Namespace) -> int:
             valid_until=args.valid_until,
             projects=_split_csv(args.projects),
             differs=args.differs,
+            aliases=args.alias,
             strict=True,
         )
     except (ValueError, FileExistsError) as exc:
@@ -328,6 +329,7 @@ def cmd_note_amend(args: argparse.Namespace) -> int:
             supersedes=args.supersedes,
             expire=args.expire,
             append=args.append,
+            aliases=args.alias,
         )
     except (ValueError, OSError) as exc:
         print(f"error: {exc}", file=sys.stderr)

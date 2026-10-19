@@ -130,6 +130,7 @@ def add_note(
     valid_until: str | None = None,
     projects: list[str] | None = None,
     differs: str | None = None,
+    aliases: list[str] | None = None,
     strict: bool = False,
 ) -> Path:
     """Write one note and return its path.
@@ -280,6 +281,7 @@ def add_note(
             "valid_until": valid_until,
             "projects": projects,
             "differs": differs,
+            "aliases": list(dict.fromkeys(a.strip() for a in aliases or [] if a.strip())),
         }
     )
     path.write_text(f"{document}\n\n{content}\n", encoding="utf-8")
@@ -467,6 +469,7 @@ def amend_note(
     supersedes: str | None = None,
     expire: str | None = None,
     append: str | None = None,
+    aliases: list[str] | None = None,
 ) -> Path:
     """Rewrite one note in place and re-hash its scope.
 
@@ -575,10 +578,10 @@ def amend_note(
         raise ValueError(f"amend accepts only one of --body, --reaffirm, --append or --expire; got {', '.join(rewrites)}")
     if expire is not None and valid_until is not None:
         raise ValueError("--expire sets valid_until itself; drop --valid-until")
-    if (not rewrites and scope is None and supersedes is None
+    if (not rewrites and scope is None and supersedes is None and not aliases
             and provenance is None and agent is None and valid_until is None):
         raise ValueError("amend needs at least one of --body, --reaffirm, --append, --expire, --supersedes, "
-                         "--scope, --provenance, --agent, or --valid-until")
+                         "--scope, --alias, --provenance, --agent, or --valid-until")
     for value, what in ((append, "amend --append text"), (expire, "amend --expire reason")):
         if value is not None:
             if not value.strip():
@@ -640,7 +643,8 @@ def amend_note(
     metadata = [key for key, given in (
         ("provenance", provenance is not None or agent is not None),
         ("agent", agent is not None), ("valid_until", valid_until is not None)) if given]
-    if metadata and body is None and reaffirm is None and scope is None and expire is None and supersedes is None:
+    if metadata and body is None and reaffirm is None and scope is None and expire is None and supersedes is None \
+            and not aliases:
         # Who wrote a note and how long it holds are not a revision of it:
         # `updated` keeps the day its content last changed and `session` the
         # session that last wrote it, so a migration marking a whole store
@@ -855,6 +859,7 @@ def amend_note(
             "supersedes": _supersedes_front(effective_supersedes),
             "differs": note.differs,
             "projects": list(note.projects) or None,
+            "aliases": list(dict.fromkeys((*note.aliases, *(a.strip() for a in aliases or [] if a.strip())))),
             # --provenance/--agent/--valid-until (N8): the value this call
             # computed above, which is the note's own kept value when the
             # flag was not given.

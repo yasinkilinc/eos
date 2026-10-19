@@ -395,6 +395,8 @@ class Note:
     # The workspace projects a note in the workspace's store is about (M4,
     # ADR-035): each reads it as its own (`shared_notes`).
     projects: tuple[str, ...] = ()
+    # Other names for the note (another language's words), scored as its title.
+    aliases: tuple[str, ...] = ()
 
 
 def _names(value) -> tuple[str, ...]:
@@ -470,6 +472,7 @@ def parse_note(path: Path) -> Note:
         agent=meta.get("agent") or None,
         valid_until=meta.get("valid_until") or None,
         projects=_names(meta.get("projects")),
+        aliases=_names(meta.get("aliases")),
     )
 
 

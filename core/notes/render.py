@@ -35,6 +35,70 @@ SCORE_FLOOR = 0.4
 _KEY = re.compile(r"(?<![\w-])([^\W\d_][^\W_]*)-(\d+)(?![\w-])")
 
 
+def fold(text: str) -> str:
+    """Casefold with the Turkish dotted capital read as `i` (`İPTAL` -> `iptal`);
+    plain `casefold` leaves `i` plus a combining dot, which no query ever has."""
+    return text.replace("İ", "i").casefold()
+
+
+# Longest-first is applied by length at strip time; the lists are plain sets.
+_SUFFIXES_TR = ("ları", "leri", "lere", "lar", "ler", "ini", "ını", "nın", "nin", "dan", "den", "tan", "ten",
+                "sı", "si", "su", "sü", "yı", "yi", "da", "de", "ta", "te", "ı", "i", "u", "ü")
+_SUFFIXES_EN = ("ing", "ed", "s")
+_STEMMING = False
+
+
+def set_stemming(on: bool) -> None:
+    """Switch stemming for the words `_words` reads, query and notes alike."""
+    global _STEMMING
+    _STEMMING = bool(on)
+
+
+def configure_stemming(project_root: str | Path) -> None:
+    """Read `[notes] stem` (default false) of a project and apply it. Called by
+    every entry point that scores notes against text, so both sides of a match
+    are read the same way."""
+    from core.lib.config_io import ConfigIO
+
+    on = False
+    try:
+        config = Path(project_root).expanduser().resolve() / ".eos" / "config.toml"
+        section = ConfigIO.read_toml(config).get("notes") if config.is_file() else None
+        on = isinstance(section, dict) and section.get("stem") is True
+    except Exception:  # noqa: BLE001 - a malformed config leaves stemming off
+        pass
+    set_stemming(on)
+
+
+def _strip_once(word: str) -> str:
+    """One pass: the longest suffix that applies, else the word unchanged."""
+    if len(word) < 5:
+        return word
+    candidates = []
+    if word.endswith("ies") and len(word) - 3 >= 3:
+        candidates.append((3, word[:-3] + "y"))
+    if word.endswith("es") and word[:-2].endswith(("s", "x", "z", "ch", "sh")) and len(word) - 2 >= 3:
+        candidates.append((2, word[:-2]))
+    for suffix in _SUFFIXES_TR + _SUFFIXES_EN:
+        if not word.endswith(suffix) or len(word) - len(suffix) < 3:
+            continue
+        if suffix == "s" and word.endswith(("ss", "us", "is")):
+            continue
+        candidates.append((len(suffix), word[:-len(suffix)]))
+    return max(candidates, key=lambda pair: pair[0])[1] if candidates else word
+
+
+def stem(word: str) -> str:
+    """A crude suffix stripper for Turkish and English, run to a fixed point so
+    every inflection of a word lands on the same string. Words of four letters
+    or fewer are never touched, and at least three letters always remain."""
+    while True:
+        shorter = _strip_once(word)
+        if shorter == word:
+            return word
+        word = shorter
+
+
 def _words(text: str) -> set[str]:
     """The words a query or a note is matched on.
 
@@ -45,18 +109,24 @@ def _words(text: str) -> set[str]:
     that length is all ASCII. A word no note contains weighs nothing
     (`word_weights`), so a short stopword kept here costs no ranking. An
     identifier like PROJ-1700 counts as itself and its number, not its prefix.
+    With stemming on (`[notes] stem`), every alphabetic word is stemmed.
     """
     words = set()
     prefixes = set()
     for match in _KEY.finditer(text):
-        words.add(f"{match.group(1)}-{match.group(2)}".casefold())
-        prefixes.add(match.group(1).casefold())
+        words.add(fold(f"{match.group(1)}-{match.group(2)}"))
+        prefixes.add(fold(match.group(1)))
     for token in _WORD.findall(text):
-        word = token.casefold()
+        word = fold(token)
         if len(word) > 2 or (len(token) == 2 and token.isalpha()
                              and (token.isupper() or not token.isascii())):
-            words.add(word)
+            words.add(stem(word) if _STEMMING and word.isalpha() else word)
     return words - prefixes
+
+
+def heading(note: Note) -> str:
+    """What a note is named by: its title and its aliases, scored together."""
+    return " ".join((note.title, *note.aliases))
 
 
 def synonym_groups(groups: object) -> dict[str, str]:
@@ -145,7 +215,7 @@ def word_weights(corpus: list[Note], query_words: set[str],
     seen = {word: 0 for word in query_words}
     for note in corpus:
         present = canonical_words(
-            _words(note.title) | _words(" ".join(note.tags)) | _words(note.body), canon)
+            _words(heading(note)) | _words(" ".join(note.tags)) | _words(note.body), canon)
         for word in query_words & present:
             seen[word] += 1
     return {word: math.log(total / count) if count else 0.0 for word, count in seen.items()}
@@ -184,7 +254,7 @@ def relevance(note: Note, query_words: set[str],
     if not query_words:
         return 0.0
 
-    title_words = canonical_words(_words(note.title), canon)
+    title_words = canonical_words(_words(heading(note)), canon)
     tag_words = canonical_words(_words(" ".join(note.tags)), canon)
     body_words = canonical_words(_words(note.body), canon) if body else set()
 
@@ -217,6 +287,7 @@ def search_notes(project_root: str | Path, query: str, limit: int | None = None,
     groups; `generated` ranks the generator notes with them (M3)."""
     from core import priors
 
+    configure_stemming(project_root)
     corpus = (load_notes(project_root) + shared_notes(project_root)
               + (load_generated(project_root) if generated else []))
     found, alpha = priors.for_search(project_root, corpus)
