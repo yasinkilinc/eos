@@ -1471,10 +1471,11 @@ def _post_batch(root: Path, hook: Hook, cfg: dict, agent: str | None) -> str:
     state = _state_dir() / f"{_safe(hook.session)}.inject.json"
     seen, spent, digest_used = inject.load_state(state)
     width = _frame_width(cfg)
+    shorts: dict[str, str] = {}
     text, seen = inject.context_for(list(dict.fromkeys(targets)), seen, pointer=cfg["notes_pointer"],
-                                    task_words=_load_task(hook.session), reserve=width)
+                                    task_words=_load_task(hook.session), reserve=width, shorts=shorts)
     text, spent, digest_used = inject.budgeted(text, spent, digest_used, pointer=cfg["notes_pointer"],
-                                               reserve=width)
+                                               reserve=width, shorts=shorts)
     inject.save_state(state, seen, spent, digest_used)
     return _context("PostToolBatch", _framed(text, cfg)) if text else ""
 

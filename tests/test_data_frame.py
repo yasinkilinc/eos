@@ -129,12 +129,59 @@ def test_a_hint_without_records_is_not_framed(project, monkeypatch, capsys):
 
 
 def test_the_frame_is_inside_the_prompt_total(project, monkeypatch, capsys):
-    """The total counts the frame: a block that fit before the frame existed is
-    withheld when the frame would take it over."""
-    assert hooks._frame_width({"data_frame": FRAME}) == len(FRAME) + 2
-    assert hooks._frame_width({"data_frame": ""}) == 0
-    _, out, _ = _prompt(monkeypatch, capsys, project)
-    assert len(_text(out)) <= hooks.PROMPT_TOTAL_CHARS
+    """Content that fits the total exactly without the frame loses its last
+    block once the frame is counted; without the frame it still arrives."""
+    from core import brief
+
+    first = brief.build(project, task=TASK, task_only=True).strip()
+    host = "HOSTLINE " + "h" * 60
+    monkeypatch.setattr(hooks, "PROMPT_TOTAL_CHARS", len(first) + len(host))
+    _config(project, f'[hooks]\nprompt_command = "echo {host}"')
+    _, out, _ = _prompt(monkeypatch, capsys, project, session="p1")
+    assert host not in _text(out)
+    _config(project, '[ai]\ndata_frame = ""')
+    _, out, _ = _prompt(monkeypatch, capsys, project, session="p2")
+    assert host in _text(out)
+
+
+def test_the_frame_is_inside_the_brief_budget(project):
+    """A brief that just fits its budget is trimmed once `reserve` holds the frame."""
+    import math
+
+    from core import brief
+
+    whole = brief.build(project, task=TASK, task_only=True)
+    tokens = math.ceil(len(whole) / brief.CHARS_PER_TOKEN)
+    assert "…trimmed" not in brief.build(project, task=TASK, task_only=True, budget=tokens)
+    reserved = brief.build(project, task=TASK, task_only=True, budget=tokens,
+                           reserve=hooks._frame_width({"data_frame": FRAME}))
+    assert "…trimmed" in reserved
+
+
+def test_session_start_gives_the_first_brief_the_frame_width(project, monkeypatch, capsys):
+    seen = []
+    from core import brief
+
+    real = brief.build
+    monkeypatch.setattr(brief, "build", lambda *a, **k: seen.append(k.get("reserve")) or real(*a, **k))
+    _start(monkeypatch, capsys, project)
+    assert seen[0] == len(FRAME) + 2
+
+
+def test_the_frame_is_inside_the_context_for_cap(project):
+    """A body that fits the cap whole is declined once `reserve` holds the frame."""
+    store = project / ".eos" / "knowledge"
+    limit = int(inject.MAX_TOKENS * inject.CHARS_PER_TOKEN) - len(inject._TRUNCATED)
+    head = "### Known about src/Big.java\nBig note\n\n"
+    (project / "src" / "Big.java").write_text("class Big {}\n", encoding="utf-8")
+    (store / "20260901-big.md").write_text(
+        "---\nkind: finding\ntitle: Big note\ncreated: 2026-09-01\nscope:\n  - src/Big.java\n---\n\n"
+        + "b" * (limit - len(head)) + "\n", encoding="utf-8")
+    target = [("p", project, ".", "src/Big.java", str(project / "src" / "Big.java"))]
+    assert inject.context_for(target, set(), pointer="x")[0].startswith("### Known about src/Big.java")
+    width = hooks._frame_width({"data_frame": FRAME})
+    held = inject.context_for(target, set(), pointer="x", reserve=width)[0]
+    assert "### Known about" not in held  # declined as a body; its title is still listed
 
 
 def test_the_frame_is_inside_the_inject_budget():

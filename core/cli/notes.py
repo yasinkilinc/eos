@@ -238,8 +238,8 @@ def cmd_note_search(args: argparse.Namespace) -> int:
         mark = "" if notes.is_generated(note) else notes.drift_mark(notes.scope_drift(args.path, note))
         if not notes.is_generated(note):
             mark = " ".join(part for part in (mark, notes.review_mark(note, defaults)) if part)
-        print(f"{note.path.name}\t{note.kind}\t{note.title}" + (f"\t{note.summary}" if note.summary else "")
-              + (f"\t{mark}" if mark else ""))
+        print(f"{note.path.name}\t{note.kind}\t{note.title}" + (f"\t{mark}" if mark or note.summary else "")
+              + (f"\t{note.summary}" if note.summary else ""))
     if matches:
         return 0
     recorded = notes.load_notes(args.path)

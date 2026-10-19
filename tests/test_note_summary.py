@@ -82,13 +82,13 @@ def test_every_amend_keeps_the_summary(root, flags):
     assert _note(root).summary == SUMMARY
 
 
-def test_search_shows_the_summary_as_a_fourth_column_only_when_present(root):
+def test_search_shows_the_summary_as_a_fifth_column_only_when_present(root):
     _add(root)
     _add(root, title="Staging queue drains late", summary=None, extra=["--differs", "another symptom"],
          body="Backlog metrics for the drain job lag by a full minute after midnight.")
     rows = {line.split("\t")[2]: line.split("\t") for line in
             _eos("note", "search", root, "staging queue").stdout.splitlines()}
-    assert rows["Staging queue stalls"][3] == SUMMARY
+    assert rows["Staging queue stalls"][3] == "" and rows["Staging queue stalls"][4] == SUMMARY
     assert len(rows["Staging queue drains late"]) == 3
 
 
@@ -129,16 +129,58 @@ def test_the_inject_digest_line_carries_the_summary_and_drops_it_first(root, tmp
         return json.loads(out)["hookSpecificOutput"]["additionalContext"] if out.strip() else ""
 
     assert f"- Staging queue stalls — {SUMMARY}" in touch("d1", "A.java")
-    lines = [f"- Title {n} — " + "w" * 160 for n in range(40)]
-    assert inject._drop_summaries(lines)[0] == "- Title 0"
-    assert inject._drop_summaries(["- Plain title"]) == ["- Plain title"]
+
+
+def _digest(*titles_and_summaries):
+    lines, shorts = [], {}
+    for title, summary in titles_and_summaries:
+        plain = f"- {title}"
+        full = f"{plain} — {summary}" if summary else plain
+        lines.append(full)
+        if summary:
+            shorts[full] = plain
+    return "### Other notes on svc\n" + "\n".join(lines), shorts
+
+
+def _over_budget(text, shorts):
+    spent = int(inject.BODY_MAX_TOKENS * inject.CHARS_PER_TOKEN) - 1000
+    return inject.budgeted(text, spent, 0, pointer="p {path} {words}", shorts=shorts)[0]
 
 
 def test_a_digest_over_the_session_budget_loses_its_summaries_not_its_titles():
-    lines = [f"- Digest title number {n:02d} — " + "s" * 150 for n in range(20)]
-    text = "### Other notes on svc\n" + "\n".join(lines)
-    whole, spent, _ = inject.budgeted(text, 0, 0, pointer="p {path} {words}")
-    assert whole == text
-    cut, _, _ = inject.budgeted(text, int(inject.BODY_MAX_TOKENS * inject.CHARS_PER_TOKEN) - 1000, 0,
-                                pointer="p {path} {words}")
+    text, shorts = _digest(*[(f"Digest title number {n:02d}", "s" * 150) for n in range(20)])
+    assert inject.budgeted(text, 0, 0, pointer="p {path} {words}", shorts=shorts)[0] == text
+    cut = _over_budget(text, shorts)
     assert "- Digest title number 19" in cut and "s" * 150 not in cut
+
+
+def test_a_title_with_a_dash_and_no_summary_is_never_shortened():
+    title = "version-upgrade: The -fm suffix is not a fork — it is a hotfix lane"
+    text, shorts = _digest((title, None), *[(f"Other {n:02d}", "s" * 150) for n in range(20)])
+    cut = _over_budget(text, shorts)
+    assert f"- {title}\n" in cut and "s" * 150 not in cut
+
+
+def test_a_summary_with_a_dash_in_it_drops_whole():
+    text, shorts = _digest(*[(f"Note {n:02d}", "first part — second part " + "s" * 125) for n in range(20)])
+    cut = _over_budget(text, shorts)
+    assert "- Note 00\n" in cut and "first part" not in cut and "second part" not in cut
+
+
+def test_context_for_records_the_short_form_of_each_summed_line(root):
+    (root / "src").mkdir()
+    (root / "src" / "B.java").write_text("class B {}\n", encoding="utf-8")
+    _add(root, extra=["--scope", "src/B.java"])
+    shorts = {}
+    text, _ = inject.context_for([("p", root, ".", "src/A.java", str(root / "src" / "A.java"))], set(),
+                                 pointer="x", shorts=shorts)
+    assert shorts == {f"- Staging queue stalls — {SUMMARY}": "- Staging queue stalls"}
+
+
+@pytest.mark.parametrize("summary", ['Key: "quoted" # not a comment [x] {y} — dash', "- starts with a dash",
+                                     "it's 'single' & | > * ! % @ `tick`"])
+def test_a_summary_with_yaml_punctuation_survives_write_and_parse(root, summary):
+    assert _add(root, summary=summary).returncode == 0
+    assert _note(root).summary == summary
+    assert _eos("note", "amend", _note(root).path, root, "--append", "More.").returncode == 0
+    assert _note(root).summary == summary
