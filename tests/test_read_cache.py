@@ -8,6 +8,8 @@ from pathlib import Path
 
 import pytest
 
+import time
+
 from core import hooks
 
 REPO = Path(__file__).resolve().parents[1]
@@ -190,3 +192,28 @@ def test_devin_read_denied_on_stderr_with_exit_2(project, target, monkeypatch, c
     assert (code, out) == (2, "")
     assert err.startswith("EOS: ") and "is unchanged since you read it at" in err and "permissionDecision" not in err
     assert _run(monkeypatch, capsys, "pre-read", devin, "--host", "devin") == (0, "", "")
+
+
+def test_stale_cache_files_are_swept_fresh_ones_stay(project, target, monkeypatch, capsys):
+    _read(project, monkeypatch, capsys, target, session="old")
+    _read(project, monkeypatch, capsys, target, session="new")
+    old, new = (hooks._read_cache_file(s) for s in ("old", "new"))
+    aged = time.time() - (hooks.INJECT_STATE_DAYS + 1) * 86400
+    os.utime(old, (aged, aged))
+    _run(monkeypatch, capsys, "session-end", {"session_id": "new", "cwd": str(project)})
+    assert not old.exists() and new.exists()
+
+
+def test_relative_devin_read_and_absolute_claude_read_are_one_entry(project, target, monkeypatch, capsys, tmp_path):
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    monkeypatch.chdir(elsewhere)
+    assert _read(project, monkeypatch, capsys, target) is None
+    link = project / "link.md"
+    link.symlink_to(target)
+    devin = {"session_id": "s1", "prompt_id": "p1", "cwd": str(project), "tool_name": "read",
+             "tool_input": {"path": "notes.md"}, "tool_use_id": "t1"}
+    code, out, err = _run(monkeypatch, capsys, "pre-read", devin, "--host", "devin")
+    assert code == 2 and err.startswith("EOS: notes.md is unchanged since you read it at ")
+    assert _run(monkeypatch, capsys, "pre-read", devin, "--host", "devin") == (0, "", "")
+    assert _read(project, monkeypatch, capsys, link) is not None

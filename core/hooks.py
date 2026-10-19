@@ -957,6 +957,11 @@ def _whole_main_read(hook: Hook, cfg: dict) -> str:
     return hook.target_path
 
 
+def _key(hook: Hook, path: str) -> str:
+    """One entry for `a.py`, `./a.py`, `/abs/a.py` and a symlink to it: the payload's cwd decides."""
+    return os.path.realpath(os.path.join(hook.cwd or "", path))
+
+
 def _stamp(path: str) -> tuple[int, int] | None:
     try:
         status = os.stat(path)
@@ -967,18 +972,19 @@ def _stamp(path: str) -> tuple[int, int] | None:
 
 def _cached_deny(hook: Hook, cfg: dict) -> str:
     path = _whole_main_read(hook, cfg)
-    stamp = _stamp(path) if path else None
+    key = _key(hook, path) if path else ""
+    stamp = _stamp(key) if path else None
     if stamp is None:
         return ""
     cache = _read_cache(hook.session)
-    entry = cache.get(path)
+    entry = cache.get(key)
     if not isinstance(entry, dict) or [entry.get("mtime_ns"), entry.get("size")] != list(stamp):
         return ""
     if entry.get("attempts"):
-        cache[path] = {**entry, "read_at": time.time(), "attempts": 0}  # insisted: recorded now
+        cache[key] = {**entry, "read_at": time.time(), "attempts": 0}  # insisted: recorded now
         _write_read_cache(hook.session, cache)
         return ""
-    cache[path] = {**entry, "attempts": 1}
+    cache[key] = {**entry, "attempts": 1}
     _write_read_cache(hook.session, cache)
     at = time.strftime("%H:%M", time.localtime(entry.get("read_at") or time.time()))
     reason = f"{path} is unchanged since you read it at {at}; use that content (read again to override)."
@@ -989,12 +995,13 @@ def _cached_deny(hook: Hook, cfg: dict) -> str:
 def _record_read(hook: Hook, cfg: dict) -> None:
     """After a whole-file Read that completed: what the session now holds."""
     path = _whole_main_read(hook, cfg)
-    stamp = _stamp(path) if path else None
+    key = _key(hook, path) if path else ""
+    stamp = _stamp(key) if path else None
     if stamp is None:
         return
     cache = _read_cache(hook.session)
-    cache.pop(path, None)
-    cache[path] = {"mtime_ns": stamp[0], "size": stamp[1], "read_at": time.time(), "attempts": 0}
+    cache.pop(key, None)
+    cache[key] = {"mtime_ns": stamp[0], "size": stamp[1], "read_at": time.time(), "attempts": 0}
     _write_read_cache(hook.session, cache)
 
 
@@ -1712,7 +1719,8 @@ def _sweep_inject_state() -> None:
     INJECT_STATE_DAYS goes."""
     cutoff = time.time() - INJECT_STATE_DAYS * 86400
     try:
-        paths = [*_state_dir().glob("*.inject.json"), *_state_dir().glob("*.task.json")]
+        paths = [*_state_dir().glob("*.inject.json"), *_state_dir().glob("*.task.json"),
+                 *_state_dir().glob("*.readcache.json")]
     except OSError:
         return
     for path in paths:
