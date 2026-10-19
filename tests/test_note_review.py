@@ -172,3 +172,33 @@ def test_the_inject_digest_and_body_carry_the_mark(tmp_path, monkeypatch, capsys
     text = json.loads(capsys.readouterr().out)["hookSpecificOutput"]["additionalContext"]
     assert "Exact status note" in text and "[REVIEW: 3d]" in text
     assert "- Folder status note [REVIEW: 3d]" in text
+
+
+def _amend(root: Path, name: str, *flags: str):
+    path = root / ".eos" / "knowledge" / name
+    return subprocess.run(EOS + ["note", "amend", str(path), str(root), *flags], capture_output=True, text=True)
+
+
+def test_amend_keeps_a_future_review_by_and_reaffirm_clears_a_past_one(tmp_path):
+    root = _init(tmp_path)
+    future = _days_ago(-20)
+    _write(root, "a.md", "Pipeline size", kind="finding", extra=[f"review_by: {future}"])
+    _write(root, "b.md", "Pipeline owners", kind="finding", extra=[f"review_by: {_days_ago(2)}"])
+    _write(root, "c.md", "Pipeline limits", kind="finding", extra=[f"review_by: {_days_ago(2)}"])
+    assert _amend(root, "a.md", "--append", "More detail.").returncode == 0
+    assert _note(root, "a.md").review_by == future
+    assert _amend(root, "a.md", "--reaffirm", "Checked it today, same.").returncode == 0
+    assert _note(root, "a.md").review_by == future
+    assert _amend(root, "b.md", "--reaffirm", "Checked it today, same.").returncode == 0
+    assert _note(root, "b.md").review_by is None
+    assert _amend(root, "c.md", "--append", "More detail.").returncode == 0
+    assert _note(root, "c.md").review_by == _days_ago(2)
+
+
+def test_status_zero_turns_the_default_off_and_an_empty_table_keeps_it(tmp_path):
+    root = _init(tmp_path)
+    _config(root, "[notes]\nreview_after_days = {}")
+    assert notes.review_after_days(root) == {"status": 7}
+    other = _init(tmp_path / "x") if (tmp_path / "x").mkdir() is None else None
+    _config(other, "[notes]\nreview_after_days = { status = 0 }")
+    assert notes.review_after_days(other) == {}

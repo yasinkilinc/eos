@@ -838,6 +838,16 @@ def amend_note(
                     "needs no reason.)"
                 )
 
+    # `--reaffirm` is a person saying "I checked it": a review date that has come
+    # is answered by it. A future date, or any other amend, leaves it alone.
+    review_by = note.review_by
+    if reaffirm is not None and review_by:
+        try:
+            if datetime.date.fromisoformat(str(review_by)[:10]) <= today:
+                review_by = None
+        except ValueError:
+            pass
+
     document = _front_matter(
         {
             "kind": note.kind,
@@ -866,6 +876,7 @@ def amend_note(
             "provenance": effective_provenance,
             "agent": effective_agent,
             "valid_until": effective_valid_until,
+            "review_by": review_by,
         }
     )
     path.write_text(f"{document}\n\n{content}\n", encoding="utf-8")

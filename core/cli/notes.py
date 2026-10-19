@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import shlex
 import sys
 from pathlib import Path
 from core import notes
@@ -167,7 +168,7 @@ def cmd_note_show(args: argparse.Namespace) -> int:
         review = notes.review_mark(matches[0], notes.review_after_days(args.path))
         if review:
             print(f"{review} not confirmed since {matches[0].updated or matches[0].created}: still true? "
-                  f"`eos note amend {matches[0].path} {args.path} --reaffirm '<why it still holds>'`\n")
+                  f"`eos note amend {shlex.quote(str(matches[0].path))} {shlex.quote(str(args.path))} --reaffirm '<why it still holds>'`\n")
     print(matches[0].path.read_text(encoding="utf-8"))
     _record_read(args.path, matches[0])
     return 0

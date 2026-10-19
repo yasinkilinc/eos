@@ -684,7 +684,7 @@ def render(data: dict) -> str:
                    "their tool records no event, so no run says how they went")
     lines += block("NOTES THAT READ ALIKE", [f"{share:.0%}  {a}  ~  {b}\n    {command}"
                     for share, a, b, command in data["near_duplicates"]],
-                   "keep one: the command makes the newer note replace the older, or say what differs")
+                   "keep one: the command makes the newer note (later created, ties by file name) replace the older, or say what differs")
     lines += block("NOTES CITING A REPLACED NOTE", [f"{a}  ->  {b}" for a, b in data.get("cites_replaced", [])],
                    "point them at the replacement: eos note show . \"<replaced title>\"")
     lines += block("NOTES WHOSE FILES CHANGED", data["stale_notes"], "eos note audit .")

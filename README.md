@@ -819,6 +819,16 @@ Write them as a block list or one scalar; the inline form `aliases: [a, b]` is
 not parsed as a list, as with `projects`. `[notes] stem = true` (default false)
 additionally strips Turkish and English suffixes on both sides of a match.
 
+A note without a hash-tracked scope gets `[REVIEW: Nd]` (N days overdue) in
+search, briefs, injection and `note show` once it has gone unchanged past its
+kind's limit: `[notes] review_after_days = { finding = 30 }`, default
+`{ status = 7 }` merged under what you write; `status = 0` turns the default
+off, `{}` keeps it, a value that is not a whole number is ignored. `review_by:
+YYYY-MM-DD` in front matter sets the date by hand on any kind (kept through
+amend; `--reaffirm` clears one that has come). Superseded and expired notes
+are never due. In `eos consolidate`, the command under two notes that read
+alike makes the newer one (later `created`, ties by file name) replace the older.
+
 A new note can say who wrote it and until when it holds:
 `--provenance human|agent|generated`, `--agent <name>` (implies `agent`; the MCP
 `add_note` tool always records `agent`) and `--valid-until YYYY-MM-DD`. After
