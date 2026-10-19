@@ -273,3 +273,20 @@ def test_devin_read_reaches_the_post_batch_note_injection(project, monkeypatch, 
     claude = batch({"session_id": "c1", "cwd": str(project), "transcript_path": "/t.jsonl"}, "Read", "file_path")
     assert devin[0] == 0 and "About Foo" in json.loads(devin[1])["hookSpecificOutput"]["additionalContext"]
     assert "About Foo" in json.loads(claude[1])["hookSpecificOutput"]["additionalContext"]
+
+
+def test_devin_run_subagent_is_never_routed_until_the_probe(project, monkeypatch, capsys):
+    """Devin's `model` key is unconfirmed: the decision is recorded, nothing is written."""
+    config = project / ".eos" / "config.toml"
+    config.write_text(config.read_text(encoding="utf-8") + "\n[model_routing]\nhook = true\nhook_dry_run = false\n",
+                      encoding="utf-8")
+    executions.start(project, "a run", session="dv1")
+    prompt = "design the service boundary for billing"
+    code, out, _ = _run(monkeypatch, capsys, "pre-agent", _devin(
+        project, tool_name="run_subagent", tool_use_id="r1", tool_input={"prompt": prompt}))
+    assert code == 0 and out == ""
+    assert any(e.kind == "decided" for e in executions.load(project)[-1].events)
+    claude = {"session_id": "dv1", "cwd": str(project), "transcript_path": "/t.jsonl", "tool_name": "Agent",
+              "tool_use_id": "r2", "tool_input": {"prompt": prompt}}
+    _, out, _ = _run(monkeypatch, capsys, "pre-agent", claude)
+    assert json.loads(out)["hookSpecificOutput"]["updatedInput"]["model"] in hooks.SUBAGENT_MODELS

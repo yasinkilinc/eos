@@ -98,3 +98,27 @@ def test_unwritable_data_dir_does_not_raise(tmp_path, monkeypatch, capsys):
     shutil.rmtree(data, ignore_errors=True)
     data.write_text("not a directory", encoding="utf-8")
     assert _prompt(monkeypatch, capsys, root, "ok, continue") == ""
+
+
+def test_a_repeated_prompt_logs_seen_not_injected(tmp_path, monkeypatch, capsys):
+    root = _project(tmp_path)
+    _note(root, "Refund queue stalls after settlement", "The worker stops.", tags="refund")
+    assert _prompt(monkeypatch, capsys, root, "refund queue stalls").strip()
+    assert _prompt(monkeypatch, capsys, root, "refund queue stalls") == ""
+    first, second = _log(root)[-2:]
+    assert first["outcome"] == "injected"
+    assert second["outcome"] == "abstained" and second["reason"] == "seen"
+
+
+def test_the_logged_chars_count_the_frame(tmp_path, monkeypatch, capsys):
+    root = _project(tmp_path)
+    _note(root, "Refund queue stalls after settlement", "The worker stops.", tags="refund")
+    out = _prompt(monkeypatch, capsys, root, "refund queue stalls")
+    assert _log(root)[-1]["chars"] == len(out.strip())
+
+
+def test_settings_defaults_survive_a_config_read_error(tmp_path):
+    root = _project(tmp_path)
+    (root / ".eos" / "config.toml").write_text("[hooks\nbroken", encoding="utf-8")
+    cfg = hooks.settings(root)
+    assert cfg["bash_clip_skip"] == [] and cfg["brief"] is True

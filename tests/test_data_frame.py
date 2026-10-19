@@ -204,3 +204,68 @@ def test_a_deny_reason_under_devin_carries_no_frame(project, monkeypatch, capsys
                "tool_input": {"file_path": str(big)}}
     code, out, err = _run(monkeypatch, capsys, "pre-read", payload, "--host", "devin")
     assert code == 2 and "EOS records below" not in err + out
+
+
+HOST = "HOSTLINE the users own rule"
+
+
+def _order(text, *parts):
+    """The index of each part in `text`; every part must be there."""
+    places = [text.index(part) for part in parts]
+    assert places == sorted(places), places
+    return places
+
+
+def test_session_start_puts_host_lines_and_resume_before_the_frame(project, monkeypatch, capsys):
+    import datetime
+
+    old = (datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(hours=3)).isoformat()
+    transcript = project / "t.jsonl"
+    transcript.write_text(json.dumps({"type": "assistant", "timestamp": old, "message": {
+        "usage": {"input_tokens": 500_000}}}) + "\n", encoding="utf-8")
+    _config(project, f'[hooks]\nstart_command = "echo {HOST}"\nresume_gap_minutes = 10')
+    _, out, _ = _start(monkeypatch, capsys, project, source="resume", transcript_path=str(transcript))
+    text = _text(out)
+    _order(text, HOST, "RESUME", FRAME)
+    after = text.split(FRAME + "\n\n", 1)[1]
+    assert HOST not in after and "RESUME" not in after and after.strip()
+
+
+def test_session_start_with_only_a_host_line_has_no_frame(project, monkeypatch, capsys):
+    quiet = project.parent / "quiet"
+    quiet.mkdir()
+    assert _eos("init", quiet, "--no-ai").returncode == 0
+    _config(quiet, f'[hooks]\nstart_command = "echo {HOST}"\nbrief = true')
+    from core import brief
+
+    if (brief.build(quiet) or "").strip():
+        pytest.skip("this fixture's brief is not empty")
+    _, out, _ = _start(monkeypatch, capsys, quiet)
+    assert HOST in _text(out) and "EOS records below" not in out
+
+
+def test_prompt_puts_the_host_block_before_the_frame(project, monkeypatch, capsys):
+    _config(project, f'[hooks]\nprompt_command = "echo {HOST}"')
+    _, out, _ = _prompt(monkeypatch, capsys, project)
+    text = _text(out)
+    _order(text, HOST, FRAME, "Staging queue stalls")
+    assert text.startswith(HOST) and text.count(FRAME) == 1
+    assert HOST not in text.split(FRAME, 1)[1]
+
+
+def test_prompt_with_only_a_host_block_has_no_frame(project, monkeypatch, capsys):
+    _config(project, f'[hooks]\nprompt_command = "echo {HOST}"')
+    _, out, _ = _run(monkeypatch, capsys, "user-prompt", {
+        "session_id": "s9", "cwd": str(project), "prompt": "zzqx quuxify wibble flarp"})
+    text = _text(out)
+    assert HOST in text and "EOS records below" not in text
+
+
+def test_subagent_suffix_goes_before_the_frame(project, monkeypatch, capsys):
+    _config(project, '[hooks]\nhandoff_tokens = 400\nsubagent_suffix = "Report in Turkish."')
+    call = {"session_id": "s1", "cwd": str(project), "tool_name": "Agent", "tool_use_id": "h1",
+            "tool_input": {"prompt": "look into the staging queue stall", "subagent_type": "Explore"}}
+    _, out, _ = _run(monkeypatch, capsys, "pre-agent", call)
+    prompt = _text(out)
+    _order(prompt, "look into the staging queue stall", "Report in Turkish.", FRAME, "EOS handoff")
+    assert prompt.count(FRAME) == 1 and "Report in Turkish." not in prompt.split(FRAME, 1)[1]

@@ -183,15 +183,14 @@ def test_unwritable_state_never_raises(project, target, monkeypatch, capsys):
     assert _read(project, monkeypatch, capsys, target) is None
 
 
-def test_devin_read_denied_on_stderr_with_exit_2(project, target, monkeypatch, capsys):
+def test_devin_read_is_neither_recorded_nor_denied_until_the_probe(project, target, monkeypatch, capsys):
+    """Until the probe confirms Devin's tool_input keys, a ranged read under another name could be taken for whole."""
     devin = {"session_id": "dv1", "prompt_id": "p1", "cwd": str(project), "tool_name": "read",
              "tool_input": {"path": str(target)}, "tool_use_id": "t1"}
-    assert _run(monkeypatch, capsys, "pre-read", devin, "--host", "devin") == (0, "", "")
-    assert _run(monkeypatch, capsys, "post-tool", {**devin, "tool_response": {}}, "--host", "devin")[0] == 0
-    code, out, err = _run(monkeypatch, capsys, "pre-read", devin, "--host", "devin")
-    assert (code, out) == (2, "")
-    assert err.startswith("EOS: ") and "is unchanged since you read it at" in err and "permissionDecision" not in err
-    assert _run(monkeypatch, capsys, "pre-read", devin, "--host", "devin") == (0, "", "")
+    for _ in range(3):
+        assert _run(monkeypatch, capsys, "pre-read", devin, "--host", "devin") == (0, "", "")
+        assert _run(monkeypatch, capsys, "post-tool", {**devin, "tool_response": {}}, "--host", "devin")[0] == 0
+    assert not hooks._read_cache_file("dv1").exists()
 
 
 def test_stale_cache_files_are_swept_fresh_ones_stay(project, target, monkeypatch, capsys):
@@ -204,16 +203,19 @@ def test_stale_cache_files_are_swept_fresh_ones_stay(project, target, monkeypatc
     assert not old.exists() and new.exists()
 
 
-def test_relative_devin_read_and_absolute_claude_read_are_one_entry(project, target, monkeypatch, capsys, tmp_path):
+def test_a_devin_read_does_not_touch_a_claude_entry(project, target, monkeypatch, capsys, tmp_path):
+    assert _read(project, monkeypatch, capsys, target) is None
+    devin = {"session_id": "s1", "prompt_id": "p1", "cwd": str(project), "tool_name": "read",
+             "tool_input": {"path": "notes.md"}, "tool_use_id": "t1"}
+    assert _run(monkeypatch, capsys, "pre-read", devin, "--host", "devin") == (0, "", "")
+    assert _read(project, monkeypatch, capsys, target) is not None
+
+
+def test_a_relative_and_a_symlinked_read_are_one_entry(project, target, monkeypatch, capsys, tmp_path):
     elsewhere = tmp_path / "elsewhere"
     elsewhere.mkdir()
     monkeypatch.chdir(elsewhere)
-    assert _read(project, monkeypatch, capsys, target) is None
     link = project / "link.md"
     link.symlink_to(target)
-    devin = {"session_id": "s1", "prompt_id": "p1", "cwd": str(project), "tool_name": "read",
-             "tool_input": {"path": "notes.md"}, "tool_use_id": "t1"}
-    code, out, err = _run(monkeypatch, capsys, "pre-read", devin, "--host", "devin")
-    assert code == 2 and err.startswith("EOS: notes.md is unchanged since you read it at ")
-    assert _run(monkeypatch, capsys, "pre-read", devin, "--host", "devin") == (0, "", "")
+    assert _read(project, monkeypatch, capsys, target) is None
     assert _read(project, monkeypatch, capsys, link) is not None

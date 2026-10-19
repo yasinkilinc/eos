@@ -407,7 +407,8 @@ def project_root(start: str | os.PathLike | None) -> Path | None:
 
 
 def settings(root: Path) -> dict:
-    values = {name: True for name in SETTINGS} | {name: False for name in OPT_IN} | dict(NUMERIC) | dict(TEXTS)
+    values = ({name: True for name in SETTINGS} | {name: False for name in OPT_IN} | dict(NUMERIC) | dict(TEXTS)
+              | {"bash_clip_skip": []})
     try:
         from core.lib.config_io import ConfigIO
 
@@ -429,7 +430,8 @@ def settings(root: Path) -> dict:
     if isinstance(ai, dict) and isinstance(ai.get("data_frame"), str):
         values["data_frame"] = ai["data_frame"].strip()
     skip = table.get("bash_clip_skip")
-    values["bash_clip_skip"] = [p for p in skip if isinstance(p, str)] if isinstance(skip, list) else []
+    if isinstance(skip, list):
+        values["bash_clip_skip"] = [p for p in skip if isinstance(p, str)]
     return values
 
 
@@ -845,7 +847,8 @@ def _kept_lines(kept: dict) -> list[str]:
 
 
 def _session_start(root: Path, hook: Hook, cfg: dict, agent: str | None) -> str:
-    parts = []
+    parts = []  # the EOS records; host lines and RESUME go in front of the frame
+    host = []
     if hook.source in ("compact", "clear") and hook.session:
         # The context that held the delivered briefs and notes is gone; the
         # dedup that kept them from repeating would now keep them from arriving.
@@ -867,7 +870,7 @@ def _session_start(root: Path, hook: Hook, cfg: dict, agent: str | None) -> str:
     if cfg["brief"]:
         from core import brief, workspace
 
-        # The frame leads the whole output, so the first brief's budget holds it.
+        # The frame leads the records, so the first brief's budget holds it.
         first = (brief.build(root, session=hook.session or None, agent=agent,
                              reserve=_frame_width(cfg)) or "").rstrip()
         records = records or bool(first)
@@ -884,12 +887,12 @@ def _session_start(root: Path, hook: Hook, cfg: dict, agent: str | None) -> str:
         if len(live) > WORKSPACE_LIVE_LIMIT:
             parts.append(f"…{len(live) - WORKSPACE_LIVE_LIMIT} more projects have something live: "
                          f"eos brief <project>")
-        parts.append(_host_lines(root, cfg["start_command"], hook, live[:WORKSPACE_LIVE_LIMIT]))
-    if records:
-        parts.insert(0, _frame(cfg))  # records only: the host lines and RESUME are not framed
+        host.append(_host_lines(root, cfg["start_command"], hook, live[:WORKSPACE_LIVE_LIMIT]))
     if hook.source == "resume":
-        parts.append(_resume_line(hook.transcript, cfg))
-    return "\n\n".join(part for part in parts if part)
+        host.append(_resume_line(hook.transcript, cfg))
+    if records:
+        parts.insert(0, _frame(cfg))  # in front of the records only: host lines and RESUME precede it
+    return "\n\n".join(part for part in host + parts if part)
 
 
 def _pre_compact(root: Path, hook: Hook, cfg: dict, agent: str | None) -> str:
@@ -948,9 +951,17 @@ def _write_read_cache(session: str, cache: dict) -> None:
         pass
 
 
+def _devin_unconfirmed(hook: Hook) -> bool:
+    """Until the probe confirms Devin's tool_input keys, nothing is written
+    into its tool input and no read is taken for whole: the keys are guessed."""
+    return hook.host == DEVIN
+
+
 def _whole_main_read(hook: Hook, cfg: dict) -> str:
     """The path of a main-session whole-file Read when `read_cache` is on, else ''."""
     if not cfg["read_cache"] or hook.tool != "Read" or hook.agent_id or not hook.session:
+        return ""
+    if _devin_unconfirmed(hook):
         return ""
     if any(hook.tool_input.get(key) not in (None, "", 0) for key in ("offset", "limit", "pages")):
         return ""
@@ -1138,7 +1149,8 @@ def _user_prompt(root: Path, hook: Hook, cfg: dict, agent: str | None) -> str:
         already = set()
     blocks: list[str] = []
     digests: list[str] = []
-    framed = [False]  # a block of records (not a host line) is in `blocks`
+    hosted: list[str] = []  # the host command's block: in front of the frame
+    framed = [False]  # a block of records is in `blocks`
 
     def offer(text: str, overflow: str = "", records: bool = True) -> bool:
         """Add a block unless this session already has it; False once the total is spent."""
@@ -1150,18 +1162,18 @@ def _user_prompt(root: Path, hook: Hook, cfg: dict, agent: str | None) -> str:
         text, sections = _new_sections(text, already | set(digests))
         if not text:
             return True
-        if blocks and width + sum(map(len, blocks)) + len(text) > PROMPT_TOTAL_CHARS:
+        if blocks and width + sum(map(len, blocks + hosted)) + len(text) > PROMPT_TOTAL_CHARS:
             if overflow:
                 blocks.append(overflow)
             return False
-        blocks.append(text)
+        (blocks if records else hosted).append(text)
         framed[0] = framed[0] or records
         digests.append(digest)
         digests.extend(sections)
         return True
 
     offer(task_brief(root, width))
-    _log_decision(root, hook, decisions[0])
+    _log_decision(root, hook, _logged(decisions[0], blocks[0] if blocks else "", width if framed[0] else 0))
     home = workspace.of(root) if not projects else None
     if home is not None:
         # A session started in a project of a workspace: the workspace's own
@@ -1180,7 +1192,7 @@ def _user_prompt(root: Path, hook: Hook, cfg: dict, agent: str | None) -> str:
         except Exception:  # noqa: BLE001 - hand-edited stores never cost the brief
             pass
     offer(_host_lines(root, cfg["prompt_command"], hook, named), records=False)
-    if not blocks:
+    if not blocks and not hosted:
         return ""
     if seen is not None and digests:
         try:
@@ -1190,7 +1202,17 @@ def _user_prompt(root: Path, hook: Hook, cfg: dict, agent: str | None) -> str:
         except OSError:
             pass
     text = "\n\n".join(blocks)
-    return _framed(text, cfg) if framed[0] else text
+    return "\n\n".join(part for part in (*hosted, _framed(text, cfg) if framed[0] else text) if part)
+
+
+def _logged(decision: dict, emitted: str, frame: int) -> dict:
+    """The brief's decision as it reached the session: a brief that per-session
+    dedup dropped whole was not injected, and the frame is part of what was."""
+    if decision.get("outcome") != "injected":
+        return decision
+    if not emitted:
+        return {**decision, "outcome": "abstained", "reason": "seen", "sections": [], "chars": 0}
+    return {**decision, "chars": len(emitted) + frame}
 
 
 def _log_decision(root: Path, hook: Hook, decision: dict) -> None:
@@ -1745,6 +1767,7 @@ def _pre_agent(root: Path, hook: Hook, cfg: dict, agent: str | None) -> str:
     if model:
         updated["model"] = model
     prompt = str(hook.tool_input.get("prompt") or "")
+    text = ""
     if cfg["handoff_tokens"] and prompt.strip():
         from core import brief
 
@@ -1757,11 +1780,13 @@ def _pre_agent(root: Path, hook: Hook, cfg: dict, agent: str | None) -> str:
         if text and any(not line.startswith("- use: ") for line in text.splitlines()[1:]):
             text = _framed(text, cfg)
         if text:
-            updated["prompt"] = f"{prompt}\n\n{text}"
             _note_state(hook.session, handoff=len(text))
+    # The host's suffix comes before the handoff: the frame covers the records only.
     suffix = cfg["subagent_suffix"].strip()
-    if suffix and prompt.strip() and suffix not in prompt:
-        updated["prompt"] = f"{updated.get('prompt', prompt)}\n\n{suffix}"
+    parts = [prompt] + ([suffix] if suffix and prompt.strip() and suffix not in prompt else []) + [text]
+    joined = "\n\n".join(part for part in parts if part)
+    if joined != prompt:
+        updated["prompt"] = joined
     if not updated:
         return ""
     return json.dumps({"hookSpecificOutput": {"hookEventName": "PreToolUse",
@@ -1797,6 +1822,8 @@ def _route_subagent(root: Path, hook: Hook) -> str | None:
     from core.routing import registry
 
     reason = route_module.withheld(decision, routing, registry.load(root, routing))
+    if reason is None and _devin_unconfirmed(hook):
+        reason = "devin keys unconfirmed"
     status = "applied" if reason is None else ("dry run" if reason == "dry run" else f"not applied, {reason}")
     # Every decision is recorded, applied or not: the request's hash (never its
     # text), the classification, the model, the confidence and the call id the
