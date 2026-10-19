@@ -45,29 +45,20 @@ def fold(text: str) -> str:
 _SUFFIXES_TR = ("ları", "leri", "lere", "lar", "ler", "ini", "ını", "nın", "nin", "dan", "den", "tan", "ten",
                 "sı", "si", "su", "sü", "yı", "yi", "da", "de", "ta", "te", "ı", "i", "u", "ü")
 _SUFFIXES_EN = ("ing", "ed", "s")
-_STEMMING = False
 
 
-def set_stemming(on: bool) -> None:
-    """Switch stemming for the words `_words` reads, query and notes alike."""
-    global _STEMMING
-    _STEMMING = bool(on)
-
-
-def configure_stemming(project_root: str | Path) -> None:
-    """Read `[notes] stem` (default false) of a project and apply it. Called by
-    every entry point that scores notes against text, so both sides of a match
-    are read the same way."""
+def stem_setting(project_root: str | Path) -> bool:
+    """`[notes] stem` of a project (default false). The entry points that score
+    notes read it once and pass it down as `stem=`, so a query and the notes it
+    is matched against are read the same way and no state outlives the call."""
     from core.lib.config_io import ConfigIO
 
-    on = False
     try:
         config = Path(project_root).expanduser().resolve() / ".eos" / "config.toml"
         section = ConfigIO.read_toml(config).get("notes") if config.is_file() else None
-        on = isinstance(section, dict) and section.get("stem") is True
+        return isinstance(section, dict) and section.get("stem") is True
     except Exception:  # noqa: BLE001 - a malformed config leaves stemming off
-        pass
-    set_stemming(on)
+        return False
 
 
 def _strip_once(word: str) -> str:
@@ -99,7 +90,7 @@ def stem(word: str) -> str:
         word = shorter
 
 
-def _words(text: str) -> set[str]:
+def _words(text: str, stem_words: bool = False) -> set[str]:
     """The words a query or a note is matched on.
 
     Longer than two characters, casefolded. Two exceptions at two letters: a
@@ -109,7 +100,7 @@ def _words(text: str) -> set[str]:
     that length is all ASCII. A word no note contains weighs nothing
     (`word_weights`), so a short stopword kept here costs no ranking. An
     identifier like PROJ-1700 counts as itself and its number, not its prefix.
-    With stemming on (`[notes] stem`), every alphabetic word is stemmed.
+    With `stem_words` (`[notes] stem`), every alphabetic word is stemmed.
     """
     words = set()
     prefixes = set()
@@ -120,7 +111,7 @@ def _words(text: str) -> set[str]:
         word = fold(token)
         if len(word) > 2 or (len(token) == 2 and token.isalpha()
                              and (token.isupper() or not token.isascii())):
-            words.add(stem(word) if _STEMMING and word.isalpha() else word)
+            words.add(stem(word) if stem_words and word.isalpha() else word)
     return words - prefixes
 
 
@@ -129,7 +120,7 @@ def heading(note: Note) -> str:
     return " ".join((note.title, *note.aliases))
 
 
-def synonym_groups(groups: object) -> dict[str, str]:
+def synonym_groups(groups: object, stem_words: bool = False) -> dict[str, str]:
     """Word -> the key of its synonym group, from a list of word lists.
 
     Each group becomes one concept: its members and a query naming any of them
@@ -148,7 +139,7 @@ def synonym_groups(groups: object) -> dict[str, str]:
             continue
         members = []
         for member in group:
-            words = _words(member) if isinstance(member, str) else set()
+            words = _words(member, stem_words) if isinstance(member, str) else set()
             if len(words) == 1 and len(member.split()) == 1:
                 members.extend(words)
         members = [word for word in dict.fromkeys(members) if word not in canon]
@@ -190,7 +181,7 @@ def _synonym_terms(words: set[str], canon: dict[str, str] | None) -> set[str]:
 
 
 def word_weights(corpus: list[Note], query_words: set[str],
-                 *, canon: dict[str, str] | None = None) -> dict[str, float]:
+                 *, canon: dict[str, str] | None = None, stem: bool = False) -> dict[str, float]:
     """How much each query word is worth here: `log(notes / notes using it)`.
 
     Without this every word counts the same, and a question asked in a sentence
@@ -215,7 +206,7 @@ def word_weights(corpus: list[Note], query_words: set[str],
     seen = {word: 0 for word in query_words}
     for note in corpus:
         present = canonical_words(
-            _words(heading(note)) | _words(" ".join(note.tags)) | _words(note.body), canon)
+            _words(heading(note), stem) | _words(" ".join(note.tags), stem) | _words(note.body, stem), canon)
         for word in query_words & present:
             seen[word] += 1
     return {word: math.log(total / count) if count else 0.0 for word, count in seen.items()}
@@ -223,7 +214,7 @@ def word_weights(corpus: list[Note], query_words: set[str],
 
 def relevance(note: Note, query_words: set[str],
               weights: dict[str, float] | None = None, *, body: bool = True,
-              canon: dict[str, str] | None = None) -> float:
+              canon: dict[str, str] | None = None, stem: bool = False) -> float:
     """How well one note answers a query, in 0.0 - 1.0.
 
     Scores how much of the *query* the note covers, rather than the Jaccard
@@ -254,9 +245,9 @@ def relevance(note: Note, query_words: set[str],
     if not query_words:
         return 0.0
 
-    title_words = canonical_words(_words(heading(note)), canon)
-    tag_words = canonical_words(_words(" ".join(note.tags)), canon)
-    body_words = canonical_words(_words(note.body), canon) if body else set()
+    title_words = canonical_words(_words(heading(note), stem), canon)
+    tag_words = canonical_words(_words(" ".join(note.tags), stem), canon)
+    body_words = canonical_words(_words(note.body, stem), canon) if body else set()
 
     if weights:
         budget = sum(weights.get(word, 0.0) for word in query_words)
@@ -287,16 +278,16 @@ def search_notes(project_root: str | Path, query: str, limit: int | None = None,
     groups; `generated` ranks the generator notes with them (M3)."""
     from core import priors
 
-    configure_stemming(project_root)
     corpus = (load_notes(project_root) + shared_notes(project_root)
               + (load_generated(project_root) if generated else []))
     found, alpha = priors.for_search(project_root, corpus)
-    return rank(corpus, query, limit, synonyms=note_synonyms(project_root), priors=found, alpha=alpha)
+    return rank(corpus, query, limit, synonyms=note_synonyms(project_root), priors=found, alpha=alpha,
+                stem=stem_setting(project_root))
 
 
 def rank(corpus: list[Note], query: str, limit: int | None = None,
          *, synonyms: object = None, priors: dict[str, int] | None = None,
-         alpha: float = 0.0) -> list[Note]:
+         alpha: float = 0.0, stem: bool = False) -> list[Note]:
     """The one note scorer (2.x roadmap F3): `corpus` ranked against `query`.
 
     `search_notes` passes one project's notes; a host searching several stores
@@ -307,19 +298,21 @@ def rank(corpus: list[Note], query: str, limit: int | None = None,
     `priors` (note file name -> 0..100, `core.priors`) adds `alpha * prior / 100`
     to a note that already matched (M6, ADR-036): the threshold and the floor
     read relevance alone, so a prior reorders the matches and never makes one.
+
+    `stem` reads the query and every note through the stemmer (`[notes] stem`).
     """
-    canon = synonym_groups(synonyms) if synonyms else {}
-    query_words = canonical_words(_words(query), canon)
+    canon = synonym_groups(synonyms, stem) if synonyms else {}
+    query_words = canonical_words(_words(query, stem), canon)
     replaced = superseded(corpus)
     # Replaced and expired notes stay on disk as the record; search stops offering them.
     corpus = [note for note in corpus if note.path.name not in replaced and not expired(note)]
-    weights = word_weights(corpus, query_words, canon=canon)
+    weights = word_weights(corpus, query_words, canon=canon, stem=stem)
     # Every word ubiquitous (or the query is one such word): weighting has
     # nothing left to say, and falling through to equal weights answers with
     # what matched instead of with nothing.
     if not any(weight > 0 for weight in weights.values()):
         weights = None
-    scored = [(relevance(note, query_words, weights, canon=canon), note) for note in corpus]
+    scored = [(relevance(note, query_words, weights, canon=canon, stem=stem), note) for note in corpus]
     matches = [pair for pair in scored if pair[0] >= _RELEVANCE_THRESHOLD]
     matches.sort(key=lambda pair: (-pair[0], pair[1].path.name))
     if matches:

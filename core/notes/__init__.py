@@ -43,7 +43,7 @@ from core.notes.validate import (
 from core.notes.render import (
     _RELEVANCE_THRESHOLD, SCORE_FLOOR, _KEY, _words, word_weights, relevance, NARROWED_KINDS,
     search_notes, rank, _OMITTED_TITLE_LIMIT, _render_note, render_context_section,
-    synonym_groups, canonical_words, fold, stem, heading, set_stemming, configure_stemming,
+    synonym_groups, canonical_words, fold, stem, heading, stem_setting,
 )  # noqa: F401
 from core.notes.write import (
     SKIPS_FILE, skips_path, record_skip, was_skipped, add_note, amend_note, SimilarNoteError,

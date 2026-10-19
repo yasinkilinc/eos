@@ -812,6 +812,13 @@ so naming two members of a group counts once. Off without the table:
 synonyms = [["wiki", "confluence"], ["sms", "notification"]]
 ```
 
+A note can carry `aliases` -- other names for it, such as its title in the
+language prompts are written in (`eos note add --alias "sipariş iptali"`,
+repeatable; `note amend --alias` adds to them). They are scored as the title.
+Write them as a block list or one scalar; the inline form `aliases: [a, b]` is
+not parsed as a list, as with `projects`. `[notes] stem = true` (default false)
+additionally strips Turkish and English suffixes on both sides of a match.
+
 A new note can say who wrote it and until when it holds:
 `--provenance human|agent|generated`, `--agent <name>` (implies `agent`; the MCP
 `add_note` tool always records `agent`) and `--valid-until YYYY-MM-DD`. After

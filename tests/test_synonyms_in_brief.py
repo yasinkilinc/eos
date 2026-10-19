@@ -26,10 +26,13 @@ def _add(root, kind, title, body, tags):
 
 def test_best_procedure_matches_through_a_synonym(tmp_path):
     root = _project(tmp_path)
-    _add(root, "procedure", "Send a notification", "1. Do it.\n\n## Steps\n\n1. Send it.", "notify,test")
+    _add(root, "procedure", "Send a notification", "1. Do it.\n\n## Steps\n\n1. Send it.", "notify")
     _add(root, "procedure", "Rotate the keys", "1. Do it.\n\n## Steps\n\n1. Rotate.", "keys")
-    found = brief.best_procedure(root, "bildirim gönder test")
+    found = brief.best_procedure(root, "bildirim gönder")
     assert found is not None and found.title == "Send a notification"
+    path = root / ".eos" / "config.toml"
+    path.write_text(path.read_text(encoding="utf-8").replace(SYNONYMS, ""), encoding="utf-8")
+    assert brief.best_procedure(root, "bildirim gönder") is None
 
 
 def test_related_lists_a_note_reachable_only_through_a_synonym(tmp_path):

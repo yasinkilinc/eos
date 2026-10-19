@@ -203,7 +203,7 @@ def for_subagent(project_root: str | Path, task: str, *, session: str | None = N
         execution, ledger = found
         title = next((r.title for r in executions.load_path(Path(ledger), only=execution)), "")
         lines.append(f"- parent run: {execution}" + (f" ({title})" if title else ""))
-    notes.configure_stemming(root)
+    stem = notes.stem_setting(root)
     corpus = notes.load_notes(root)
     procedure = best_procedure(root, task, corpus)
     if procedure is not None:
@@ -220,12 +220,12 @@ def for_subagent(project_root: str | Path, task: str, *, session: str | None = N
     # Canonicalized the same way `search_notes` scored them (N1's synonym
     # groups), or a note it ranked relevant through a synonym alone is found
     # by search and then silently dropped again by this literal-word check.
-    canon = notes.synonym_groups(notes.note_synonyms(root))
-    words = notes.canonical_words(notes._words(task), canon)
+    canon = notes.synonym_groups(notes.note_synonyms(root), stem)
+    words = notes.canonical_words(notes._words(task, stem), canon)
     related = [n for n in notes.search_notes(root, task, limit=RELATED_LIMIT + 3)
                if n.kind != "procedure" and not notes.is_bulk_index(n)
-               and notes.canonical_words(notes._words(notes.heading(n)) | notes._words(" ".join(n.tags)), canon)
-               & words][:RELATED_LIMIT]
+               and notes.canonical_words(notes._words(notes.heading(n), stem) | notes._words(" ".join(n.tags), stem),
+                                         canon) & words][:RELATED_LIMIT]
     if related:
         lines.append("- known here: " + "; ".join(f"{n.title} {note_label(n, root)}" for n in related)
                      + ' (eos note show . "<title>")')
@@ -473,7 +473,7 @@ def best_procedure(root: Path, task: str, corpus: list | None = None):
     for nothing. A task is named in the words its procedure is titled and
     tagged with; that is what tags are for.
     """
-    notes.configure_stemming(root)
+    stem = notes.stem_setting(root)
     corpus = corpus if corpus is not None else notes.load_notes(root)
     replaced = notes.superseded(corpus)
     candidates = [n for n in corpus if n.kind == "procedure" and n.path.name not in replaced
@@ -483,17 +483,18 @@ def best_procedure(root: Path, task: str, corpus: list | None = None):
     # A project's generic verbs ("gözden geçir", review) never name a procedure;
     # every other path still reads them.
     # Read through the project's synonym groups, as `search_notes` scores them.
-    canon = notes.synonym_groups(notes.note_synonyms(root))
-    words = notes._words(task) - _procedure_stopwords(root)
+    canon = notes.synonym_groups(notes.note_synonyms(root), stem)
+    words = notes._words(task, stem) - _procedure_stopwords(root)
     if not words:
         return None
     words = notes.canonical_words(words, canon)
-    weights = notes.word_weights(corpus, words, canon=canon)
+    weights = notes.word_weights(corpus, words, canon=canon, stem=stem)
     if not any(weight > 0 for weight in weights.values()):
         weights = None
-    score, note = max(((notes.relevance(n, words, weights, body=False, canon=canon), n) for n in candidates),
+    score, note = max(((notes.relevance(n, words, weights, body=False, canon=canon, stem=stem), n) for n in candidates),
                       key=lambda pair: pair[0])
-    heading = notes.canonical_words(notes._words(notes.heading(note)) | notes._words(" ".join(note.tags)), canon)
+    heading = notes.canonical_words(notes._words(notes.heading(note), stem) | notes._words(" ".join(note.tags), stem),
+                                    canon)
     matched = words & heading
     # One matched word names a task only when it is most of the prompt
     # ("push'la", "PR aç"). In a longer prompt a lone word whose neighbours
@@ -595,7 +596,7 @@ def _task_sections(root: Path, task: str, stats: dict | None = None) -> tuple[li
     """
     from core import executions
 
-    notes.configure_stemming(root)
+    stem = notes.stem_setting(root)
     corpus = notes.load_notes(root)
     procedure = best_procedure(root, task, corpus)
     records = executions.load(root)
@@ -690,18 +691,18 @@ def _task_sections(root: Path, task: str, stats: dict | None = None) -> tuple[li
     # ("continue", in any language) it put two unrelated notes in front of a
     # session that asked for nothing. The brief is unrequested context; it
     # owes a higher bar than a search somebody typed.
-    canon = notes.synonym_groups(notes.note_synonyms(root))
-    task_words = notes.canonical_words(notes._words(task), canon)
+    canon = notes.synonym_groups(notes.note_synonyms(root), stem)
+    task_words = notes.canonical_words(notes._words(task, stem), canon)
     candidates = [n for n in notes.search_notes(root, task, limit=RELATED_LIMIT + 6)
                   if n.kind != "procedure" and not notes.is_bulk_index(n)
-                  and notes.canonical_words(notes._words(notes.heading(n)) | notes._words(" ".join(n.tags)),
+                  and notes.canonical_words(notes._words(notes.heading(n), stem) | notes._words(" ".join(n.tags), stem),
                                             canon) & task_words]
     # A shared word is not relevance: the note must also cover enough of the
     # prompt, weighted by rarity, to clear `[brief] related_min_score`.
-    weights = notes.word_weights(corpus, task_words, canon=canon) if candidates else None
+    weights = notes.word_weights(corpus, task_words, canon=canon, stem=stem) if candidates else None
     if weights is not None and not any(weight > 0 for weight in weights.values()):
         weights = None
-    scored = [(notes.relevance(n, task_words, weights, body=False, canon=canon), n) for n in candidates]
+    scored = [(notes.relevance(n, task_words, weights, body=False, canon=canon, stem=stem), n) for n in candidates]
     if stats is not None:
         stats["best_score"] = max((score for score, _ in scored), default=0.0)
     floor = brief_setting(root, "related_min_score", RELATED_MIN_SCORE)
