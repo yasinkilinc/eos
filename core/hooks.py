@@ -71,10 +71,13 @@ SETTINGS = ("brief", "capture", "hints", "subagents", "loaded", "sessions", "clo
 # config of the project that owns the changed file, so a workspace gates its
 # projects and not its own scripts. `stale`: only the second half -- a file this
 # session changed left a hand-written note on it false.
-OPT_IN = ("notes", "stale", "probe")
+OPT_IN = ("notes", "stale", "probe", "read_cache")
 # `probe`: append the key names (never the values) of every hook payload to
 # `.eos/data/hook-probe.jsonl`, so a first session on a new host (Devin) shows
 # which fields it sends.
+# `read_cache`: a main-session whole-file Read of a file unchanged (mtime and size)
+# since this session read it whole is answered once with a deny naming the time;
+# asking again reads it. Per-session store of paths only, never contents.
 # Numeric settings, 0 = off. outline_lines: a main-session Read of a longer file
 # with no range is answered once with its outline instead; clear_hint_tokens: a
 # finished run in a session holding more context than this gets one /clear hint.
@@ -122,6 +125,7 @@ MAX_TASK_CHARS = 2000
 INJECT_STATE_DAYS = 14
 MAX_READ_BYTES = 8 * 1024 * 1024
 MAX_WATCHED = 64
+READ_CACHE_KEEP = 500
 MAX_KEPT_FILES = 12
 _RUN_FINISH = re.compile(r"(?<![\w-])eos\s+run\s+finish\b")
 # The harness delivers its own notices through the prompt event.
@@ -851,6 +855,10 @@ def _session_start(root: Path, hook: Hook, cfg: dict, agent: str | None) -> str:
             except OSError:
                 pass
         _note_state(hook.session, reset=hook.source)
+        try:
+            _read_cache_file(hook.session).unlink()
+        except OSError:
+            pass
         if hook.source == "compact" and cfg["compact"]:
             lines = _kept_lines(_kept(root, hook.session))
             if lines:
@@ -913,6 +921,84 @@ def _post_compact(root: Path, hook: Hook, cfg: dict, agent: str | None) -> str:
 
 
 def _pre_read(root: Path, hook: Hook, cfg: dict, agent: str | None) -> str:
+    return _outline_deny(root, hook, cfg) or _cached_deny(hook, cfg)
+
+
+def _read_cache_file(session: str) -> Path:
+    return _state_dir() / f"{_safe(session)}.readcache.json"
+
+
+def _read_cache(session: str) -> dict:
+    try:
+        data = json.loads(_read_cache_file(session).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def _write_read_cache(session: str, cache: dict) -> None:
+    """Newest READ_CACHE_KEEP paths; a write that fails is dropped."""
+    target = _read_cache_file(session)
+    try:
+        target.parent.mkdir(parents=True, exist_ok=True)
+        from core.lib import atomic
+
+        atomic.write_text(target, json.dumps(dict(list(cache.items())[-READ_CACHE_KEEP:]), ensure_ascii=False))
+    except OSError:
+        pass
+
+
+def _whole_main_read(hook: Hook, cfg: dict) -> str:
+    """The path of a main-session whole-file Read when `read_cache` is on, else ''."""
+    if not cfg["read_cache"] or hook.tool != "Read" or hook.agent_id or not hook.session:
+        return ""
+    if any(hook.tool_input.get(key) not in (None, "", 0) for key in ("offset", "limit", "pages")):
+        return ""
+    return hook.target_path
+
+
+def _stamp(path: str) -> tuple[int, int] | None:
+    try:
+        status = os.stat(path)
+    except OSError:
+        return None
+    return status.st_mtime_ns, status.st_size
+
+
+def _cached_deny(hook: Hook, cfg: dict) -> str:
+    path = _whole_main_read(hook, cfg)
+    stamp = _stamp(path) if path else None
+    if stamp is None:
+        return ""
+    cache = _read_cache(hook.session)
+    entry = cache.get(path)
+    if not isinstance(entry, dict) or [entry.get("mtime_ns"), entry.get("size")] != list(stamp):
+        return ""
+    if entry.get("attempts"):
+        cache[path] = {**entry, "read_at": time.time(), "attempts": 0}  # insisted: recorded now
+        _write_read_cache(hook.session, cache)
+        return ""
+    cache[path] = {**entry, "attempts": 1}
+    _write_read_cache(hook.session, cache)
+    at = time.strftime("%H:%M", time.localtime(entry.get("read_at") or time.time()))
+    reason = f"{path} is unchanged since you read it at {at}; use that content (read again to override)."
+    return json.dumps({"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny",
+                                              "permissionDecisionReason": reason}}, ensure_ascii=False)
+
+
+def _record_read(hook: Hook, cfg: dict) -> None:
+    """After a whole-file Read that completed: what the session now holds."""
+    path = _whole_main_read(hook, cfg)
+    stamp = _stamp(path) if path else None
+    if stamp is None:
+        return
+    cache = _read_cache(hook.session)
+    cache.pop(path, None)
+    cache[path] = {"mtime_ns": stamp[0], "size": stamp[1], "read_at": time.time(), "attempts": 0}
+    _write_read_cache(hook.session, cache)
+
+
+def _outline_deny(root: Path, hook: Hook, cfg: dict) -> str:
     """A main-session Read of a long file with no range is answered once with
     the file's outline; asking again reads it. Everything read stays in the
     context for every later call, so the part needed is cheaper than the whole."""
@@ -1339,6 +1425,7 @@ def _post_tool_record(root: Path, hook: Hook, cfg: dict, agent: str | None, fail
     if hook.tool == "Read":
         if main_session and not failed:
             _watch(hook.session, hook.target_path)
+            _record_read(hook, cfg)
         if run is not None and not failed:
             _record_note_reads(root, hook, run, [hook.target_path])
         return ""

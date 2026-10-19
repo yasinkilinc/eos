@@ -41,7 +41,7 @@ executable launcher under `~/.local/bin/eos`. Override the locations with
 
 ## What changed in 2.3.1
 
-- Devin CLI hooks: `eos hook <event> --host devin` (also detected when the payload has `prompt_id` and no `transcript_path`) serves Devin's tool names and input keys with the same handlers; a deny is its reason on stderr with exit 2. `[hooks] probe = true` (off) appends only the key names of each payload to `.eos/data/hook-probe.jsonl`, to confirm Devin's field names.
+- Devin CLI hooks: `eos hook <event> --host devin` (also detected when the payload has `prompt_id` and no `transcript_path`) serves Devin's tool names and input keys with the same handlers; a deny is its reason on stderr with exit 2. `[hooks] probe = true` (off) appends only the key names of each payload to `.eos/data/hook-probe.jsonl`, to confirm Devin's field names. `[hooks] read_cache = true` (off): a main-session whole-file Read of a file unchanged since the session read it is denied once (naming the time); reading again passes. Cleared on compact/clear; stores paths, mtime and size only.
 - Opt-in Bash output clip: `[hooks] bash_clip_chars = N` (off at 0). After a
   Bash call (Claude Code, tool `Bash`) whose stdout plus stderr is longer than
   N, the full output is written to `.eos/data/clip/` (self-ignoring, newest 50
