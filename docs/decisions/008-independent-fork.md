@@ -26,7 +26,9 @@ replacing them with neutral, generic equivalents or configuration knobs where
 the underlying capability is still worth keeping (`merge_branch_pattern`,
 `EOS_PARENT_SEGMENT`). `tools/check-clean.sh` encodes the resulting denylist
 as an executable gate so a future contributor cannot silently reintroduce a
-company-specific string.
+company-specific string. The company-specific entries themselves live outside
+the repository (the `EOS_CLEAN_DENY` CI secret, or an untracked
+`.check-clean-deny` locally), so the gate does not publish what it guards.
 
 ## Consequences
 

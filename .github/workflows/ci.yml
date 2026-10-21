@@ -9,6 +9,8 @@ jobs:
       matrix:
         os: [ubuntu-latest, macos-latest]
     runs-on: ${{ matrix.os }}
+    env:
+      EOS_CLEAN_DENY: ${{ secrets.EOS_CLEAN_DENY }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5

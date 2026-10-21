@@ -40,3 +40,6 @@ plugin/evals/results/
 
 # Build output of the Java structure fixture (a local compile, never source)
 tests/fixtures/**/target/
+
+# Private check-clean denylist (tools/check-clean.sh)
+.check-clean-deny

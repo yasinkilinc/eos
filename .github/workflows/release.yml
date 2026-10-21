@@ -11,6 +11,8 @@ jobs:
     # then fails at the last step with a 403.
     permissions:
       contents: write
+    env:
+      EOS_CLEAN_DENY: ${{ secrets.EOS_CLEAN_DENY }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
