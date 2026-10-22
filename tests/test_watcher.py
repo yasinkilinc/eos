@@ -80,6 +80,19 @@ def test_is_noise_filters_caches_and_venvs():
     assert not _is_noise(Path("proj/lib/utils.ts"))
 
 
+def test_is_noise_skips_the_append_only_ledgers_but_not_the_notes_beside_them():
+    """Every hook event appends to executions.jsonl; a full rescan per append
+    kept a 7,987-file project scanning back to back. Their readers read the
+    jsonl directly, and the index's readers refresh it on read."""
+    knowledge = Path("proj/.devin/knowledge/proj")
+    for name in ("executions.jsonl", "executions.1.jsonl", "executions.4.jsonl",
+                 "work.jsonl", "verifications.jsonl"):
+        assert _is_noise(knowledge / name), name
+    assert not _is_noise(knowledge / "finding-retry-storms.md")
+    assert not _is_noise(knowledge / "generated" / "endpoints.md")
+    assert not _is_noise(Path("proj/src/test/resources/payload.jsonl"))
+
+
 def test_debouncer_coalesces_bursts_into_one_call():
     calls: list[str] = []
     clock = _FakeClock()

@@ -12,6 +12,7 @@ lists them only when a person asks: resources (`eos://brief`,
 from __future__ import annotations
 
 import json
+import sqlite3
 import sys
 from typing import Any
 
@@ -97,8 +98,17 @@ def _search_index(project_root, args: dict) -> dict:
     database = _index.db_path(project_root)
     if not database.is_file():
         return {"results": [], "note": "No index yet. Run 'eos index' or 'eos scan'."}
+    # The run, work and verification ledgers change on every hook event and
+    # nothing rescans for them, so the search brings the index up to date
+    # first, as `eos query --search` does.
+    answer = {}
+    try:
+        _index.refresh(project_root)
+    except (_index.IndexBuildError, OSError, ValueError, sqlite3.Error) as exc:
+        answer["note"] = f"Answered from a possibly stale index; could not bring it up to date: {exc}"
     columns, rows = _index.search(database, args["query"], int(args.get("limit", 20)))
-    return {"results": [dict(zip(columns, row)) for row in rows]}
+    answer["results"] = [dict(zip(columns, row)) for row in rows]
+    return answer
 
 
 class McpServer:

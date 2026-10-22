@@ -10,6 +10,7 @@ Optional dependency: ``watchdog``. The rest of eos-ui does not import this
 module unless watching is enabled, so the core API stays runnable without it.
 """
 import logging
+import re
 import threading
 import time
 from pathlib import Path
@@ -62,6 +63,15 @@ _IGNORE_DIRS = {
 }
 _IGNORE_SUFFIXES = {".pyc", ".pyo", ".log", ".swp"}
 _IGNORE_NAMES = {".DS_Store", "Thumbs.db"}
+# The append-only ledgers beside the notes (core/executions, core/work,
+# core/verification), rotated execution files included. Every hook event
+# appends to executions.jsonl, so rescanning on it kept a 7,987-file project
+# scanning back to back (2026-10-22: median 89 s, 800 runs past the timeout in
+# two days). A scan reads nothing from them: brief, `eos run`, consolidate and
+# routing read the jsonl itself, and eos.db, which folds them, is brought up
+# to date by its readers (`index.refresh`). Matched by name because the
+# knowledge dir is configurable and the default one is under `.eos` anyway.
+_LEDGER = re.compile(r"(executions(\.\d+)?|work|verifications)\.jsonl")
 
 
 def _is_noise(path: Path) -> bool:
@@ -70,6 +80,8 @@ def _is_noise(path: Path) -> bool:
     if path.suffix in _IGNORE_SUFFIXES:
         return True
     if path.name in _IGNORE_NAMES:
+        return True
+    if _LEDGER.fullmatch(path.name):
         return True
     return False
 

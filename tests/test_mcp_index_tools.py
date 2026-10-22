@@ -118,6 +118,19 @@ def test_search_index_finds_a_note_through_full_text(tmp_path):
     assert any(hit["source"] == "note" for hit in found), found
 
 
+def test_search_index_sees_a_run_recorded_after_the_index_was_built(tmp_path):
+    """The watcher no longer rescans on a ledger append, so the reader brings
+    the index up to date itself, as `eos query` does."""
+    root = _scanned(tmp_path)
+    assert _run(["run", "start", str(root), "--title", "Deploy staging gateway",
+                 "--session", "s-1"]).returncode == 0
+    server = _server(root)
+
+    found = server.tools["search_index"]["handler"]({"query": "staging gateway"})["results"]
+
+    assert any(hit["source"] == "execution" for hit in found), found
+
+
 def test_search_index_says_so_when_there_is_no_index(tmp_path):
     server = _server(tmp_path / "bare")
 
