@@ -26,7 +26,18 @@ fi
 private=$(printf '%s\n' "$private" | grep -vE '^[[:space:]]*(#|$)' | paste -sd'|' -)
 [ -n "$private" ] && DENY="$DENY|$private"
 
-hits=$(grep -rEin "$DENY" "$TARGET" \
+# grep exits 2 on a pattern it cannot compile, and a search that errors finds
+# nothing: neither may read as clean. The pattern is not echoed -- it holds
+# the private names.
+grep -Ei -e "$DENY" </dev/null >/dev/null 2>&1
+if [ $? -eq 2 ]; then
+    echo "check-clean: invalid deny pattern (not an ERE grep accepts); check EOS_CLEAN_DENY or .check-clean-deny" >&2
+    exit 2
+fi
+
+errors=$(mktemp)
+trap 'rm -f "$errors"' EXIT
+hits=$(grep -rEin -e "$DENY" "$TARGET" \
     --exclude-dir=.git \
     --exclude=.git \
     --exclude-dir=node_modules \
@@ -38,7 +49,12 @@ hits=$(grep -rEin "$DENY" "$TARGET" \
     --exclude='check-clean.sh' \
     --exclude='.check-clean-deny' \
     --exclude='test_check_clean.py' \
-    2>/dev/null || true)
+    2>"$errors")
+if [ $? -eq 2 ]; then
+    echo "check-clean: the search failed, so nothing was checked:" >&2
+    head -5 "$errors" >&2
+    exit 2
+fi
 
 if [ -n "$hits" ]; then
     echo "check-clean: internal identifiers found:" >&2

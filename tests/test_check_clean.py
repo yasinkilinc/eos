@@ -53,3 +53,18 @@ def test_a_worktree_git_file_is_not_content(tmp_path):
     (tmp_path / ".git").write_text("gitdir: /Volumes/Data/workspace/x/.git/worktrees/y\n", encoding="utf-8")
     (tmp_path / "a.py").write_text("def handler():\n    return 1\n", encoding="utf-8")
     assert _run(tmp_path).returncode == 0
+
+
+def test_an_invalid_deny_pattern_is_an_error_not_clean(tmp_path):
+    """grep exits 2 on a pattern it cannot compile; `|| true` read that as clean."""
+    (tmp_path / "b.py").write_text("vendor = 'acme'\n", encoding="utf-8")
+    result = _run(tmp_path, deny="acme[")
+    assert result.returncode == 2, result.stdout + result.stderr
+    assert "check-clean: clean" not in result.stdout
+    assert "invalid" in result.stderr
+
+
+def test_a_search_that_fails_is_an_error_not_clean(tmp_path):
+    result = _run(tmp_path / "missing", deny="acmecorp")
+    assert result.returncode == 2, result.stdout + result.stderr
+    assert "check-clean: clean" not in result.stdout
