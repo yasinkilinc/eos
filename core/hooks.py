@@ -120,6 +120,10 @@ WORKSPACE_PROMPT_LIMIT = 3
 # this stops the root plus three projects from quadrupling it.
 PROMPT_TOTAL_CHARS = 6000
 MAX_TASK_CHARS = 2000
+# Claude Code shows the model a hook text field of up to 10,000 chars in full
+# and only a 2,000-char preview of a longer one; measured Stop reasons ran to
+# 25,952. Below that cap with room for the harness's own framing.
+STOP_REASON_CHARS = 8000
 # A session's injection state (notes given, budget spent, task words) survives
 # SessionEnd for a resume; SessionEnd removes what no session touched this long.
 INJECT_STATE_DAYS = 14
@@ -1913,7 +1917,19 @@ def _stop(root: Path, hook: Hook, cfg: dict, agent: str | None) -> str:
         _note_state(hook.session, gated=mark)
     # A Stop hook blocks through its JSON answer, so this one still exits 0;
     # the harness sets stop_hook_active on the next stop and it lets go.
-    return json.dumps({"decision": "block", "reason": "\n\n".join(reasons)}, ensure_ascii=False)
+    return json.dumps({"decision": "block", "reason": _capped("\n\n".join(reasons))}, ensure_ascii=False)
+
+
+def _capped(reason: str) -> str:
+    """The Stop reason within STOP_REASON_CHARS, cut at a line, the cut said."""
+    if len(reason) <= STOP_REASON_CHARS:
+        return reason
+    room = STOP_REASON_CHARS - 120
+    kept = reason[:room]
+    if "\n" in kept:
+        kept = kept[:kept.rindex("\n")]
+    return (f"{kept.rstrip()}\n[EOS: cut {len(reason) - len(kept):,} more characters of this stop reason "
+            f"at its {STOP_REASON_CHARS:,}-character cap]")
 
 
 def _cite_reasons(root: Path, hook: Hook, cfg: dict) -> list[str]:

@@ -130,3 +130,41 @@ def test_an_edited_copy_matching_the_note_is_not_stale(tmp_path):
     assert note_gate._edited_copy_matches(stored, [str(copy)], {})
     assert not note_gate._edited_copy_matches(None, [str(copy)], {})
     assert not note_gate._edited_copy_matches(stored, [str(tmp_path / "missing")], {})
+
+
+def _stale_item(n: int) -> dict:
+    return {"title": f"Note {n} about the factory", "note": f"finding-{n}.md", "scope": f"src/A{n}.java",
+            "path": f"/k/finding-{n}.md", "kind": "finding", "gone": [], "changed": [f"src/A{n}.java"]}
+
+
+def test_many_stale_notes_show_five_in_full_and_count_the_rest(tmp_path):
+    """Measured: Stop reasons of 25,952 chars listing every drifted note; the
+    harness shows the model a 2,000-char preview of anything over 10,000."""
+    text = note_gate.message({}, {"svc-a": (tmp_path, [_stale_item(n) for n in range(40)])}, "s1")
+
+    assert [n for n in range(40) if f"'Note {n} about" in text] == [0, 1, 2, 3, 4]
+    assert f"+35 more: eos note audit {tmp_path}" in text
+    assert len(text) < 4000, len(text)
+
+
+def test_the_five_note_limit_spans_projects(tmp_path):
+    a, b = tmp_path / "a", tmp_path / "b"
+    text = note_gate.message({}, {"a": (a, [_stale_item(n) for n in range(4)]),
+                                  "b": (b, [_stale_item(n) for n in range(10, 14)])}, "s1")
+
+    assert sum(f"'Note {n} about" in text for n in (0, 1, 2, 3, 10, 11, 12, 13)) == 5
+    assert f"+3 more: eos note audit {b}" in text
+    assert f"eos note audit {a}" not in text
+
+
+def test_the_stop_reason_is_capped_with_a_line_saying_so(ws, monkeypatch, capsys):
+    _, hub, _ = ws
+    _config_off(hub)
+    huge = "\n".join(f"line {i} " + "x" * 80 for i in range(400))
+    monkeypatch.setattr(hooks, "_note_reasons", lambda root, hook: [huge, huge])
+
+    reason = _stop(monkeypatch, capsys, hub)
+
+    assert len(reason) <= hooks.STOP_REASON_CHARS, len(reason)
+    assert reason.startswith("line 0 ")
+    assert reason.splitlines()[-1].startswith("[EOS: cut ")

@@ -25,6 +25,10 @@ from pathlib import Path
 SOURCE_SUFFIXES = (".java", ".kt", ".ts", ".tsx", ".js", ".py", ".go", ".sql", ".xml", ".yaml", ".yml")
 # Total wall clock the message may spend on `git log` across every stale note.
 ENRICHMENT_BUDGET_S = 5.0
+# Stale notes listed with their amend commands, across every project; the
+# rest are counted and left to `eos note audit`. Uncapped, a Stop reason
+# reached 25,952 chars, past the 10,000 the harness shows the model in full.
+STALE_SHOWN = 5
 MAX_DIGEST_BYTES = 8 * 1024 * 1024
 
 
@@ -202,12 +206,14 @@ def message(pending: dict, stale: dict, session: str) -> str:
             lines.append(f"  eos note skip {root} --reason '...' --session {session}")
     enriched: dict = {}
     deadline = time.monotonic() + ENRICHMENT_BUDGET_S
+    room = STALE_SHOWN
     for name, (root, found) in stale.items():
         # Not "a note you made false": who changed the file is never checked,
         # and usually it was not this session.
         lines += ["", f"{name}: a note here no longer agrees with the file it is about.",
                   "Angle-bracketed text below is a placeholder: replace it, do not run it as printed."]
-        for item in found:
+        shown, room = found[:room], max(0, room - len(found))
+        for item in shown:
             lines.append(f"  {item['title']!r} ({item['note']}) -- scope {item['scope']}")
             key = (str(root), item["scope"])
             if key not in enriched:
@@ -215,6 +221,8 @@ def message(pending: dict, stale: dict, session: str) -> str:
                 enriched[key] = _commits_touching(root, item["scope"], remaining) if remaining > 0 else []
                 lines += [f"      changed by {commit}" for commit in enriched[key]]
             lines += [f"  {line}" for line in remedy_lines(item, root, session)]
+        if len(found) > len(shown):
+            lines.append(f"  +{len(found) - len(shown)} more: eos note audit {root}")
     return "\n".join(lines).strip("\n")
 
 
