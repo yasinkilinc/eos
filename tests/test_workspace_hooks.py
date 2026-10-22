@@ -179,3 +179,52 @@ def test_reading_a_projects_note_from_the_workspace_root_names_the_note(ws, monk
                                                  "file_path": str(service / ".eos" / "knowledge" / "20260901-wallet.md")}})
     [record] = executions.load(hub)
     assert [(e.kind, e.ref) for e in record.events] == [("read", "note:20260901-wallet.md")]
+
+
+def _big_briefs(monkeypatch, size: int) -> None:
+    from core import brief
+
+    def build(root, **_):
+        name = Path(root).name
+        return f"EOS brief — {name}\n" + "\n".join(f"  {name} line {i} " + "y" * 60 for i in range(size // 80))
+
+    monkeypatch.setattr(brief, "build", build)
+
+
+def _host_prints(tmp_path: Path, hub: Path, chars: int) -> None:
+    script = tmp_path / "host.py"
+    script.write_text(f"print('HOST START'); print('\\n'.join('h' * 79 for _ in range({chars} // 80)))\n",
+                      encoding="utf-8")
+    config = hub / ".eos" / "config.toml"
+    config.write_text(config.read_text(encoding="utf-8") + "\n[hooks]\n"
+                      f'start_command = "{sys.executable} {script}"\n', encoding="utf-8")
+
+
+def test_session_start_stays_under_the_harness_cap_dropping_project_briefs_first(ws, monkeypatch, capsys):
+    """Measured: the root brief, five project briefs and the host's block had
+    no total; the harness shows only a 2,000-char preview past 10,000."""
+    tmp_path, hub = ws
+    for name in ("order-capture", "crm-asset"):
+        executions.start(tmp_path / "services" / name, f"Deploy {name}", session="s-big")
+    _big_briefs(monkeypatch, 3500)
+    _host_prints(tmp_path, hub, 2000)
+
+    out = _start(monkeypatch, capsys, hub, "s-big")
+
+    assert len(out) <= hooks.SESSION_TOTAL_CHARS, len(out)
+    assert out.count("h" * 79) == 2000 // 80, "the host's block is kept whole while a brief can go"
+    assert "EOS brief — hub" in out and "hub line 42 " in out, "the root brief is kept whole"
+    assert "also has a brief: eos brief ../services/" in out, "a dropped project brief leaves a pointer"
+
+
+def test_session_start_cuts_the_host_block_last_and_says_so(ws, monkeypatch, capsys):
+    tmp_path, hub = ws
+    _big_briefs(monkeypatch, 3500)
+    _host_prints(tmp_path, hub, 12000)
+
+    out = _start(monkeypatch, capsys, hub, "s-host")
+
+    assert len(out) <= hooks.SESSION_TOTAL_CHARS, len(out)
+    assert out.startswith("HOST START")
+    assert "[EOS: start_command output cut" in out
+    assert "[EOS: cut at the session-start cap; the full brief: eos brief" in out

@@ -124,6 +124,10 @@ MAX_TASK_CHARS = 2000
 # and only a 2,000-char preview of a longer one; measured Stop reasons ran to
 # 25,952. Below that cap with room for the harness's own framing.
 STOP_REASON_CHARS = 8000
+# SessionStart's whole text, for the same 10,000-char harness cap: the root
+# brief, up to WORKSPACE_LIVE_LIMIT project briefs and the host's block had no
+# total between them.
+SESSION_TOTAL_CHARS = 9000
 # A session's injection state (notes given, budget spent, task words) survives
 # SessionEnd for a resume; SessionEnd removes what no session touched this long.
 INJECT_STATE_DAYS = 14
@@ -853,6 +857,8 @@ def _kept_lines(kept: dict) -> list[str]:
 def _session_start(root: Path, hook: Hook, cfg: dict, agent: str | None) -> str:
     parts = []  # the EOS records; host lines and RESUME go in front of the frame
     host = []
+    briefs: list[tuple[str, str]] = []  # the workspace projects', each with its pointer
+    more = ""
     if hook.source in ("compact", "clear") and hook.session:
         # The context that held the delivered briefs and notes is gone; the
         # dedup that kept them from repeating would now keep them from arriving.
@@ -886,17 +892,56 @@ def _session_start(root: Path, hook: Hook, cfg: dict, agent: str | None) -> str:
         live = [project for project in projects if workspace.live(project.root)]
         for project in live[:WORKSPACE_LIVE_LIMIT]:
             text = brief.build(project.root, session=hook.session or None, agent=agent) or ""
-            parts.append(workspace.relocate(text, project.root.name, workspace.where(root, project)).rstrip())
+            path = workspace.where(root, project)
+            briefs.append((workspace.relocate(text, project.root.name, path).rstrip(),
+                           f"…{project.name} also has a brief: eos brief {path}"))
             records = records or bool(text.strip())
         if len(live) > WORKSPACE_LIVE_LIMIT:
-            parts.append(f"…{len(live) - WORKSPACE_LIVE_LIMIT} more projects have something live: "
-                         f"eos brief <project>")
+            more = (f"…{len(live) - WORKSPACE_LIVE_LIMIT} more projects have something live: "
+                    f"eos brief <project>")
         host.append(_host_lines(root, cfg["start_command"], hook, live[:WORKSPACE_LIVE_LIMIT]))
     if hook.source == "resume":
         host.append(_resume_line(hook.transcript, cfg))
-    if records:
-        parts.insert(0, _frame(cfg))  # in front of the records only: host lines and RESUME precede it
-    return "\n\n".join(part for part in host + parts if part)
+    # in front of the records only: host lines and RESUME precede it
+    return _fit_start(host, _frame(cfg) if records else "", parts, briefs, more, root)
+
+
+def _fit_start(host: list, frame: str, records: list, briefs: list, more: str, root: Path) -> str:
+    """SessionStart's text within SESSION_TOTAL_CHARS. Lowest priority goes
+    first: a project's brief (its pointer stays), then the tail of the root
+    brief, then the tail of the host's block -- each cut said in the text."""
+    host = [part for part in host if part]
+    records = [part for part in records if part]
+    briefs = [(block, pointer) for block, pointer in briefs if block]
+    kept: list[str] = []
+    pointers = [pointer for _, pointer in briefs]  # each brief's own room is checked against these
+
+    def text() -> str:
+        return "\n\n".join(host + ([frame] if frame else []) + records + kept + pointers + ([more] if more else []))
+
+    for block, pointer in briefs:
+        kept.append(block)
+        pointers.remove(pointer)
+        if len(text()) > SESSION_TOTAL_CHARS:
+            kept.pop()
+            pointers.append(pointer)
+    over = len(text()) - SESSION_TOTAL_CHARS
+    if over > 0 and records:
+        records[-1] = _cut_tail(records[-1], over, f"[EOS: cut at the session-start cap; the full brief: eos brief {root}]")
+    over = len(text()) - SESSION_TOTAL_CHARS
+    if over > 0 and host:
+        host[0] = _cut_tail(host[0], over, f"[EOS: start_command output cut at the session-start cap "
+                                           f"({SESSION_TOTAL_CHARS:,} chars)]")
+    return text()
+
+
+def _cut_tail(text: str, over: int, mark: str) -> str:
+    """`text` shorter by at least `over` chars, cut at a line, ending in `mark`."""
+    room = len(text) - over - len(mark) - 1
+    kept = text[:max(0, room)]
+    if "\n" in kept:
+        kept = kept[:kept.rindex("\n")]
+    return f"{kept.rstrip()}\n{mark}" if kept.strip() else mark
 
 
 def _pre_compact(root: Path, hook: Hook, cfg: dict, agent: str | None) -> str:
