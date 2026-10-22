@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import math
 import re
+import unicodedata
 from pathlib import Path
 
 from core.notes.store import (
@@ -37,8 +38,9 @@ _KEY = re.compile(r"(?<![\w-])([^\W\d_][^\W_]*)-(\d+)(?![\w-])")
 
 def fold(text: str) -> str:
     """Casefold with the Turkish dotted capital read as `i` (`İPTAL` -> `iptal`);
-    plain `casefold` leaves `i` plus a combining dot, which no query ever has."""
-    return text.replace("İ", "i").casefold()
+    plain `casefold` leaves `i` plus a combining dot, which no query ever has.
+    NFC first: macOS hands over `İ` decomposed (`I` plus U+0307)."""
+    return unicodedata.normalize("NFC", text).replace("İ", "i").casefold()
 
 
 # Longest-first is applied by length at strip time; the lists are plain sets.
@@ -102,6 +104,9 @@ def _words(text: str, stem_words: bool = False) -> set[str]:
     identifier like PROJ-1700 counts as itself and its number, not its prefix.
     With `stem_words` (`[notes] stem`), every alphabetic word is stemmed.
     """
+    # Before tokenising: a decomposed `İ`'s combining dot is no word
+    # character, so `İPTAL` would split into `I` and `PTAL`.
+    text = unicodedata.normalize("NFC", text)
     words = set()
     prefixes = set()
     for match in _KEY.finditer(text):

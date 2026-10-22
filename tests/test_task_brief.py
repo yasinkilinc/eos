@@ -404,3 +404,27 @@ def test_a_malformed_stopword_setting_changes_nothing(project):
                    tags=["backlog", "gözden", "geçir"])
     (project / ".eos" / "config.toml").write_text('[brief]\nprocedure_stopwords = "gözden"\n', encoding="utf-8")
     assert brief.best_procedure(project, "backlog gözden geçir") is not None
+
+
+def test_a_stopword_with_the_dotted_capital_i_matches_its_folded_word(project):
+    notes.add_note(project, kind="procedure", title="Review the backlog (backlog incele geçir)", body=STEPS,
+                   tags=["backlog", "incele", "geçir"])
+    task = "notların tamamını incele geçir"
+    assert brief.best_procedure(project, task) is not None, "the false match this setting is for"
+    (project / ".eos" / "config.toml").write_text('[brief]\nprocedure_stopwords = ["İncele"]\n',
+                                                 encoding="utf-8")
+    assert brief.best_procedure(project, task) is None
+
+
+def test_stopwords_are_stemmed_like_the_task_when_stemming_is_on(project):
+    """With `[notes] stem`, "gözden" in the task became "göz" and the
+    stopword "gözden" no longer removed it."""
+    notes.add_note(project, kind="procedure", title="Review the backlog (backlog gözden geçir)", body=STEPS,
+                   tags=["backlog", "gözden", "geçir"])
+    (project / ".eos" / "config.toml").write_text(
+        '[notes]\nstem = true\n', encoding="utf-8")
+    assert brief.best_procedure(project, "notların tamamını gözden geçir") is not None
+    (project / ".eos" / "config.toml").write_text(
+        '[notes]\nstem = true\n\n[brief]\nprocedure_stopwords = ["gözden"]\n', encoding="utf-8")
+    assert brief.best_procedure(project, "notların tamamını gözden geçir") is None
+    assert brief.best_procedure(project, "backlog gözden geçir") is not None

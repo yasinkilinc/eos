@@ -28,6 +28,8 @@ import dataclasses
 import math
 import re
 
+from core.notes.render import fold
+
 CONTEXT_CHARS = 600
 LIMIT_CHARS = 1200
 # A term on more lines than this share of the non-blank ones is not selective.
@@ -54,7 +56,8 @@ class Narrowed:
 def narrow_by_terms(text: str, terms, *, context: int = CONTEXT_CHARS,
                     limit: int = LIMIT_CHARS) -> Narrowed | None:
     """The spans of `text` around the lines `terms` hit, within `limit` characters."""
-    wanted = list(dict.fromkeys(t.strip().casefold() for t in terms if t and t.strip()))
+    # `fold`, not `casefold`: "İptal".casefold() keeps a combining dot no line holds.
+    wanted = list(dict.fromkeys(fold(t.strip()) for t in terms if t and t.strip()))
     lines = split_lines(text)
     if not wanted or not lines:
         return None

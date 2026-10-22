@@ -43,3 +43,10 @@ def test_a_project_adds_the_filler_of_its_own_language(tmp_path):
     root = _project(tmp_path, '[brief]\nfiller = ["tamam", "devam", "Continue"]\n')
     assert brief.build(root, task="tamam devam continue", task_only=True) == ""
     assert brief.build(root, task="continue", task_only=False) != ""     # asked for explicitly
+
+
+def test_a_filler_word_with_the_dotted_capital_i_matches_the_prompt(tmp_path):
+    """A prompt's words are read through `notes.fold`; `"İleri".casefold()`
+    keeps a combining dot and never equalled the prompt's `ileri`."""
+    root = _project(tmp_path, '[brief]\nfiller = ["İleri", "Tamam"]\n')
+    assert brief.is_conversation(root, "ileri tamam")

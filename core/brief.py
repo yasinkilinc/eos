@@ -478,8 +478,10 @@ def _open_runs(root: Path) -> list:
     return [r for r in reversed(executions.load(root)) if r.open]
 
 
-def _procedure_stopwords(root: Path) -> frozenset:
-    """`[brief] procedure_stopwords`: words that never count toward picking a procedure."""
+def _procedure_stopwords(root: Path, stem: bool = False) -> frozenset:
+    """`[brief] procedure_stopwords`: words that never count toward picking a
+    procedure, read as the task's words are (`notes._words`): folded, so
+    "İncele" is "incele", and stemmed when the task's words are."""
     try:
         from core.lib.config_io import ConfigIO
 
@@ -489,7 +491,7 @@ def _procedure_stopwords(root: Path) -> frozenset:
         return frozenset()
     if not isinstance(listed, list):
         return frozenset()
-    return frozenset(str(word).casefold() for word in listed if isinstance(word, str))
+    return frozenset().union(*(notes._words(word, stem) for word in listed if isinstance(word, str)))
 
 
 def best_procedure(root: Path, task: str, corpus: list | None = None):
@@ -517,7 +519,7 @@ def best_procedure(root: Path, task: str, corpus: list | None = None):
     # every other path still reads them.
     # Read through the project's synonym groups, as `search_notes` scores them.
     canon = notes.synonym_groups(notes.note_synonyms(root), stem)
-    words = notes._words(task, stem) - _procedure_stopwords(root)
+    words = notes._words(task, stem) - _procedure_stopwords(root, stem)
     if not words:
         return None
     words = notes.canonical_words(words, canon)
@@ -831,7 +833,8 @@ def _filler(root: Path) -> frozenset:
         extra = (ConfigIO.read_toml(root / ".eos" / "config.toml").get("brief") or {}).get("filler") or []
     except Exception:  # noqa: BLE001 - a malformed table leaves the default
         extra = []
-    return FILLER | {str(word).casefold() for word in extra if isinstance(word, str)}
+    # Folded as `is_conversation` reads the prompt (`notes._words`), so "İleri" is "ileri".
+    return FILLER | {notes.fold(str(word)) for word in extra if isinstance(word, str)}
 
 
 def is_conversation(root: Path, task: str) -> bool:

@@ -279,3 +279,10 @@ def test_a_shrunk_span_claims_only_the_terms_it_kept():
 def test_a_cut_line_keeps_the_term_it_was_kept_for():
     result = narrow.narrow_by_terms("x" * 5000 + " needle " + "y" * 5000 + "\n", ["needle"], limit=300)
     assert "needle" in result.text and len(result.text) <= 300
+
+
+def test_a_term_with_the_dotted_capital_i_finds_its_line():
+    """`"İptal".casefold()` is `i` plus a combining dot, which no line holds."""
+    text = _numbered(400).replace("line 200 ordinary", "line 200 the İPTAL request")
+    result = narrow.narrow_by_terms(text, ["İptal"])
+    assert result is not None and "line 200 the İPTAL request" in result.text

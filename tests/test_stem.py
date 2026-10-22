@@ -78,3 +78,11 @@ def test_a_path_that_does_not_read_the_setting_is_unaffected(tmp_path):
     assert render._words("issues") == {"issues"}
     cap = capabilities.Capability(name="tracker", run="tracker.sh", words=("issues",))
     assert capabilities.for_task("issues", [cap]) == [cap]
+
+
+def test_fold_and_words_read_a_decomposed_dotted_capital_i():
+    """macOS hands over NFD: `İ` arrives as `I` plus U+0307, and the combining
+    dot split the word, so `_words("İPTAL")` was {"ptal"}."""
+    decomposed = "İPTAL"
+    assert fold(decomposed) == "iptal"
+    assert render._words(f"{decomposed} talebi") == {"iptal", "talebi"}
