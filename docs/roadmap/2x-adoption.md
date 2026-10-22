@@ -1,5 +1,10 @@
 # EOS 2.x branch — what landed overnight and how to adopt it
 
+> **Status 2026-10-22:** the 2.x line shipped and is on `main`; current release
+> is 2.4.0 (2.0.0 closed the roadmap on 2026-10-13). The header below
+> (`eos-2x` branch, 1.6.0 → 1.23.3), "Adopting it" and "Decisions waiting for
+> you" are history. Live status per row: `docs/roadmap/2x-progress.md`.
+
 Branch `eos-2x` (from `main` 1.5.1), released on the branch as 1.6.0 → 1.23.3.
 Every step: tests first, the full suite green before the commit
 (1,169 passed, 1 skipped at 1.13.4), `tools/check-clean.sh` clean. `main` untouched.
@@ -103,6 +108,8 @@ finding is fixed with a test (ledger rows RV-RV14).
 
 ## Adopting it
 
+_Historical (2026-10-22): adopted; nexus runs a later 2.x through the subtree._
+
 1. Review `eos-2x` against `main` (a PR on GitHub from `eos-2x`), then merge.
 2. In nexus: `git subtree pull --prefix tools/eos eos main --squash`, then
    `bash automation/install-eos-cli.sh` (the global CLI moves to 1.23.3).
@@ -134,16 +141,16 @@ finding is fixed with a test (ledger rows RV-RV14).
 
 ## Decisions waiting for you
 
-- **C1:** one token estimator at the measured 2.22 chars/token would shorten briefs
+- **C1 (status 2026-10-22: done, one estimator at 2.22 chars/token, N3):** one token estimator at the measured 2.22 chars/token would shorten briefs
   by about a quarter (they are sized at 3.0 today).
-- **Procedure texts:** `admin-toolbox`, `review`, `report` are named as tools by three
+- **Procedure texts (status 2026-10-22: not re-checked; run `eos procedure lint .` in the host):** `admin-toolbox`, `review`, `report` are named as tools by three
   procedures and exist nowhere (`eos procedure lint .`).
-- **The `automation` verify scope:** replaying 61 past sessions, 21 of the 23 changes
+- **The `automation` verify scope (status 2026-10-22: the gate was eased on replay, S1b/S1c; this scope question is the host's `verify.toml`, not re-checked here):** replaying 61 past sessions, 21 of the 23 changes
   never checked were wrapper edits (bb.sh, jenkins.sh, generate-env.sh ...) with no
   automation test run. Keep asking, or also accept a live call of the edited wrapper /
   `bash -n` as its check (`nexus-2x .devin/knowledge/nexus/verify.toml`)?
-- **L2 graph (ADR-032, proposed):** EOS's graph found 99.4% of the tests affected by a
+- **L2 graph (status 2026-10-22: decided, ADR-032 Accepted, the host stopped building Graphify graphs 2026-09-28):** EOS's graph found 99.4% of the tests affected by a
   change against Graphify's 83.6% (353 pairs, three services), at 0.16 ms against ~1 s.
   Stop building Graphify's per-service graph.json once nothing else reads it?
-- **Phase 2 migration (M1, M3, M4):** provenance on every note and moving ~590
+- **Phase 2 migration (status 2026-10-22: done, M1 via N2/N8/H4, M3 1.39.0, M4 1.40.0):** provenance on every note and moving ~590
   generated notes out of the notes store change the host's corpus.

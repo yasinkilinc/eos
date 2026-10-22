@@ -134,6 +134,7 @@ Full list with reasons: `docs/roadmap/2x-progress.md`, "Decided without asking"
 - **E1's own gate (>= 95% change capture) is not met**: 8.78% is the honest
   number and the recording fix that raised it from 4% cannot repair history --
   only sessions run after 1.31.1/1.31.2 benefit.
+  *Status 2026-10-22:* ACTION CAPTURE (the report's definition) reads 582/590 (99%) over the host's last 20 sessions; the older CHANGE CAPTURE proxy 3,076/7,353 (42%). See `2x-progress.md`, E1.
 - One of the host's 45 measurable runs (`x-context-budget-b-f689`, 32 touched
   files) recorded zero events all session despite real commits -- the harness
   never invoked the EOS hook there at all; not something an engine code path
@@ -153,13 +154,17 @@ Full list with reasons: `docs/roadmap/2x-progress.md`, "Decided without asking"
   242 "disagreements"); tracked separately, nexus `docs/eos-evals/routing-tr-proposal.md`.
   Not used by anything yet, per the user's 21:10 default ("A1 candidates
   proposed into a file, used by nothing until approved").
+  *Status 2026-10-22:* Turkish default task type done (1.34.0 `default_task_type`, user-reported).
 - F3 `synonyms` (N1) stays off by default and engine-only, per the user's
   21:10 default -- no host synonym list was written.
+  *Status 2026-10-22:* synonyms live in the host's nexus config (H1); 2.4.0 adds aliases, optional stemming and synonyms in brief matching.
 - M1/M3/M4 (provenance migration of ~590 existing host notes, generated
   store, journey fan-out) remain BLOCKED/not started -- forward-only per the
   user's 21:10 default; a person decides on migrating old notes.
+  *Status 2026-10-22:* done -- M1 provenance (N2/N8, host migration H4), M3 generated store 1.39.0 (ADR-034), M4 journey fan-out 1.40.0 (ADR-035).
 - L2 (EOS `impact` vs Graphify `affected`) is still a NEEDS DECISION -- ADR-032
   proposed, status quo kept.
+  *Status 2026-10-22:* decided -- ADR-032 Accepted (2026-09-28); the host stopped building Graphify graphs.
 - EOS run `x-eos-2-x-ce9f` (nexus worktree) was already closed before this
   session started work: `outcome ok`, finished 2026-09-27T19:02:17Z. Nothing
   to finish; confirmed by `run show` in the nexus worktree, not re-opened.

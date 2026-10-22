@@ -1,5 +1,7 @@
 # Verified Completion Implementation Plan
 
+> **Status 2026-10-22:** shipped in 1.6.0 (`1f7f36a`, 2026-09-27; tasks 1-5 `de1b8e9`..`fd2d6cb`, ADR-028) and extended since (S1b/S1c, RV2-RV11 in `docs/roadmap/2x-progress.md`). Boxes below are not maintained.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** EOS bir oturumda değişen ama son başarılı doğrulamasından sonra değişmiş işi tur sonunda bir kez yakalar ve run sonucunu `verified` / `claimed` olarak etiketler.

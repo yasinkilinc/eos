@@ -4,10 +4,15 @@
 |-------|-------|--------|
 | 0 | CLI-only core, Python + JS/TS support, brain + graph generation | ✅ Done |
 | 1 | Multi-language plugins, incremental scan, manifest versioning, `runtime/` deploy on init | ✅ Done |
-| 2 | eos-ui: SQLite, scan-root management, reconcile trigger, list view | 🚧 In progress |
+| 2 | eos-ui: SQLite, scan-root management, reconcile trigger, list view | ✅ Delivered (`ui/`: FastAPI, scan roots, reconcile, list view); no UI work since 2026-09-19 (status 2026-10-22) |
 | 3 | Graph visualization (Cytoscape.js) | ✅ Done (instance list + drill-down graph) |
-| 4 | File watcher (watchdog), Tauri packaging, monorepo/nested support | 🚧 File watcher done; Tauri/nested planned |
+| 4 | File watcher (watchdog), Tauri packaging, monorepo/nested support | 🚧 File watcher done; Tauri and nested/monorepo `.eos` not started, unscheduled (status 2026-10-22) |
 | 5 | Operational memory: execution ledger, procedures, task-aware brief, lessons, learning — target **1.0.0** | ✅ Done at 1.0.0 (2026-09-24) — [`plans/operational-memory.md`](plans/operational-memory.md) §10 says what that means and does not |
+
+Since 1.0.0 the work is the 2.x roadmap (verified completion, routing, context
+diet, note graph, agent efficiency): shipped through 2.4.0 (2026-10-19); status
+per item in [`roadmap/2x-progress.md`](roadmap/2x-progress.md). ADR-007 retired
+only the separate `eos-dashboard` workspace; `ui/` stays in this repo.
 
 ## Phase 5 — Operational memory (done, 1.0.0)
 
@@ -25,7 +30,7 @@ whether it is done — lives in one file so that a session resumes by reading
 it and running `eos doctor --memory`, never by asking where things stand:
 `docs/plans/operational-memory.md`.
 
-## Phase 2 — eos-ui (current)
+## Phase 2 — eos-ui (delivered; kept as the original scope)
 
 Goals:
 
@@ -48,7 +53,7 @@ nested/monorepo `.eos`.
 - Prod: `npm run build` emits to `ui/static/`; FastAPI serves it at `/static`
   and `/` so a single server hosts UI + API.
 
-## Phase 4 — Planned
+## Phase 4 — Planned (Tauri and nested `.eos` still not started, 2026-10-22)
 
 File watcher (incremental re-scan on change), Tauri desktop packaging,
 nested/monorepo `.eos` support, additional language plugins.
