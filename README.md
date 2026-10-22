@@ -39,6 +39,24 @@ canonical `core/` runtime to `~/.local/share/eos/<version>/` and installs an
 executable launcher under `~/.local/bin/eos`. Override the locations with
 `EOS_INSTALL_PREFIX`, `EOS_DATA_DIR`, `EOS_BIN_DIR`, or `EOS_PYTHON`.
 
+## What changed in 2.4.1
+
+- The `eos ui` watcher no longer rescans a project when only a run, work or
+  verification ledger is appended to (every hook event appends one); the
+  MCP `search_index` tool brings `eos.db` up to date before it answers, as
+  `eos query` already did.
+- The Stop gate lists at most five stale notes with their amend commands,
+  then `+N more: eos note audit <project>`; the whole Stop reason stays under
+  8,000 characters and SessionStart's text under 9,000, a cut always marked.
+  Claude Code shows the model only a 2,000-character preview past 10,000.
+- `[brief] procedure_stopwords` and `filler` are read as the prompt is:
+  `İ` folds to `i` (also when macOS hands it over decomposed), and stopwords
+  are stemmed under `[notes] stem = true`.
+- "The run is closed, /clear is safe" appears only when the session has no
+  run left open, not after closing another session's run.
+- `tools/check-clean.sh` fails on a deny pattern grep cannot compile or a
+  search that errors, instead of reporting clean.
+
 ## What changed in 2.4.0
 
 - **Brief decision log and RELATED floor:** `[brief] related_min_score` (default 0.15) makes a RELATED note clear a relevance floor, not share one word; `[brief] decision_log` (default true) writes every prompt brief decision (injected or abstained, why, sections, best score, chars; a brief the session already had is `abstained`, reason `seen`) as one line in `.eos/data/briefs.jsonl`, never the prompt text.
