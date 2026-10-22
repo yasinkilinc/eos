@@ -695,6 +695,24 @@ def test_closing_a_run_in_a_large_context_suggests_clear(project, tmp_path, monk
     assert _hook(monkeypatch, capsys, "post-tool", big).out == ""
 
 
+def test_closing_another_sessions_run_while_this_one_stays_open_suggests_no_clear(
+        project, tmp_path, monkeypatch, capsys):
+    """Measured: abandoning 19 stale runs of other sessions said "/clear before
+    the next task is safe" each time while this session's own run stayed open."""
+    mine = _open_run(project)
+    stale = executions.start(project, "an old run", session="s-old")
+    executions.finish(project, stale.id, outcome="abandoned")
+    finish = {"command": f"eos run finish . {stale.id} --outcome abandoned"}
+    big = _payload(project, tool_name="Bash", tool_input=finish, transcript_path=_transcript(tmp_path, 400_000))
+    out = _hook(monkeypatch, capsys, "post-tool", big).out
+    assert "/clear" not in out
+    executions.finish(project, mine.id, outcome="ok")
+    own = {"command": f"eos run finish . {mine.id} --outcome ok"}
+    big = _payload(project, tool_name="Bash", tool_input=own, transcript_path=_transcript(tmp_path, 400_000))
+    hint = json.loads(_hook(monkeypatch, capsys, "post-tool", big).out)["hookSpecificOutput"]["additionalContext"]
+    assert "/clear before the next task is safe" in hint
+
+
 def test_compaction_is_told_what_to_keep_and_the_summary_is_checked(project, monkeypatch, capsys):
     run = _open_run(project)
     target = project / "service.py"

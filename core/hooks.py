@@ -1555,7 +1555,10 @@ def _post_tool_record(root: Path, hook: Hook, cfg: dict, agent: str | None, fail
             hints.append(f"EOS: this command rewrote {', '.join(rewritten[:3])}, which this session read; the "
                          "harness sends a changed file back into the context. Change files you have read "
                          "with the Edit tool.")
-    if main_session and not failed and cfg["clear_hint_tokens"] and _RUN_FINISH.search(command):
+    # Only once this session has no run left open: finishing another session's
+    # stale run leaves this one's task unfinished, and /clear would drop it.
+    if (main_session and not failed and cfg["clear_hint_tokens"] and _RUN_FINISH.search(command)
+            and _open_run(root, hook.session) is None):
         tokens = _context_tokens(hook.transcript)
         if tokens and tokens >= cfg["clear_hint_tokens"]:
             _note_state(hook.session, hint="clear", tokens=tokens)
