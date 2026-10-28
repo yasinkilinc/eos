@@ -39,6 +39,17 @@ canonical `core/` runtime to `~/.local/share/eos/<version>/` and installs an
 executable launcher under `~/.local/bin/eos`. Override the locations with
 `EOS_INSTALL_PREFIX`, `EOS_DATA_DIR`, `EOS_BIN_DIR`, or `EOS_PYTHON`.
 
+## What changed in 2.4.2
+
+- A procedure is named by the rarity of its title words only on a near miss
+  (coverage at least half the threshold). A pasted 184-word article named the
+  task procedure through four common title words at 0.0098 coverage; replayed
+  over 98 real prompts, the rule now drops three wrong picks and one right one.
+- **Context pressure (opt-in):** `[hooks] pressure_tokens = N` suggests
+  `/compact` once per session while its run is open and the context is past N.
+- Recency weighting of note search was measured on the golden sets and not
+  shipped: no set improved, two lost a query (ADR-036 addendum).
+
 ## What changed in 2.4.1
 
 - The `eos ui` watcher no longer rescans a project when only a run, work or
