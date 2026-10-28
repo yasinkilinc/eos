@@ -82,7 +82,12 @@ OPT_IN = ("notes", "stale", "probe", "read_cache")
 # with no range is answered once with its outline instead; clear_hint_tokens: a
 # finished run in a session holding more context than this gets one /clear hint.
 NUMERIC = {"outline_lines": 0, "clear_hint_tokens": 150_000, "handoff_tokens": 0, "bash_clip_chars": 0,
-           "resume_gap_minutes": 0, "resume_context_tokens": 100_000}
+           "resume_gap_minutes": 0, "resume_context_tokens": 100_000, "pressure_tokens": 0}
+# `pressure_tokens` > 0: a prompt while this session's run is open and its context
+# is past that size gets one line per session suggesting /compact now, at a step
+# boundary, instead of the harness compacting mid-step. Set it below the
+# harness's own auto-compact point; the run and the changed files survive it
+# (`pre-compact`).
 # `bash_clip_chars` > 0: a Bash call whose output (stdout + stderr) is longer has
 # it kept whole in `.eos/data/clip/` (newest CLIP_KEEP files) and replaced, before
 # the model reads it, by its head and tail (PostToolUse `updatedToolOutput`).
@@ -1241,6 +1246,7 @@ def _user_prompt(root: Path, hook: Hook, cfg: dict, agent: str | None) -> str:
         except Exception:  # noqa: BLE001 - hand-edited stores never cost the brief
             pass
     offer(_host_lines(root, cfg["prompt_command"], hook, named), records=False)
+    offer(_pressure_line(root, hook, cfg), records=False)
     if not blocks and not hosted:
         return ""
     if seen is not None and digests:
@@ -1252,6 +1258,21 @@ def _user_prompt(root: Path, hook: Hook, cfg: dict, agent: str | None) -> str:
             pass
     text = "\n\n".join(blocks)
     return "\n\n".join(part for part in (*hosted, _framed(text, cfg) if framed[0] else text) if part)
+
+
+def _pressure_line(root: Path, hook: Hook, cfg: dict) -> str:
+    """One line per session when this session's run is open and its context is past `pressure_tokens`."""
+    if not cfg["pressure_tokens"] or not hook.session or _open_run(root, hook.session) is None:
+        return ""
+    if any(line.get("hint") == "pressure" for line in _state(hook.session)):
+        return ""
+    tokens = _context_tokens(hook.transcript)
+    if not tokens or tokens < cfg["pressure_tokens"]:
+        return ""
+    _note_state(hook.session, hint="pressure", tokens=tokens)
+    return (f"EOS: this session holds ~{tokens // 1000}k tokens of context with its run still open. /compact "
+            "between two steps keeps the run, the work it holds and the changed files; left alone, the "
+            "harness compacts wherever the limit falls. Tell the user.")
 
 
 def _logged(decision: dict, emitted: str, frame: int) -> dict:

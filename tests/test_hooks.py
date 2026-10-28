@@ -695,6 +695,29 @@ def test_closing_a_run_in_a_large_context_suggests_clear(project, tmp_path, monk
     assert _hook(monkeypatch, capsys, "post-tool", big).out == ""
 
 
+def _prompt(project, tmp_path, tokens, prompt="carry on with the order flow"):
+    return _payload(project, prompt=prompt, transcript_path=_transcript(tmp_path, tokens))
+
+
+def test_a_prompt_past_the_pressure_line_with_a_run_open_suggests_compact_once(
+        project, tmp_path, monkeypatch, capsys):
+    _hooks_config(project, "pressure_tokens = 300000\n")
+    _open_run(project)
+    assert "/compact" not in _hook(monkeypatch, capsys, "user-prompt", _prompt(project, tmp_path, 200_000)).out
+    hint = _hook(monkeypatch, capsys, "user-prompt", _prompt(project, tmp_path, 320_000)).out
+    assert "~320k tokens" in hint and "/compact" in hint
+    again = _hook(monkeypatch, capsys, "user-prompt", _prompt(project, tmp_path, 340_000, "next step")).out
+    assert "/compact" not in again                                            # once per session
+
+
+def test_the_pressure_line_is_off_by_default_and_without_an_open_run(project, tmp_path, monkeypatch, capsys):
+    _open_run(project)
+    assert "/compact" not in _hook(monkeypatch, capsys, "user-prompt", _prompt(project, tmp_path, 900_000)).out
+    executions.finish(project, executions.load(project)[-1].id, outcome="ok")
+    _hooks_config(project, "pressure_tokens = 300000\n")
+    assert "/compact" not in _hook(monkeypatch, capsys, "user-prompt", _prompt(project, tmp_path, 900_000)).out
+
+
 def test_closing_another_sessions_run_while_this_one_stays_open_suggests_no_clear(
         project, tmp_path, monkeypatch, capsys):
     """Measured: abandoning 19 stale runs of other sessions said "/clear before

@@ -62,6 +62,12 @@ Two directions, each through a hook, each deterministic.
 - `post-tool` on `eos run finish`: when the session's last call carried more
   than `[hooks] clear_hint_tokens` (150k), one hint that `/clear` is safe — the
   run's state is in EOS.
+- `user-prompt` while the session's run is open (2.4.2): past `[hooks]
+  pressure_tokens` (off at 0), one line per session that `/compact` now, at a
+  step boundary, keeps the run -- the harness's own compaction falls wherever
+  the limit does, possibly mid-step. The article that prompted it alerts at 75%
+  of the window to leave room for output; EOS cannot read the window, so the
+  host states a token count below its auto-compact point.
 
 The window itself (`autoCompactWindow`) is the host's setting, not EOS's.
 
