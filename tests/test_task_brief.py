@@ -280,6 +280,35 @@ def test_a_lone_word_names_a_task_only_when_it_is_the_prompt(project):
     assert "[open-a-pr" in brief.build(project, task="PROJ-1700 için aç", task_only=True)
 
 
+ARTICLE = (
+    "A language model holds nothing between calls. Each request arrives with no memory of the previous one, "
+    "and the model responds from the prompt in front of it and nothing more. For an agent a person returns to "
+    "across days, threads, and separate tasks, it becomes the defining design constraint: recalling what they "
+    "said last week, resuming a task that stalled, applying their stated preferences without being asked again. "
+    "The conversation buffer approach fails in three measurable ways, and they compound. The first is cost, "
+    "the second is latency, the third is recall. Research on long context behaviour found that models attend "
+    "most reliably to information at the edges of a prompt. Analysis follows."
+)
+
+
+def test_a_pasted_text_that_shares_two_title_words_does_not_name_a_procedure(project):
+    """Measured on a real store: a pasted article (184 words) named the FM task
+    procedure through "task", "analysis", "from" and "its" -- coverage 0.0098
+    against 0.15, but the four words' rarity alone passed the rarity floor."""
+    notes.add_note(project, kind="procedure", title="Start a task from its key: intake, sync, branch, analysis",
+                   body=STEPS, tags=["task", "branch"])
+    # On a real store most of a pasted text's words are in some note; spread
+    # them over six, keeping the title's words for the procedure alone.
+    others = sorted(notes._words(ARTICLE) - {"task", "tasks", "analysis", "from", "its"})
+    directory = notes.notes_dir(project)
+    for n in range(6):
+        (directory / f"2026090{n}-filler.md").write_text(
+            f"---\nkind: finding\ntitle: Note {n}\ncreated: 2026-09-01\n---\n\n{' '.join(others[n::6])}\n",
+            encoding="utf-8")
+    assert brief.build(project, task=ARTICLE, task_only=True) == ""
+    assert "[start-a-task" in brief.build(project, task="start the task from its key", task_only=True)
+
+
 def test_words_are_letters_of_any_script_and_an_issue_key_is_one_word():
     assert notes._words("PR aç ama merge olmasın") == {"pr", "aç", "ama", "merge", "olmasın"}
     assert notes._words("planı incele") == {"planı", "incele"}

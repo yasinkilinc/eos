@@ -123,3 +123,11 @@ either path one matched word names a task only when it is most of the prompt —
 at most two words, an issue key and a bare number not counted (1.1.2): in
 "dosyayı aç ve oku" (open the file and read it) the other words are in no note,
 so "aç" carried the whole share and named the PR procedure.
+
+The second path is for a near miss only (2.4.2): coverage at least half the
+threshold. A pasted 184-word article covered 0.0098 of itself with "task",
+"analysis", "from" and "its", whose rarity summed past the floor, and named the
+FM task procedure. Replayed over 98 real prompts, the second path named a
+procedure five times: the half-threshold floor keeps the 0.119 one ("son
+versiyona upgrade") and drops 0.065, 0.052 and 0.006, all wrong, and 0.034,
+a right one, the price of the rule.

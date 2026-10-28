@@ -46,6 +46,12 @@ FAILURE_LIMIT = 3
 # weighed 0.62 and on its own names nothing. On a store too small for any word
 # to be that rare (log N < log 7 for N < 7), one note in sqrt(N) instead.
 PROCEDURE_NAMED_RARITY = 7.0
+# The rarity rule is for a near miss only: coverage at least this share of the
+# threshold. Measured on 98 real prompts, it named a procedure five times; the
+# right ones scored 0.119 ("son versiyona upgrade") and 0.034, the wrong ones
+# 0.065, 0.052 and 0.006 -- and a pasted 184-word article scored 0.0098 and
+# named the task procedure through four common title words.
+PROCEDURE_NEAR_MISS = 0.5
 # How a procedure's `## Rules` item is printed; also how the budget loop
 # recognises it.
 RULE_MARK = "  RULE  "
@@ -552,6 +558,10 @@ def best_procedure(root: Path, task: str, corpus: list | None = None):
     # language is a verb as often as a task -- "koş" (run) named the scenario
     # procedure for "run a service's tests", "aç" (open) would name the PR
     # procedure for "open the file". A task is named by an object and a verb.
+    # And a near miss only: a long pasted text holds two rare title words by
+    # chance, and their rarity says nothing about what the prompt is about.
+    if score < notes._RELEVANCE_THRESHOLD * PROCEDURE_NEAR_MISS:
+        return None
     named = sum(weights[word] for word in matched) if weights else float(len(matched))
     floor = math.log(min(PROCEDURE_NAMED_RARITY, math.sqrt(len(corpus))))
     return note if len(matched) >= 2 and named >= floor else None
