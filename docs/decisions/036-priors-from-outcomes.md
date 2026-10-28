@@ -123,3 +123,25 @@ priors (all sets 0.748 host, 0.790 per-store).
   23 verified runs. Note reads before it are not recoverable from the ledger.
 - MCP note reads are not recorded; a host whose agents read notes that way
   adds the event there.
+
+## Addendum (2.4.2): recency weighted the same way, measured, not shipped
+
+Freshness was tried as a second bonus beside the prior: `[notes] recency_weight
+* 0.5 ** (age_days / 90)`, age from `updated:` else `created:`, added after the
+threshold so it reorders matches and never makes one. Measured on the host's
+note-search golden sets (950 notes), recall@1 at weight 0 / 0.05 / 0.1 / 0.2:
+
+| set | queries | 0 | 0.05 | 0.1 | 0.2 |
+|---|---|---|---|---|---|
+| nexus | 33 | 0.818 | 0.818 | 0.818 | 0.818 |
+| turkish prompts | 33 | 0.455 | 0.424 | 0.424 | 0.424 |
+| instruction file | 14 | 0.786 | 0.786 | 0.786 | 0.786 |
+| skill sections | 19 | 0.737 | 0.737 | 0.684 | 0.684 |
+| capability policy | 8 | 0.875 | 0.875 | 0.875 | 0.875 |
+
+No set improved; two lost a query at weight 0.1. The case it is meant for -- a
+newer note reversing an older one -- is already handled by name: `--supersedes`
+retires the older note from search, `valid_until` and expiry end a status note,
+and a STALE mark flags one whose scope changed. Not shipped: a knob that only
+loses on every measurement is code to maintain for nothing. Revisit with a
+golden set of reversed-fact questions, which none of the current sets holds.
