@@ -88,6 +88,10 @@ class Event:
     # "e-" + 8 hex, so a decision can cite the event; "<execution>#<ord>" for a
     # line written before events had one.
     id: str | None = None
+    # Fingerprint of the raw output a wrapper saw (sha256 of the file's bytes) and
+    # where that file was; the content itself is never copied into the ledger.
+    output_sha256: str | None = None
+    output_path: str | None = None
 
 
 @dataclasses.dataclass

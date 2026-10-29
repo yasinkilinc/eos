@@ -607,3 +607,55 @@ def test_an_index_built_before_event_ids_is_stale_and_rebuilt(project, monkeypat
         assert "id" in [row[1] for row in conn.execute("PRAGMA table_info(execution_event)")]
     finally:
         conn.close()
+
+
+def test_helper_records_output_fingerprint(project, tmp_path):
+    import hashlib
+
+    executions.start(project, "Deploy", session="s-sh")
+    raw = tmp_path / "raw.txt"
+    raw.write_bytes(b"row 1\nrow 2\n")
+
+    done = _helper(["--kind", "ran", "--tool", "db", "--output", str(raw)],
+                   _env(tmp_path, CLAUDE_CODE_SESSION_ID="s-sh"))
+
+    assert done.returncode == 0, done.stderr
+    event = executions.load(project)[0].events[0]
+    assert event.output_sha256 == hashlib.sha256(b"row 1\nrow 2\n").hexdigest()
+    assert event.output_path == str(raw.resolve()) or event.output_path == str(raw)
+    assert os.path.isabs(event.output_path)
+
+
+def test_helper_resolves_a_relative_output_path(project, tmp_path):
+    executions.start(project, "Deploy", session="s-sh")
+    (tmp_path / "raw.txt").write_bytes(b"x")
+    env = _env(tmp_path, CLAUDE_CODE_SESSION_ID="s-sh")
+
+    subprocess.run(["/bin/sh", str(HELPER), "--kind", "ran", "--tool", "db", "--output", "raw.txt"],
+                   capture_output=True, text=True, env=env, cwd=tmp_path)
+
+    event = executions.load(project)[0].events[0]
+    assert os.path.isabs(event.output_path) and event.output_path.endswith("/raw.txt")
+    assert event.output_sha256
+
+
+@pytest.mark.parametrize("name", ["missing.txt", ""])
+def test_helper_without_output_file_still_writes(project, tmp_path, name):
+    executions.start(project, "Deploy", session="s-sh")
+
+    done = _helper(["--kind", "ran", "--tool", "db", "--output", str(tmp_path / name) if name else tmp_path.as_posix()],
+                   _env(tmp_path, CLAUDE_CODE_SESSION_ID="s-sh"))
+
+    assert done.returncode == 0
+    assert done.stdout.startswith("evidence=e-")
+    event = executions.load(project)[0].events[0]
+    assert (event.output_sha256, event.output_path) == (None, None)
+
+
+def test_an_event_line_without_output_fields_stays_valid(project, tmp_path):
+    executions.start(project, "Deploy", session="s-sh")
+    _helper(["--kind", "ran", "--tool", "db"], _env(tmp_path, CLAUDE_CODE_SESSION_ID="s-sh"))
+
+    raw = [json.loads(l) for l in executions.path_for(project).read_text().splitlines()][-1]
+    assert "output_sha256" not in raw and "output_path" not in raw
+    assert executions.load(project)[0].events[0].output_sha256 is None
