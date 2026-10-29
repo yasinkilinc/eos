@@ -68,6 +68,7 @@ from core.cli.procedures import cmd_procedure  # noqa: F401
 from core.cli.project import cmd_ai, cmd_bench, cmd_clean, cmd_compose, cmd_context, cmd_doctor, cmd_graph, cmd_hook, cmd_index, cmd_info, cmd_init, cmd_mcp, cmd_scan, cmd_status, cmd_ui, cmd_update  # noqa: F401
 from core.cli.route import cmd_capabilities, cmd_route  # noqa: F401
 from core.cli.runs import cmd_run  # noqa: F401
+from core.cli.whydid import cmd_whydid  # noqa: F401
 from core.cli.work import cmd_work  # noqa: F401
 
 
@@ -539,6 +540,14 @@ def main(argv: list[str] | None = None) -> int:
     decide_p.add_argument("--session", default=None,
                           help="Session id; defaults to the harness's own (EOS_SESSION, CLAUDE_CODE_SESSION_ID)")
 
+    whydid_p = sub.add_parser("why-did", help="The decisions of a run, work item or ticket and the evidence behind each")
+    whydid_p.add_argument("words", nargs="+", metavar="[path] scope",
+                          help="Optional project root, then a run id, work item id or ticket key")
+    whydid_p.add_argument("--path", dest="path", default=None, help=argparse.SUPPRESS)
+    whydid_p.add_argument("--grep", default=None, metavar="WORDS",
+                          help="Only decisions whose claim contains every word, any case")
+    whydid_p.add_argument("--session", default=None, help=argparse.SUPPRESS)
+
     run_p = sub.add_parser("run", help="What a session did: executions and their events (ADR-022)")
     run_sub = run_p.add_subparsers(dest="run_command", required=True)
 
@@ -760,6 +769,7 @@ def main(argv: list[str] | None = None) -> int:
         "note": cmd_note,
         "work": cmd_work,
         "decide": cmd_decide,
+        "why-did": cmd_whydid,
         "run": cmd_run,
         "procedure": cmd_procedure,
         "brief": cmd_brief,

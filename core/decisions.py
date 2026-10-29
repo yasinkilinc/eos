@@ -108,6 +108,16 @@ def _all_records(project_root: str | Path, session: str | None = None
     return [r for ledger in _ledgers(project_root, session) for r in executions.load_path(ledger)]
 
 
+def find_evidence(project_root: str | Path, event_id: str, session: str | None = None
+                  ) -> tuple[executions.Record, executions.Event] | None:
+    """The event with this id and its run, over every ledger decisions reads."""
+    for record in _all_records(project_root, session):
+        for found in record.events:
+            if found.id == event_id:
+                return record, found
+    return None
+
+
 def _reasons(records: list[executions.Record], run: executions.Record, evidence: list[str],
              now: str | None) -> list[str]:
     clock = _parse(now) if now else datetime.datetime.now(datetime.timezone.utc)

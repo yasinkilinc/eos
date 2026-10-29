@@ -387,3 +387,15 @@ def test_two_stale_ids_give_two_entries_and_a_repeated_id_one(project):
 
     assert two.reasons == (f"stale {first.id}", f"stale {second.id}")
     assert once.reasons == (f"stale {first.id}",)
+
+
+def test_find_evidence_reads_a_second_project_ledger(workspace):
+    root, service = workspace
+    run = executions.start(service, "Work", session="s2", work_item="W1")
+    proof = executions.event(service, run.id, kind="ran", tool="gitx", source="wrapper",
+                             session="s2")
+
+    found = decisions.find_evidence(root, proof.id)
+
+    assert found is not None and found[0].id == run.id and found[1].id == proof.id
+    assert decisions.find_evidence(root, "e-00000000") is None
