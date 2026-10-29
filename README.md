@@ -41,6 +41,8 @@ executable launcher under `~/.local/bin/eos`. Override the locations with
 
 ## Unreleased
 
+- **Approval comes from the user's prompt (C2).** `d-xxxxxxxx onay` (or `approve`) in a
+  prompt closes that open assumption of the run; the hook is the only writer of `approved`.
 - **Gates read the ledger (ADR-038).** `eos gate check . --session S --action
   edit-main` prints one JSON line with the refusals (`no-open-run`,
   `open-assumption`, `nothing-looked-at`, `red-first`, `root-cause`), each with

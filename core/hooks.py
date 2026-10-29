@@ -1171,7 +1171,42 @@ def _new_sections(text: str, seen: set[str]) -> tuple[str, list[str]]:
     return "\n\n".join(kept), digests
 
 
+_APPROVAL = re.compile(r"(d-[0-9a-f]{8}).{0,20}?(onayladım|onaylıyorum|onay|approved|approve)", re.I | re.S)
+
+
+def _approvals(root: Path, hook: Hook) -> list[str]:
+    """Ids of the session's open assumptions the user's own prompt approves (C2, R32)."""
+    if not hook.session:
+        return []
+    try:
+        from core import decisions
+
+        run = decisions._open_run(root, hook.session)[0]
+        open_ids = {d.id for d in decisions.open_assumptions(
+            root, work_item=run.work_item, execution=run.id, session=hook.session)}
+        done: list[str] = []
+        for found in _APPROVAL.finditer(hook.prompt):
+            decision_id = found.group(1).lower()
+            if decision_id not in open_ids or decision_id in done:
+                continue
+            decisions.approve(root, decision_id, prompt_excerpt=f"user prompt: {found.group(2).lower()}",
+                              session=hook.session)
+            done.append(decision_id)
+        return done
+    except Exception:  # noqa: BLE001 - an approval never costs the prompt
+        return []
+
+
 def _user_prompt(root: Path, hook: Hook, cfg: dict, agent: str | None) -> str:
+    prompt = hook.prompt.strip()[:MAX_TASK_CHARS]
+    if not prompt or any(mark in prompt.lstrip()[:200] for mark in _NOTICE_MARKS):
+        return ""
+    approved = "\n".join(f"EOS: {i} approved by the user's prompt." for i in _approvals(root, hook))
+    text = _prompt_brief(root, hook, cfg, agent)
+    return "\n\n".join(part for part in (approved, text) if part)
+
+
+def _prompt_brief(root: Path, hook: Hook, cfg: dict, agent: str | None) -> str:
     prompt = hook.prompt.strip()[:MAX_TASK_CHARS]
     if not prompt or any(mark in prompt.lstrip()[:200] for mark in _NOTICE_MARKS):
         return ""
