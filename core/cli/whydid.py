@@ -13,19 +13,25 @@ from pathlib import Path
 
 
 def _local(at: str):
-    from core import decisions
-
-    return decisions._when(at).astimezone()
-
-
-def _stamp(at: str, date: bool) -> str:
+    """The local time of a readable stamp; None for one that is not (never converted)."""
     from core import decisions
 
     try:
-        decisions._parse(at)
-    except ValueError:
-        return at
-    return _local(at).strftime("%Y-%m-%d %H:%M" if date else "%H:%M")
+        return decisions._parse(at).astimezone()
+    except (ValueError, OverflowError):
+        return None
+
+
+def _day(at: str):
+    found = _local(at)
+    return found.date() if found else None
+
+
+def _stamp(at: str, date: bool) -> str:
+    found = _local(at)
+    if found is None:
+        return "unreadable"
+    return found.strftime("%Y-%m-%d %H:%M" if date else "%H:%M")
 
 
 def _output(entry) -> str:
@@ -52,7 +58,7 @@ def _evidence_line(index, cited: str, day) -> str:
     entry = found[1]
     what = " ".join(part for part in (entry.tool, entry.target, entry.ref) if part)
     exit_part = f"exit {entry.exit_code}  " if entry.exit_code is not None else ""
-    when = _stamp(entry.at, _local(entry.at).date() != day)
+    when = _stamp(entry.at, _day(entry.at) != day)
     return f"    {cited}  {what}  {exit_part}{when}  {_output(entry)}"
 
 
@@ -116,12 +122,12 @@ def cmd_whydid(args: argparse.Namespace) -> int:
         for reason in item.reasons:
             print(f"    {decisions.reason_line(reason)}")
         for cited in item.evidence:
-            print(_evidence_line(index, cited, _local(made).date()))
+            print(_evidence_line(index, cited, _day(made)))
         for entry in sorted(refused.get(item.id, []), key=lambda e: decisions._when(e.at)):
-            print(f"    resolve refused {_stamp(entry.at, _local(entry.at).date() != _local(made).date())}")
+            print(f"    resolve refused {_stamp(entry.at, _day(entry.at) != _day(made))}")
             for reason in entry.reasons or ():
                 print(f"      {decisions.reason_line(reason)}")
         if item.state in ("resolved", "approved"):
-            when = _stamp(item.at, _local(item.at).date() != _local(made).date())
+            when = _stamp(item.at, _day(item.at) != _day(made))
             print(f"    resolved later: {' '.join((when, *item.evidence))}")
     return 0

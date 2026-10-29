@@ -308,3 +308,18 @@ def test_why_did_shows_a_refused_resolve_and_the_later_resolution(project, env):
 
     assert "resolve refused" in out.stdout and "reason=unknown-id evidence=e-00000000" in out.stdout
     assert re.search(rf"resolved later: \d\d:\d\d {proof}", out.stdout), out.stdout
+
+
+@pytest.mark.parametrize("zone", ["America/New_York", "Europe/Istanbul"])
+def test_why_did_never_converts_or_prints_an_unreadable_at(project, env, zone):
+    execution = _start(project, env, "s1")
+    with executions.path_for(project).open("a", encoding="utf-8") as handle:
+        handle.write('{"type": "event", "execution": "%s", "kind": "ran", "tool": "db", '
+                     '"source": "wrapper", "id": "e-dddddddd", "at": "call 05551234567"}\n' % execution)
+    _decide(project, env, "s1", "uses the odd one", "e-dddddddd")
+
+    out = _run(["why-did", str(project), execution], {**env, "TZ": zone})
+
+    assert out.returncode == 0, out.stderr
+    assert "e-dddddddd" in out.stdout and "unreadable" in out.stdout
+    assert "05551234567" not in out.stdout and "Traceback" not in out.stderr
