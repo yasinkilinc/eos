@@ -27,44 +27,82 @@ spec:
 **A decision is an event.** `eos decide --claim "<one sentence>"
 [--evidence <id>]... [--check "<command>"]` appends one `decided` event, tool
 `decide`, `ref` = the decision id (`d-` plus 8 hex digits), to the ledger of
-the open run (`core/decisions.py:25`, `:209-222`). A state change is another
-event with the same `ref`; the latest wins (`:172-193`). Nothing is stored
-outside the execution ledger (ADR-020/022).
+the open run (`core/decisions.py:26`, `:233-248`). An empty or whitespace-only
+claim is refused (`:236-237`). A state change is another event with the same
+`ref`. Nothing is stored outside the execution ledger (ADR-020/022).
+
+**Which state is current** (`_fold`, `:184-217`). The decided events of the
+scope are read from every ledger the project knows and sorted by `at`; the
+latest in time wins, whichever ledger holds it. `at` has whole seconds, so
+within one second a `resolved` or `approved` event sorts after the
+`evidenced`/`assumption` event it can only follow; any other tie keeps read
+order. Only an event that `record`, `resolve` or `approve` could have written
+counts: its `claim_state` is one of `STATES` and its source is `cli` or
+`hook` (`:30`, `:203-206`); `approved` counts only from `hook`.
+`bin/eos-event` and `eos run event` cannot set `claim_state`, so a `decided`
+line written from a shell (`eos-event --kind decided --tool decide --ref
+<d-id>`, any `--source`) is ignored: it can neither move a resolved decision
+back nor blank its claim. The source alone could not tell them apart, because
+`eos-event --source cli|hook` is accepted.
 
 **Evidence is a list of ledger event ids.** An id is `e-xxxxxxxx` (the id
 `eos-event` writes on every event) or `<execution>#<n>` (the position of an
-event written before ids existed). Anything else is rejected before writing
-(`:31`, `:88-93`). Each event with an output carries a fingerprint: the
+event written before ids existed, or of one `eos-event` wrote without an id
+because `od` or `/dev/urandom` was missing, `bin/eos-event:112-118`). Anything
+else is rejected before writing (`:36`, `:95-100`). `eos-event` prints
+`evidence=<id>` only for `ran`, `called`, `read` and `verified`, the kinds a
+decision may cite. Each event with an output carries a fingerprint: the
 sha256 of the raw output file and its absolute path, written by
 `bin/eos-event --output <file>`. The content is never copied into the ledger.
 
-**What counts as evidence** (`_refusal`, `core/decisions.py:70-85`). A cited
+**The check names a command, never a query or a value**
+(`core/executions.py:284-297`). `--check` is the wrapper, its subcommand and
+first operand only (`automation/db.sh pg env1 crm`). A check holding a quote
+(`'` or `"`), `=`, `;`, a SQL verb as a word (`select`, `insert`, `update`,
+`delete`, `where`, any case) or longer than 120 characters is refused with a
+`ValueError` before anything is written, and `eos decide` exits 2 with
+`error: ...`. It is never truncated, and the refused value is not echoed. The
+ledger is pushed: `db.sh pg env1 crm "select * from cust where
+msisdn='905321234567'"` would have pushed a customer's number. The rule sits
+on the `check` field of `executions.event`, so the prompt excerpt `approve`
+keeps as the check follows it too; the P2 prompt hook must cut its excerpt to
+fit.
+
+**What counts as evidence** (`_refusal`, `core/decisions.py:75-92`). A cited
 event is accepted only when all of these hold:
 
 - it belongs to this work item (or, when the run has none, to this run);
 - it is not `kind=verified, tool=subagent`;
+- it is not an EOS note read (`ref` starting `note:`): a note is what an
+  earlier session wrote down, not a check this one ran;
 - its kind is `ran`, `called`, `read` or `verified`, and its source is
-  `wrapper` or `hook` (`:26-27`);
+  `wrapper` or `hook` (`:27-28`);
 - a `called` event has no non-zero exit code;
-- if its tool is a live environment tool (`LIVE_TOOLS`, `:21-22`: db, obs,
+- if its tool is a live environment tool (`LIVE_TOOLS`, `:21-23`: db, obs,
   admintoolbox, argo, bssapi, apitest, scenario, env-ready, grafana, kafka,
-  ntf, eca, usermgmt), it is at most 24 hours old (`LIVE_MAX_AGE`, `:23`).
-  Every other event stays valid for the life of the work item.
+  ntf, eca, usermgmt, bpmn, cache-clear, vpn), it is at most 24 hours old
+  (`LIVE_MAX_AGE`, `:24`). Every other event stays valid for the life of the
+  work item.
 
 **Refusal codes.** A decision with any refusal is an `assumption`, and every
 code that applied is stored and printed as `reason=<code> evidence=<id>`
-(`:55-57`):
+(`:60-62`):
 
 - `unknown-id`: no event with that id in any ledger the project reads.
 - `other-work-item`: the event belongs to another work item (or run).
 - `subagent-report`: a `verified` event whose tool is `subagent`.
+- `note-not-evidence`: the event is an EOS note read (`ref` = `note:...`).
 - `not-recorded-by-a-tool`: the kind is not `ran|called|read|verified`, or the
   source is not `wrapper` or `hook` (for example `cli`).
 - `failed-call`: a `called` event with a non-zero exit code.
 - `stale`: a live environment tool's event older than 24 hours.
-- `hedged`: the claim itself contains a hedge word (`probably`, `likely`,
-  `should`, `assume`, `muhtemelen`, `sanirim`, ...; `:28-30`, matched after
-  folding Turkish letters). Added by `record` whatever the evidence.
+- `hedged`: the claim itself contains a hedge word (`:32-35`, matched as
+  whole words, any case, after folding Turkish letters): `muhtemel*`,
+  `olmali*`, `saniyor*`, `sanirim`, `galiba`, `herhalde`, `belki`,
+  `olabilir*`, `tahmin*`, `sanki`, `gibi gorunuyor*`, `probably`, `likely`,
+  `should`, `seem(s|ed)`, `assume(d|s)`, `assuming`, `presumably`, `might`,
+  `maybe`, `perhaps`, `apparently`, `I think`. Added by `record` whatever the
+  evidence.
 - `no-evidence`: no `--evidence` given.
 
 **States** (`STATES`, `:20`).
@@ -78,14 +116,19 @@ code that applied is stored and printed as `reason=<code> evidence=<id>`
 - `approved`: the user said yes. Only the prompt hook calls
   `decisions.approve` (source `hook`, the prompt excerpt kept as `check`).
   The fold drops an `approved` event whose source is not `hook`
-  (`:185-186`), and `eos decide` has no way to ask for it.
+  (`:205-206`), and `eos decide` has no way to ask for it.
 
 **`eos why-did [path] <run id | work item id | ticket key>`** prints the
 decisions of that scope in time order, each with its state, check, reasons
-and cited events: tool, target, exit code, time, and the output file as
+and cited events: tool, target, ref, exit code, time, and the output file as
 `present (sha ok)`, `present (sha differs)`, `gone` or `unreadable`, with its
-path (`core/cli/whydid.py:20-46`). `--grep` keeps decisions whose claim holds
-every word. It writes nothing.
+path (`core/cli/whydid.py:25-50`), for example
+`e-9f8e7d6c  db env1 pg crm  exit 0  14:01  output: present (sha ok) <path>`.
+Times are local; an evidence time carries its date when its local day is not
+the decision's. A ticket key matches in any case. It reads every ledger once
+per call (`decisions.all_records`) and looks cited ids up in one index
+(`decisions.event_index`). `--grep` keeps decisions whose claim holds every
+word. It writes nothing.
 
 ## What it does not do
 
@@ -96,14 +139,22 @@ every word. It writes nothing.
 - **`--source` is not authenticated.** `bin/eos-event` takes `--source
   wrapper|hook|cli` from its caller (`bin/eos-event:5`, `:54-57`); anyone who
   can run it can write a `wrapper` or `hook` event. The source check keeps
-  honest paths apart; it is not a barrier. A P2 gate that blocks work must not
-  trust the source alone.
+  honest paths apart; it is not a barrier. P1 accepts this on three
+  conditions:
+  - the P2 gate that blocks work must not trust `source` alone;
+  - the workspace's guard (nexus `wrapper_guard`) must refuse an agent's
+    direct `eos-event` call, so only a wrapper writes `wrapper` events;
+  - this ADR says so, which it does here.
 - **Known gaps left for P2.**
   - An event whose `at` cannot be parsed makes `_parse` raise for a live-tool
     event, so `eos decide` fails with an error instead of a `stale` code.
   - A legacy id `<execution>#<n>` is the event's position in the loaded run
-    (`core/executions.py:682`); log rotation can shift it, so the id may then
+    (`core/executions.py:700`); log rotation can shift it, so the id may then
     name a different event or none.
+  - A source-less legacy event is refused as `not-recorded-by-a-tool`, which
+    reads as if a person wrote it; `Decision.agent` is not set from the CLI;
+    `why-did` on a run does not say that the decision was resolved later in
+    another run.
 - It does not stop an action taken on an assumption. It makes the assumption
   visible and listable; enforcement is the evidence gate (P2).
 
@@ -113,7 +164,13 @@ every word. It writes nothing.
   answerable from it with the output fingerprint to check against.
 - The 24-hour limit and the `LIVE_TOOLS` set are code constants; a new live
   environment wrapper must be added to the set or its events never go stale.
+  Tool names are the wrapper's file name without `.sh` (nexus
+  `automation/lib/eos-capture.sh`), or the program a hook saw in a Bash
+  command (`vpn` arrives that way, from the hook).
 - Hedge detection is a word list: a hedge in other words passes as
   `evidenced`, and a claim quoting "should" is marked `hedged`.
 - An output file moved or deleted after the event shows as `gone`; the event
   still counts as evidence.
+- A check that cannot be written as wrapper, subcommand and operand is
+  refused rather than shortened; the decision can still be recorded without
+  `--check`.

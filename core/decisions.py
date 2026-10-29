@@ -2,9 +2,9 @@
 
 A decision is one `decided` event (tool "decide", ref = the decision id) in the
 execution ledger; a state change is another event with the same ref, and the
-latest one wins. Evidence is a list of ledger event ids. An id counts only when
-a tool recorded the event, it did not fail, it is not a subagent's own report,
-it is not stale, and it belongs to this work item. Anything else leaves the
+latest one in time wins. Evidence is a list of ledger event ids. An id counts
+only when a tool recorded the event, it did not fail, it is not a subagent's own
+report or an EOS note read, it is not stale, and it belongs to this work item. Anything else leaves the
 decision an "assumption", with every refusal code that applied.
 """
 from __future__ import annotations
