@@ -183,3 +183,14 @@ def test_an_empty_claim_exits_2(project, env):
     out = _run(["decide", str(project), "--claim", "  ", "--session", "s1"], env)
     assert out.returncode == 2
     assert out.stdout == "" and out.stderr.startswith("error: ")
+
+
+def test_decide_agent_flag_fills_the_decision_agent(project, env):
+    execution = _start(project, env)
+    out = _run(["decide", str(project), "--claim", "a thing", "--agent", "devin",
+                "--session", "s1"], env)
+    assert out.returncode == 0, out.stderr
+
+    from core import decisions
+    found = decisions.for_scope(project, work_item=None, execution=execution)
+    assert [d.agent for d in found] == ["devin"]

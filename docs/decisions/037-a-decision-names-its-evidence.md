@@ -95,6 +95,7 @@ code that applied is stored and printed as `reason=<code> evidence=<id>`
 - `other-work-item`: the event belongs to another work item (or run).
 - `subagent-report`: a `verified` event whose tool is `subagent`.
 - `note-not-evidence`: the event is an EOS note read (`ref` = `note:...`).
+- `no-source`: the event has no `source` (a line written before P1 added it).
 - `not-recorded-by-a-tool`: the kind is not `ran|called|read|verified`, or the
   source is not `wrapper` or `hook` (for example `cli`).
 - `failed-call`: a `called` event with a non-zero exit code.
@@ -149,15 +150,11 @@ word. It writes nothing.
     direct `eos-event` call, so only a wrapper writes `wrapper` events;
   - this ADR says so, which it does here.
 - **Known gaps left for P2.**
-  - An event whose `at` cannot be parsed makes `_parse` raise for a live-tool
-    event, so `eos decide` fails with an error instead of a `stale` code.
   - A legacy id `<execution>#<n>` is the event's position in the loaded run
     (`core/executions.py:700`); log rotation can shift it, so the id may then
     name a different event or none.
-  - A source-less legacy event is refused as `not-recorded-by-a-tool`, which
-    reads as if a person wrote it; `Decision.agent` is not set from the CLI;
-    `why-did` on a run does not say that the decision was resolved later in
-    another run.
+  - (P2 closed the unparseable `at`, the source-less code, `Decision.agent` and the
+    later-resolution line of `why-did`.)
 - It does not stop an action taken on an assumption. It makes the assumption
   visible and listable; enforcement is the evidence gate (P2).
 

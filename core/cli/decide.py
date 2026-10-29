@@ -32,7 +32,7 @@ def cmd_decide(args: argparse.Namespace) -> int:
             _print(decision)
             return 0 if decision.state == "resolved" else 3
         decision = decisions.record(args.path, args.claim, args.evidence, check=args.check,
-                                    session=args.session)
+                                    session=args.session, agent=args.agent)
     except (ValueError, OSError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2

@@ -538,6 +538,7 @@ def main(argv: list[str] | None = None) -> int:
     decide_p.add_argument("--evidence", action="append", default=[], metavar="ID",
                           help="Ledger event id (e-xxxxxxxx or <execution>#<n>); repeatable")
     decide_p.add_argument("--check", help="The command that would settle it")
+    decide_p.add_argument("--agent", default=None, help="Which agent decides, e.g. claude or devin; defaults to the run's")
     decide_p.add_argument("--session", default=None,
                           help="Session id; defaults to the harness's own (EOS_SESSION, CLAUDE_CODE_SESSION_ID)")
 

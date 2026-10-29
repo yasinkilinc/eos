@@ -72,6 +72,13 @@ def _parse(stamp: str) -> datetime.datetime:
     return parsed if parsed.tzinfo else parsed.replace(tzinfo=datetime.timezone.utc)
 
 
+def _when(at: str | None) -> datetime.datetime:
+    try:
+        return _parse(at or "")
+    except ValueError:
+        return datetime.datetime.min.replace(tzinfo=datetime.timezone.utc)
+
+
 def _refusal(entry: executions.Event, owner: executions.Record, run: executions.Record,
              now: datetime.datetime) -> str | None:
     if run.work_item:
@@ -83,11 +90,13 @@ def _refusal(entry: executions.Event, owner: executions.Record, run: executions.
         return "subagent-report"
     if (entry.ref or "").startswith(_NOTE_REF):
         return "note-not-evidence"
+    if entry.source is None:
+        return "no-source"
     if entry.kind not in _ACCEPTED_KINDS or entry.source not in _ACCEPTED_SOURCES:
         return "not-recorded-by-a-tool"
     if entry.kind == "called" and entry.exit_code:
         return "failed-call"
-    if entry.tool in LIVE_TOOLS and now - _parse(entry.at) > LIVE_MAX_AGE:
+    if entry.tool in LIVE_TOOLS and now - _when(entry.at) > LIVE_MAX_AGE:
         return "stale"
     return None
 
@@ -174,13 +183,6 @@ def _in_scope(record: executions.Record, work_item: str | None, execution: str |
     return execution is not None and record.id == execution
 
 
-def _when(at: str | None) -> datetime.datetime:
-    try:
-        return _parse(at or "")
-    except ValueError:
-        return datetime.datetime.min.replace(tzinfo=datetime.timezone.utc)
-
-
 def _fold(records: list[executions.Record], work_item: str | None, execution: str | None
           ) -> list[Decision]:
     """The latest state of each decision in scope, latest by `at` across every
@@ -238,6 +240,7 @@ def record(project_root: str | Path, claim: str, evidence: list[str], *,
     run, ledger, records = _open_run(project_root, session)
     executions._checked(claim, "claim")
     _well_formed(evidence)
+    agent = agent or run.agent
     reasons = _reasons(records, run, evidence, now)
     if _hedged(claim):
         reasons.append("hedged")
@@ -269,6 +272,9 @@ def resolve(project_root: str | Path, decision_id: str, evidence: list[str], *,
     if not evidence:
         reasons.append("no-evidence")
     if reasons:
+        executions.event(project_root, run.id, ledger=ledger, kind="noted", tool=TOOL,
+                         ref=decision_id, body="resolve refused", reasons=reasons,
+                         session=session, source="cli")
         return Decision(**{**before.__dict__, "reasons": tuple(reasons)})
     return _write(project_root, run, ledger, decision_id, before.claim, list(evidence), "resolved",
                   before.check, session=session, agent=before.agent, source="cli", reasons=[])

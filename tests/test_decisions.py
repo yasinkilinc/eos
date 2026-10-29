@@ -624,3 +624,60 @@ def test_a_check_with_short_numbers_is_kept(project, check):
     executions.start(project, "Work", session="s1")
 
     assert decisions.record(project, "the build is green", [], check=check, session="s1").check == check
+
+
+def _raw_event(project, execution, **fields):
+    import json
+
+    line = {"type": "event", "execution": execution, "kind": "ran", "tool": "db",
+            "source": "wrapper", **fields}
+    with executions.path_for(project).open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps(line) + "\n")
+
+
+def test_an_unparseable_at_never_raises_and_the_event_is_kept(project):
+    run = executions.start(project, "Work", session="s1")
+    _raw_event(project, run.id, id="e-aaaaaaaa", at="yesterday-ish")
+
+    found = decisions.record(project, "the db is up", ["e-aaaaaaaa"], session="s1")
+
+    assert "stale e-aaaaaaaa" in found.reasons
+    kept = [e for r in executions.load_path(executions.path_for(project)) for e in r.events
+            if e.id == "e-aaaaaaaa"]
+    assert [e.at for e in kept] == ["yesterday-ish"]
+
+
+def test_a_refused_resolve_leaves_a_noted_event(project):
+    run = executions.start(project, "Work", session="s1")
+    assumed = decisions.record(project, "the branch is clean", [], session="s1")
+
+    refused = decisions.resolve(project, assumed.id, ["e-00000000"], session="s1")
+
+    noted = [e for e in executions.load_path(executions.path_for(project))[0].events
+             if e.kind == "noted"]
+    assert refused.state == "assumption" and len(noted) == 1
+    assert (noted[0].tool, noted[0].ref, noted[0].source) == ("decide", assumed.id, "cli")
+    assert list(noted[0].reasons) == ["unknown-id e-00000000"] and noted[0].execution == run.id
+    assert [d.state for d in decisions.for_scope(project, work_item=None, execution=run.id)] == [
+        "assumption"]
+
+
+def test_decide_takes_the_agent_given_or_the_runs(project):
+    executions.start(project, "Work", session="s1", agent="devin")
+
+    own = decisions.record(project, "first", [], session="s1")
+    given = decisions.record(project, "second", [], session="s1", agent="claude")
+
+    assert (own.agent, given.agent) == ("devin", "claude")
+    read_back = {d.id: d.agent for d in decisions.for_scope(
+        project, work_item=None, execution=own.execution)}
+    assert read_back == {own.id: "devin", given.id: "claude"}
+
+
+def test_a_source_less_event_is_refused_as_no_source(project):
+    run = executions.start(project, "Work", session="s1")
+    _raw_event(project, run.id, id="e-bbbbbbbb", at="2026-10-29T10:00:00+00:00", source=None)
+
+    found = decisions.record(project, "the db is up", ["e-bbbbbbbb"], session="s1")
+
+    assert "no-source e-bbbbbbbb" in found.reasons

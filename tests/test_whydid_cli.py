@@ -275,3 +275,36 @@ def test_why_did_loads_the_ledgers_once(project, env, monkeypatch, capsys):
     assert done == 0 and len(calls) == 1
     out = capsys.readouterr().out
     assert all(re.search(rf"^    {p}  gitx  ", out, re.M) for p in proofs), out
+
+
+def test_why_did_survives_an_unparseable_at_and_sorts_it_first(project, env):
+    execution = _start(project, env, "s1")
+    good = _proof(project, env, "s1")
+    with executions.path_for(project).open("a", encoding="utf-8") as handle:
+        handle.write('{"type": "event", "execution": "%s", "kind": "ran", "tool": "db", '
+                     '"source": "wrapper", "id": "e-cccccccc", "at": "garbled"}\n' % execution)
+    first = _decide(project, env, "s1", "uses the good one", good)
+    second = _decide(project, env, "s1", "uses the garbled one", "e-cccccccc")
+
+    out = _run(["why-did", str(project), execution], env)
+
+    assert out.returncode == 0, out.stderr
+    assert "e-cccccccc" in out.stdout and "garbled" in out.stdout
+    assert first in out.stdout and second in out.stdout
+
+
+def test_why_did_shows_a_refused_resolve_and_the_later_resolution(project, env):
+    execution = _start(project, env, "s1")
+    did = _decide(project, env, "s1", "the table has the column")
+    refused = _run(["decide", str(project), "--resolve", did, "--evidence", "e-00000000",
+                    "--session", "s1"], env)
+    assert refused.returncode == 3
+    proof = _proof(project, env, "s1")
+    closed = _run(["decide", str(project), "--resolve", did, "--evidence", proof,
+                   "--session", "s1"], env)
+    assert closed.returncode == 0, closed.stderr
+
+    out = _run(["why-did", str(project), execution], env)
+
+    assert "resolve refused" in out.stdout and "reason=unknown-id evidence=e-00000000" in out.stdout
+    assert re.search(rf"resolved later: \d\d:\d\d {proof}", out.stdout), out.stdout
