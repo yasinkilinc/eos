@@ -59,11 +59,14 @@ sha256 of the raw output file and its absolute path, written by
 (`core/executions.py:284-297`). `--check` is the wrapper, its subcommand and
 first operand only (`automation/db.sh pg env1 crm`). A check holding a quote
 (`'` or `"`), `=`, `;`, a SQL verb as a word (`select`, `insert`, `update`,
-`delete`, `where`, any case) or longer than 120 characters is refused with a
-`ValueError` before anything is written, and `eos decide` exits 2 with
-`error: ...`. It is never truncated, and the refused value is not echoed. The
-ledger is pushed: `db.sh pg env1 crm "select * from cust where
-msisdn='905321234567'"` would have pushed a customer's number. The rule sits
+`delete`, `where`, any case), a run of 5 or more digits anywhere (an msisdn
+has 12, a customer id 6; `env1`, `FEMBS2-2220` and a build number up to 4
+digits pass) or longer than 120 characters is refused with a `ValueError`
+before anything is written, and `eos decide` exits 2 with `error: ...` telling
+the caller to drop identifiers and values. It is never truncated, and the
+refused value is not echoed. The ledger is pushed: `db.sh pg env1 crm "select
+* from cust where msisdn='905321234567'"` or a bare `obs.sh orders env1
+905321234567` would have pushed a customer's number. The rule sits
 on the `check` field of `executions.event`, so the prompt excerpt `approve`
 keeps as the check follows it too; the P2 prompt hook must cut its excerpt to
 fit.

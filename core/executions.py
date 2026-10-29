@@ -282,19 +282,19 @@ def _checked(value: str | None, what: str) -> str | None:
 
 
 CHECK_MAX = 120
-_CHECK_REFUSED = re.compile(r"['\"=;]|\b(?:select|insert|update|delete|where)\b", re.I)
+_CHECK_REFUSED = re.compile(r"['\"=;]|\b(?:select|insert|update|delete|where)\b|\d{5}", re.I)
 
 
 def _plain_check(check: str | None) -> None:
     """A decision's check names the command, never the query or the value it
-    would run with: the ledger is pushed, and a customer's number in a WHERE
-    clause would go with it. The value is not echoed back for the same reason."""
+    would run with: the ledger is pushed, and a customer's number (5+ digits, in
+    a WHERE clause or bare) would go with it. The value is not echoed back."""
     if check is None:
         return
     if len(check) > CHECK_MAX or _CHECK_REFUSED.search(check):
         raise ValueError(f"check must be the wrapper, subcommand and first operand only "
-                         f"(e.g. `automation/db.sh pg env1 crm`), at most {CHECK_MAX} characters, "
-                         f"with no quote, `=`, `;` or SQL verb")
+                         f"(e.g. `automation/db.sh pg env1 crm`), at most {CHECK_MAX} chars; drop "
+                         f"identifiers and values: no quote, `=`, `;`, SQL verb or 5+ digit run")
 
 
 def start(project_root: str | Path, title: str, *, procedure: str | None = None,

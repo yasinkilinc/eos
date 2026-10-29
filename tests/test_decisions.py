@@ -602,3 +602,25 @@ def test_the_fold_orders_by_time_then_by_what_can_follow(workspace, monkeypatch,
     for order in (records, list(reversed(records))):
         assert [(d.id, d.state) for d in decisions._fold(order, "W1", None)] == [
             (assumed.id, "resolved")]
+
+
+@pytest.mark.parametrize("check", ["automation/obs.sh orders env1 905321234567",
+                                   "automation/db.sh pg env1 crm 106425", "db.sh pg x12345y"])
+def test_a_check_carrying_a_long_number_is_refused(project, check):
+    executions.start(project, "Work", session="s1")
+    before = executions.path_for(project).read_text()
+
+    with pytest.raises(ValueError, match="identifiers and values") as refused:
+        decisions.record(project, "the order exists", [], check=check, session="s1")
+
+    assert executions.path_for(project).read_text() == before
+    assert "905321234567" not in str(refused.value) and "106425" not in str(refused.value)
+
+
+@pytest.mark.parametrize("check", ["automation/jenkins.sh status fm-crm 1234",
+                                   "automation/bb.sh pr fm-rim 412", "automation/jira.sh issue FEMBS2-2220",
+                                   "automation/argo.sh status env1"])
+def test_a_check_with_short_numbers_is_kept(project, check):
+    executions.start(project, "Work", session="s1")
+
+    assert decisions.record(project, "the build is green", [], check=check, session="s1").check == check
