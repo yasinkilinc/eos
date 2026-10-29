@@ -7,6 +7,7 @@ from __future__ import annotations
 import argparse
 import dataclasses
 import json
+import shlex
 import sys
 from core.cli.common import _route_run, _run_line
 
@@ -80,6 +81,8 @@ def cmd_run_start(args: argparse.Namespace) -> int:
               f"Export {executions.EXECUTION_ENV}={record.id} and "
               f"{executions.LEDGER_ENV}={executions.path_for(root)}, "
               f"or pass --session.", file=sys.stderr)
+        print(f"export {executions.EXECUTION_ENV}={shlex.quote(record.id)} "
+              f"{executions.LEDGER_ENV}={shlex.quote(str(executions.path_for(root)))}")
     _route_run(args.path, record)
     return 0
 

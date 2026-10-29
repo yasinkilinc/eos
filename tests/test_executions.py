@@ -677,3 +677,22 @@ def test_helper_prints_evidence_only_for_evidence_kinds(project, tmp_path, kind,
     written = executions.load(project)[0].events[0]
     assert written.kind == kind
     assert done.stdout == (f"evidence={written.id}\n" if prints else "")
+
+
+def test_run_start_without_a_session_prints_an_eval_able_export_line(project):
+    env = {k: v for k, v in os.environ.items() if k not in ("EOS_SESSION", "CLAUDE_CODE_SESSION_ID")}
+    done = _run(["run", "start", str(project), "--title", "Deploy"], env)
+
+    lines = done.stdout.splitlines()
+    assert done.returncode == 0 and "EOS_EXECUTION=" in done.stderr
+    assert lines[0] and not lines[0].startswith("export ")
+    import shlex
+    parts = shlex.split(lines[-1])
+    assert parts[0] == "export" and parts[1] == f"EOS_EXECUTION={lines[0]}"
+    assert parts[2] == f"EOS_EXECUTION_LEDGER={executions.path_for(project)}"
+
+
+def test_run_start_with_a_session_prints_no_export_line(project):
+    done = _run(["run", "start", str(project), "--title", "Deploy", "--session", "s1"], dict(os.environ))
+
+    assert "export " not in done.stdout
