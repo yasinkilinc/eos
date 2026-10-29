@@ -127,7 +127,9 @@ def cmd_whydid(args: argparse.Namespace) -> int:
             print(f"    resolve refused {_stamp(entry.at, _day(entry.at) != _day(made))}")
             for reason in entry.reasons or ():
                 print(f"      {decisions.reason_line(reason)}")
-        if item.state in ("resolved", "approved"):
+        if item.state == "resolved":
             when = _stamp(item.at, _day(item.at) != _day(made))
             print(f"    resolved later: {' '.join((when, *item.evidence))}")
+        elif item.state == "approved":
+            print(f"    approved later: {_stamp(item.at, _day(item.at) != _day(made))}")
     return 0

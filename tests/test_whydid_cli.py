@@ -323,3 +323,16 @@ def test_why_did_never_converts_or_prints_an_unreadable_at(project, env, zone):
     assert out.returncode == 0, out.stderr
     assert "e-dddddddd" in out.stdout and "unreadable" in out.stdout
     assert "05551234567" not in out.stdout and "Traceback" not in out.stderr
+
+
+def test_why_did_says_approved_later_for_an_approval(project, env):
+    from core import decisions
+
+    execution = _start(project, env, "s1")
+    did = _decide(project, env, "s1", "the table has the column", "e-00000000")
+    decisions.approve(project, did, prompt_excerpt="user prompt: onay", session="s1")
+
+    out = _run(["why-did", str(project), execution], env)
+
+    assert re.search(r"    approved later: \d\d:\d\d\n", out.stdout), out.stdout
+    assert "resolved later" not in out.stdout
