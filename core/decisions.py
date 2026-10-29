@@ -19,15 +19,20 @@ from core import executions
 
 STATES = ("evidenced", "assumption", "resolved", "approved")
 LIVE_TOOLS = frozenset({"db", "obs", "admintoolbox", "argo", "bssapi", "apitest", "scenario",
-                        "env-ready", "grafana", "kafka", "ntf", "eca", "usermgmt"})
+                        "env-ready", "grafana", "kafka", "ntf", "eca", "usermgmt", "bpmn",
+                        "cache-clear", "vpn"})
 LIVE_MAX_AGE = datetime.timedelta(hours=24)
 
 TOOL = "decide"
 _ACCEPTED_KINDS = ("ran", "called", "read", "verified")
 _ACCEPTED_SOURCES = ("wrapper", "hook")
-_HEDGES = re.compile(r"\b(muhtemel\w*|olmali\w*|saniyor\w*|sanirim|galiba|herhalde|probably|"
-                     r"likely|should|seem|seems|seemed|assume|assumed|assumes|assuming|"
-                     r"presumably)\b")
+# The sources `record`, `resolve` and `approve` write a decided event with.
+_DECISION_SOURCES = ("cli", "hook")
+_NOTE_REF = "note:"
+_HEDGES = re.compile(r"\b(muhtemel\w*|olmali\w*|saniyor\w*|sanirim|galiba|herhalde|belki|"
+                     r"olabilir\w*|tahmin\w*|sanki|gibi\s+gorunuyor\w*|probably|likely|should|"
+                     r"seem|seems|seemed|assume|assumed|assumes|assuming|presumably|might|maybe|"
+                     r"perhaps|apparently|i\s+think)\b")
 _EVIDENCE_ID = re.compile(r"^(e-[0-9a-f]{8}|x-[a-z0-9]+(?:-[a-z0-9]+)*-[0-9a-f]{4}#[0-9]+)$")
 _FOLD = str.maketrans("ışğüöç", "isguoc")
 
@@ -76,6 +81,8 @@ def _refusal(entry: executions.Event, owner: executions.Record, run: executions.
         return "other-work-item"
     if entry.kind == "verified" and entry.tool == "subagent":
         return "subagent-report"
+    if (entry.ref or "").startswith(_NOTE_REF):
+        return "note-not-evidence"
     if entry.kind not in _ACCEPTED_KINDS or entry.source not in _ACCEPTED_SOURCES:
         return "not-recorded-by-a-tool"
     if entry.kind == "called" and entry.exit_code:
@@ -169,9 +176,22 @@ def _in_scope(record: executions.Record, work_item: str | None, execution: str |
     return execution is not None and record.id == execution
 
 
+def _when(at: str | None) -> datetime.datetime:
+    try:
+        return _parse(at or "")
+    except ValueError:
+        return datetime.datetime.min.replace(tzinfo=datetime.timezone.utc)
+
+
 def _fold(records: list[executions.Record], work_item: str | None, execution: str | None
           ) -> list[Decision]:
-    latest: dict[str, Decision] = {}
+    """The latest state of each decision in scope, latest by `at` across every
+    ledger. `at` has whole seconds, so within one second a `resolved` or
+    `approved` event sorts after the `evidenced`/`assumption` it can only follow;
+    other ties keep read order. Only an event `record`, `resolve` or `approve`
+    could have written counts: a known `claim_state` (which `eos-event` and
+    `eos run event` cannot set) from source cli or hook, `approved` from the hook."""
+    decided: list[tuple[executions.Record, executions.Event]] = []
     seen: set[str] = set()
     for record in records:
         if not _in_scope(record, work_item, execution):
@@ -182,14 +202,20 @@ def _fold(records: list[executions.Record], work_item: str | None, execution: st
             if entry.id in seen:
                 continue
             seen.add(entry.id)
+            if entry.claim_state not in STATES or entry.source not in _DECISION_SOURCES:
+                continue
             if entry.claim_state == "approved" and entry.source != "hook":
                 continue
-            latest[entry.ref] = Decision(
-                id=entry.ref, execution=record.id, work_item=record.work_item, at=entry.at,
-                claim=entry.body or "", evidence=tuple(entry.evidence or ()),
-                state=entry.claim_state or "assumption", check=entry.check,
-                reasons=tuple(entry.reasons or ()),
-                agent=entry.agent)
+            decided.append((record, entry))
+    latest: dict[str, Decision] = {}
+    closing = ("resolved", "approved")
+    for record, entry in sorted(decided, key=lambda pair: (_when(pair[1].at),
+                                                           pair[1].claim_state in closing)):
+        latest[entry.ref] = Decision(
+            id=entry.ref, execution=record.id, work_item=record.work_item, at=entry.at,
+            claim=entry.body or "", evidence=tuple(entry.evidence or ()),
+            state=entry.claim_state, check=entry.check, reasons=tuple(entry.reasons or ()),
+            agent=entry.agent)
     return list(latest.values())
 
 

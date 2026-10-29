@@ -464,3 +464,140 @@ def test_an_empty_claim_is_refused(project, claim):
         decisions.record(project, claim, [], session="s1")
 
     assert executions.path_for(project).read_text() == before
+
+
+def test_a_note_read_is_not_evidence(project):
+    executions.start(project, "Work", session="s1")
+    read = _tool_event(project, "s1", kind="read", tool=None, source="hook",
+                       ref="note:20260901-wallet.md")
+
+    found = decisions.record(project, "the wallet is credited", [read.id], session="s1")
+
+    assert found.state == "assumption" and found.reasons == (f"note-not-evidence {read.id}",)
+    assert decisions.reason_line(found.reasons[0]) == f"reason=note-not-evidence evidence={read.id}"
+
+
+def _resolved_across_ledgers(workspace, monkeypatch):
+    root, _ = workspace
+    _, assumed = _record_in_service(workspace, monkeypatch)
+    executions.start(root, "Later", session="s2", work_item="W1")
+    proof = _tool_event(root, "s2")
+    decisions.resolve(root, assumed.id, [proof.id], session="s2")
+    return root, assumed
+
+
+def test_the_latest_state_is_the_latest_in_time_across_ledgers(workspace, monkeypatch):
+    root, assumed = _resolved_across_ledgers(workspace, monkeypatch)
+
+    assert [(d.id, d.state) for d in decisions.for_scope(root, work_item="W1", execution=None)] == [
+        (assumed.id, "resolved")]
+    assert decisions.open_assumptions(root, work_item="W1", execution=None) == []
+
+
+def test_the_fold_does_not_depend_on_ledger_read_order(workspace, monkeypatch):
+    root, assumed = _resolved_across_ledgers(workspace, monkeypatch)
+    records = decisions._all_records(root)
+
+    for order in (records, list(reversed(records))):
+        assert [(d.id, d.state) for d in decisions._fold(order, "W1", None)] == [
+            (assumed.id, "resolved")]
+
+
+def _forge(project, tmp_path, decision_id, *source):
+    import os
+    import subprocess
+    from pathlib import Path
+
+    helper = Path(__file__).resolve().parents[1] / "bin" / "eos-event"
+    env = {"PATH": "/usr/bin:/bin", "HOME": str(tmp_path), "EOS_STATE_DIR": str(tmp_path / "state"),
+           "CLAUDE_CODE_SESSION_ID": "s1"}
+    done = subprocess.run(["/bin/sh", str(helper), "--kind", "decided",
+                           "--tool", "decide", "--ref", decision_id, *source],
+                          capture_output=True, text=True, env=env, cwd=os.fspath(project))
+    assert done.returncode == 0, done.stderr
+
+
+def test_a_decided_line_from_a_shell_cannot_change_a_decision(project, tmp_path):
+    run = executions.start(project, "Work", session="s1")
+    assumed = decisions.record(project, "use the second table", [], session="s1")
+    proof = _tool_event(project, "s1")
+    decisions.resolve(project, assumed.id, [proof.id], session="s1")
+    before = executions.path_for(project).read_text()
+
+    for source in ([], ["--source", "cli"], ["--source", "hook"], ["--source", "wrapper"]):
+        _forge(project, tmp_path, assumed.id, *source)
+
+    assert executions.path_for(project).read_text() != before
+    [found] = decisions.for_scope(project, work_item=None, execution=run.id)
+    assert (found.state, found.claim) == ("resolved", "use the second table")
+
+
+@pytest.mark.parametrize("state, source", [("bogus", "cli"), (None, "cli"), ("resolved", "wrapper"),
+                                           ("evidenced", None)])
+def test_a_decided_event_outside_the_known_states_or_sources_is_ignored(project, state, source):
+    run = executions.start(project, "Work", session="s1")
+    assumed = decisions.record(project, "use the second table", [], session="s1")
+    executions.event(project, run.id, kind="decided", tool="decide", ref=assumed.id, body="other",
+                     claim_state=state, source=source, session="s1")
+
+    [found] = decisions.for_scope(project, work_item=None, execution=run.id)
+
+    assert (found.state, found.claim) == ("assumption", "use the second table")
+
+
+@pytest.mark.parametrize("claim", ["belki temiz", "temiz olabilir", "temiz olabilirdi",
+                                   "tahminen temiz", "tahmin ediyorum temiz", "sanki temiz",
+                                   "temiz gibi görünüyor", "it might be clean", "maybe it is clean",
+                                   "perhaps it is clean", "apparently it is clean",
+                                   "I think it is clean", "i THINK so"])
+def test_more_hedge_words_are_hedged(project, claim):
+    executions.start(project, "Work", session="s1")
+    proof = _tool_event(project, "s1")
+
+    assert "hedged" in decisions.record(project, claim, [proof.id], session="s1").reasons
+
+
+@pytest.mark.parametrize("claim", ["the table has the column and three rows",
+                                   "the mighty table is fine", "thinking cap is on"])
+def test_a_plain_sentence_stays_evidenced(project, claim):
+    executions.start(project, "Work", session="s1")
+    proof = _tool_event(project, "s1")
+
+    assert decisions.record(project, claim, [proof.id], session="s1").state == "evidenced"
+
+
+@pytest.mark.parametrize("tool", ["env-ready", "bpmn", "cache-clear", "vpn"])
+def test_wrapper_tools_that_read_an_environment_go_stale(project, tool):
+    executions.start(project, "Work", session="s1")
+    live = _tool_event(project, "s1", tool=tool)
+
+    found = decisions.record(project, "env1 is awake", [live.id], session="s1",
+                             now=_shifted(live, hours=25))
+
+    assert f"stale {live.id}" in found.reasons
+
+
+def _clock(monkeypatch, *stamps):
+    from core.knowledge import evidence
+
+    times = iter(stamps)
+    last = [stamps[-1]]
+
+    def now():
+        last[0] = next(times, last[0])
+        return last[0]
+
+    monkeypatch.setattr(evidence, "utc_now", now)
+
+
+@pytest.mark.parametrize("spaced", [True, False])
+def test_the_fold_orders_by_time_then_by_what_can_follow(workspace, monkeypatch, spaced):
+    stamps = [f"2026-10-29T09:00:{i:02d}+00:00" if spaced else "2026-10-29T09:00:00+00:00"
+              for i in range(20)]
+    _clock(monkeypatch, *stamps)
+    root, assumed = _resolved_across_ledgers(workspace, monkeypatch)
+    records = decisions._all_records(root)
+
+    for order in (records, list(reversed(records))):
+        assert [(d.id, d.state) for d in decisions._fold(order, "W1", None)] == [
+            (assumed.id, "resolved")]
