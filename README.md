@@ -45,20 +45,28 @@ executable launcher under `~/.local/bin/eos`. Override the locations with
   stdout line is `export EOS_EXECUTION=… EOS_EXECUTION_LEDGER=…`: `eval "$(eos run start … | tail -1)"`.
 - **`eos decide` keeps the agent and the refusals.** `--agent` (default: the run's) fills
   `Decision.agent`; a refused `--resolve` writes a `noted` event; `why-did` prints it and
-  `resolved later: <time> <evidence ids>`; a ledger line with an unreadable `at` no longer breaks either.
+  `resolved later: <time> <evidence ids>` (`approved later: <time>` for an approval); a
+  ledger line with an unreadable `at` no longer breaks either.
 - **The done gate treats `not yet done` / `henüz bitti` / `daha bitti` as no claim**, and records one event per distinct claim of a run.
 - **A source-less legacy event is refused as `no-source`**, not `not-recorded-by-a-tool`.
 - **Approval comes from the user's prompt (C2).** `d-xxxxxxxx onay` (or `approve`) in a
-  prompt closes that open assumption of the run; the hook is the only writer of `approved`.
+  prompt closes that open assumption of the work item (else the run), on a run the
+  prompting session opened; a question or a wait after it (`onay mı?`, `onay?`,
+  `onay bekliyor`, `onay sonra`) approves nothing. A shell call or a direct ledger
+  write can still forge one: the host must refuse them (ADR-038 "Residual risk").
 - **Gates read the ledger (ADR-038).** `eos gate check . --session S --action
   edit-main` prints one JSON line with the refusals (`no-open-run`,
   `open-assumption`, `nothing-looked-at`, `red-first`, `root-cause`), each with
   the one command that clears it; `eos gate mode .` prints `[gates] mode` of
-  `.eos/config.toml` (`off` by default, `warn`, `block`).
+  `.eos/config.toml` (`off` by default, `warn`, `block`), the workspace's when the
+  project has no `[gates]` table. Evidence is re-checked at gate time (live state
+  for 24 h). Devin gets mode `off` (`--host devin`), no done gate and no approval
+  until A19.
 - **A done claim needs a check (C3).** With gates on, the Stop hook compares a
   completion word in the answer (`bitti`, `done`, `passing`…) with the run: a
-  `changed` event with no passing wrapper or hook `ran`/`verified`/`called`
-  after it records `done-without-evidence` (`warn`) or stops the turn (`block`).
+  change to a source file outside the knowledge dir with no passing wrapper or
+  hook `ran`/`verified` after it records `done-without-evidence` (`warn`) or
+  stops the turn (`block`). A `called` lookup is no check; a note is no change.
 
 ## What changed in 2.5.0
 
