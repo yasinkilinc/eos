@@ -26,6 +26,11 @@ _UNSAFE_TARGET = re.compile(r"[\s='\"]")
 _VERIFY_KINDS = ("ran", "verified", "called")
 _VERIFY_SOURCES = ("wrapper", "hook")
 
+_CODE = re.compile(r"```.*?(?:```|\Z)|`[^`\n]*`", re.S)
+_CLAIM = re.compile(
+    r"(?<!\w)(?P<neg>(?:not|\w*n['\u2019]t)\s+)?"
+    r"(?:bitti|tamamlandi|duzeldi|gecti|calisiyor|done|fixed|passing|passes|works)(?!\w)")
+
 _FIX_RUN = 'eos run start . --title "…" --work <id>'
 _FIX_LOOK = 'eos decide --claim "…" --evidence <e-id>'
 _FIX_RED = ("automation/mvn.sh test <service> or automation/apitest.sh run env1 <spec> "
@@ -138,6 +143,15 @@ def fresh_verification(records: list[executions.Record], run: executions.Record,
             if best is None or entry.ord > best.ord:
                 best = entry
     return best
+
+
+def done_claim(text: str) -> bool:
+    """Whether `text` says something is finished or working. A word inside a code span or
+    fence is quoted, not claimed; an English word right after `not ` / `n't ` is denied."""
+    if not text:
+        return False
+    plain = _folded(_CODE.sub(" ", text))
+    return any(not found.group("neg") for found in _CLAIM.finditer(plain))
 
 
 def _repo_relative(target: str) -> str:

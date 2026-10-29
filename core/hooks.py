@@ -1977,6 +1977,10 @@ def _stop(root: Path, hook: Hook, cfg: dict, agent: str | None) -> str:
     except Exception:  # noqa: BLE001 - cannot tell, do not stop the turn
         pass
     try:
+        reasons += _done_reasons(root, hook)
+    except Exception:  # noqa: BLE001 - cannot tell, do not stop the turn
+        pass
+    try:
         reasons += _note_reasons(root, hook)
     except Exception:  # noqa: BLE001 - cannot tell, do not stop the turn
         pass
@@ -2018,6 +2022,38 @@ def _cite_reasons(root: Path, hook: Hook, cfg: dict) -> list[str]:
     return ["EOS: these references in your answer cannot be right:\n"
             + "\n".join(f"- {problem}" for problem in problems[:5])
             + "\nCorrect them, or say in your answer that they are unverified."]
+
+
+def _done_reasons(root: Path, hook: Hook) -> list[str]:
+    """A completion claim in the main session's answer needs a passing check recorded
+    after the run's last change (`core.gates`). Once per message; `warn` records the
+    refusal and says nothing, `block` stops the turn with it."""
+    if hook.stop_active or hook.agent_id or not hook.last_message or not hook.session:
+        return []
+    from core import decisions, executions, gates
+
+    level = gates.mode(root)
+    if level == "off" or not gates.done_claim(hook.last_message):
+        return []
+    found = _open_run(root, hook.session)
+    if found is None:
+        return []
+    records = decisions.all_records(root, hook.session)
+    run = next((r for r in records if r.id == found[0]), None)
+    changes = [e for e in run.events if e.kind == "changed"] if run else []
+    if not changes or gates.fresh_verification(records, run, after=changes[-1]) is not None:
+        return []
+    signature = hashlib.sha1(hook.last_message.encode("utf-8", "replace")).hexdigest()[:16]
+    if any(line.get("done_gated") == signature for line in _state(hook.session)):
+        return []
+    _note_state(hook.session, done_gated=signature)
+    refusal = gates.Refusal("done-without-evidence", "completion claimed, no passing check after the last change",
+                            "run the check that proves it, e.g. `automation/mvn.sh test <service>` / "
+                            "`automation/apitest.sh run env1 <spec>`", ())
+    gates.record_refusals(root, [refusal], session=hook.session, action="done", target=None)
+    if level == "warn":
+        return []
+    return [f"EOS: {refusal.detail}. Fix: {refusal.fix}"]
 
 
 def _note_reasons(root: Path, hook: Hook) -> list[str]:

@@ -46,6 +46,10 @@ executable launcher under `~/.local/bin/eos`. Override the locations with
   `open-assumption`, `nothing-looked-at`, `red-first`, `root-cause`), each with
   the one command that clears it; `eos gate mode .` prints `[gates] mode` of
   `.eos/config.toml` (`off` by default, `warn`, `block`).
+- **A done claim needs a check (C3).** With gates on, the Stop hook compares a
+  completion word in the answer (`bitti`, `done`, `passing`…) with the run: a
+  `changed` event with no passing wrapper or hook `ran`/`verified`/`called`
+  after it records `done-without-evidence` (`warn`) or stops the turn (`block`).
 
 ## What changed in 2.5.0
 
