@@ -92,6 +92,11 @@ class Event:
     # where that file was; the content itself is never copied into the ledger.
     output_sha256: str | None = None
     output_path: str | None = None
+    # A decision's cited event ids, its state and the check that backs it (a
+    # decision event, tool "decide"; core/decisions.py). Written only when set.
+    evidence: list[str] | None = None
+    claim_state: str | None = None
+    check: str | None = None
 
 
 @dataclasses.dataclass
@@ -310,7 +315,8 @@ def event(project_root: str | Path, execution: str | None = None, *, kind: str,
           exit_code: int | None = None, ms: int | None = None, body: str | None = None,
           session: str | None = None, agent: str | None = None, source: str | None = None,
           status: str | None = None, tool_use_id: str | None = None,
-          ledger: Path | None = None) -> Event | None:
+          ledger: Path | None = None, evidence: list[str] | None = None,
+          claim_state: str | None = None, check: str | None = None) -> Event | None:
     """Append one thing the session did. Without an id, to this session's current execution.
 
     `ledger` names the ledger holding `execution` when it is not
@@ -336,13 +342,15 @@ def event(project_root: str | Path, execution: str | None = None, *, kind: str,
         execution, ledger = found
     _checked(ref, "ref")
     _checked(body, "body")
+    _checked(check, "check")
     if tool_use_id and recorded(ledger, tool_use_id):
         return None
     entry = Event(execution=execution, ord=None, at=utc_now(), kind=kind, tool=normalize_tool(tool),
                   target=normalize_target(target), ref=ref, exit_code=exit_code, ms=ms, body=body,
                   session=session_for(project_root, session), agent=agent or None,
                   source=source, status=status, tool_use_id=tool_use_id or None,
-                  id=f"e-{secrets.token_hex(4)}")
+                  id=f"e-{secrets.token_hex(4)}", evidence=list(evidence) if evidence else None,
+                  claim_state=claim_state, check=check)
     line = {"type": LINE_EVENT, **{k: v for k, v in dataclasses.asdict(entry).items()
                                    if v is not None or k in _BASE_EVENT_FIELDS}}
     _append(ledger, line)
