@@ -89,7 +89,7 @@ def test_two_ids_both_approved(project, monkeypatch, capsys):
     executions.start(project, "run", session="s1")
     first, second = _assumption(project, "first guess"), _assumption(project, "second guess")
 
-    _prompt(monkeypatch, capsys, project, f"{first.id} onaylıyorum, {second.id} APPROVED")
+    _prompt(monkeypatch, capsys, project, f"{first.id} onaylıyorum\n{second.id} APPROVED")
 
     assert _state(project, first.id).state == "approved"
     assert _state(project, second.id).state == "approved"
@@ -184,7 +184,7 @@ def test_failing_approve_keeps_earlier_lines(project, monkeypatch, capsys):
 
     monkeypatch.setattr(decisions, "approve", flaky)
 
-    out = _prompt(monkeypatch, capsys, project, f"{first.id} onay {second.id} onay")
+    out = _prompt(monkeypatch, capsys, project, f"{first.id} onay\n{second.id} onay")
 
     assert f"EOS: {first.id} approved" in out and second.id not in out
 
@@ -266,3 +266,61 @@ def test_m2_no_approval_shape_reads_no_ledger(project, monkeypatch, capsys, text
     _prompt(monkeypatch, capsys, project, text)
 
     assert calls == []
+
+
+# --- fix round 2: the yes alone on its line (I6), a refused yes is said (N1) ---
+
+
+@pytest.mark.parametrize("tail", ["approve edeyim mi?", "onay vermem", "onay istemiyorum", "onay, değil mi?",
+                                  "onay sonra deploy et", "onay mı?", "onay bekliyor", "onay vermiyorum",
+                                  "onay ve deploy", "onay, sonra deploy et"])
+def test_r2_anything_after_the_yes_approves_nothing_and_says_so(project, monkeypatch, capsys, tail):
+    executions.start(project, "run", session="s1")
+    found = _assumption(project)
+
+    out = _prompt(monkeypatch, capsys, project, f"{found.id} {tail}")
+
+    assert _state(project, found.id).state == "assumption"
+    assert "approved by the user" not in out
+    assert f'EOS: {found.id} not approved — write "{found.id} onay" alone on a line.' in out
+
+
+@pytest.mark.parametrize("form", ["{id} onay", "{id} onay.", "{ID} ONAY!", "{id}: approved", "{id} onay  \nthanks",
+                                  "look:\n{id} - onaylıyorum.\n"])
+def test_r2_a_yes_at_the_end_of_its_line_approves(project, monkeypatch, capsys, form):
+    executions.start(project, "run", session="s1")
+    found = _assumption(project)
+
+    out = _prompt(monkeypatch, capsys, project, form.format(id=found.id, ID=found.id.upper()))
+
+    assert _state(project, found.id).state == "approved"
+    assert "not approved" not in out
+
+
+def test_r2_two_ids_on_two_lines_are_both_approved(project, monkeypatch, capsys):
+    executions.start(project, "run", session="s1")
+    first, second = _assumption(project, "first guess"), _assumption(project, "second guess")
+
+    _prompt(monkeypatch, capsys, project, f"{first.id} onay\n{second.id} approved")
+
+    assert _state(project, first.id).state == "approved"
+    assert _state(project, second.id).state == "approved"
+
+
+def test_r2_a_glued_word_is_no_yes(project, monkeypatch, capsys):
+    executions.start(project, "run", session="s1")
+    found = _assumption(project)
+
+    out = _prompt(monkeypatch, capsys, project, f"{found.id}onay")
+
+    assert _state(project, found.id).state == "assumption"
+    assert "not approved" not in out
+
+
+def test_r2_an_unknown_id_is_not_said(project, monkeypatch, capsys):
+    executions.start(project, "run", session="s1")
+    _assumption(project)
+
+    out = _prompt(monkeypatch, capsys, project, "d-1a2b3c4d onay mı?")
+
+    assert "not approved" not in out

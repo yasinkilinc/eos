@@ -1172,43 +1172,47 @@ def _new_sections(text: str, seen: set[str]) -> tuple[str, list[str]]:
 
 
 _ID = re.compile(r"(?<![\w-])d-[0-9a-f]{8}", re.I)
-# The yes must follow its own id at once, in folded text (ı->i, ş->s, ...).
-_APPROVAL = re.compile(r"(?<![\w-])(d-[0-9a-f]{8})\s*(?:[:,\-]\s*)?"
+# The yes follows its own id, in folded text (ı->i, ş->s, ...), and ends its line:
+# an allowlist, since any word after it can turn it into a question or a no.
+_APPROVAL = re.compile(r"(?<![\w-])(d-[0-9a-f]{8})(?:\s*[:,\-]\s*|\s+)"
                        r"(onayladim|onayliyorum|onay|approved|approve)(?!\w)")
-# After the yes: a no, a question (`?`, folded mı/mi/mu/mü) or a wait (bekliyor, sonra).
-_REFUSAL = re.compile(r"\s*(?:\?|\b(?:yok|degil|verme|not|mi|mu|bekl\w*|sonra)\b)")
+_APPROVAL_END = re.compile(r"\s*[.!]?\s*(?:\n|$)")
 _NOTICE_TAG = re.compile(r"<[a-z][a-z-]*-(?:notification|message|reminder)\b", re.I)
 _APPROVAL_NOTICES = _NOTICE_MARKS + ("<teammate-message",)
 
 
-def _approvals(root: Path, hook: Hook) -> list[str]:
-    """Ids of the session's open assumptions the user's own prompt approves (C2, R32):
-    only on the run this session opened (a child `claude -p` that inherited
-    `EOS_EXECUTION` has another session id), never from Devin until A19."""
+def _approvals(root: Path, hook: Hook) -> tuple[list[str], list[str]]:
+    """(approved, not approved): ids of the session's open assumptions the user's own
+    prompt approves (C2, R32) -- `<id> onay` alone at the end of its line -- and those
+    it names with a yes word followed by anything else. Only on the run this session
+    opened (a child `claude -p` that inherited `EOS_EXECUTION` has another session id),
+    never from Devin until A19."""
     prompt = hook.prompt
     if hook.host == DEVIN or not hook.session or not _ID.search(prompt):
-        return []
+        return [], []
     if any(mark in prompt for mark in _APPROVAL_NOTICES) or _NOTICE_TAG.search(prompt):
-        return []
+        return [], []
     try:
         from core import decisions
 
         folded = prompt.replace("İ", "i").replace("I", "ı").lower().translate(decisions._FOLD)
         if not _APPROVAL.search(folded):
-            return []
+            return [], []
         run, _, records = decisions._open_run(root, hook.session)
         if run.session != hook.session:
-            return []
+            return [], []
         open_ids = {d.id for d in decisions.open_assumptions(
             root, work_item=run.work_item, execution=run.id, session=hook.session, records=records)}
     except Exception:  # noqa: BLE001 - an approval never costs the prompt
-        return []
+        return [], []
     done: list[str] = []
+    refused: list[str] = []
     for found in _APPROVAL.finditer(folded):
         decision_id = found.group(1)
         if decision_id not in open_ids or decision_id in done:
             continue
-        if _REFUSAL.match(folded[found.end():found.end() + 15]):
+        if not _APPROVAL_END.match(folded, found.end()):
+            refused.append(decision_id)
             continue
         try:
             decisions.approve(root, decision_id, prompt_excerpt=f"user prompt: {found.group(2)}",
@@ -1216,14 +1220,16 @@ def _approvals(root: Path, hook: Hook) -> list[str]:
         except Exception:  # noqa: BLE001 - one refused approval keeps the others
             continue
         done.append(decision_id)
-    return done
+    return done, [i for i in dict.fromkeys(refused) if i not in done]
 
 
 def _user_prompt(root: Path, hook: Hook, cfg: dict, agent: str | None) -> str:
     prompt = hook.prompt.strip()[:MAX_TASK_CHARS]
     if not prompt or any(mark in prompt.lstrip()[:200] for mark in _NOTICE_MARKS):
         return ""
-    approved = "\n".join(f"EOS: {i} approved by the user's prompt." for i in _approvals(root, hook))
+    done, refused = _approvals(root, hook)
+    approved = "\n".join([f"EOS: {i} approved by the user's prompt." for i in done]
+                         + [f'EOS: {i} not approved — write "{i} onay" alone on a line.' for i in refused])
     text = _prompt_brief(root, hook, cfg, agent, prompt)
     return "\n\n".join(part for part in (approved, text) if part)
 
