@@ -164,13 +164,15 @@ def _reasons(records: list[executions.Record], run: executions.Record, evidence:
     return found
 
 
-def _open_run(project_root: str | Path, session: str | None
+def _open_run(project_root: str | Path, session: str | None,
+              records: list[executions.Record] | None = None
               ) -> tuple[executions.Record, Path, list[executions.Record]]:
     found = executions.current(project_root, session)
     if found is None:
         raise ValueError("no execution is open for this session; `eos run start` opens one")
     execution, ledger = found
-    records = all_records(project_root, session)
+    if records is None:
+        records = all_records(project_root, session)
     run = next((r for r in records if r.id == execution), None)
     if run is None:
         raise ValueError(f"execution {execution} is not in {ledger}")
@@ -281,10 +283,11 @@ def resolve(project_root: str | Path, decision_id: str, evidence: list[str], *,
 
 
 def approve(project_root: str | Path, decision_id: str, *, prompt_excerpt: str,
-            session: str | None = None) -> Decision:
+            session: str | None = None, records: list[executions.Record] | None = None
+            ) -> Decision:
     """The user said yes. Only the prompt hook calls this; the excerpt is kept as
-    the decision's check."""
-    run, ledger, records = _open_run(project_root, session)
+    the decision's check. `records`, when the caller already read them."""
+    run, ledger, records = _open_run(project_root, session, records)
     before = _existing(records, run, decision_id)
     return _write(project_root, run, ledger, decision_id, before.claim, list(before.evidence),
                   "approved", prompt_excerpt, session=session, agent=before.agent, source="hook",
@@ -301,7 +304,8 @@ def for_scope(project_root: str | Path, *, work_item: str | None, execution: str
 
 
 def open_assumptions(project_root: str | Path, *, work_item: str | None, execution: str | None,
-                     session: str | None = None) -> list[Decision]:
+                     session: str | None = None, records: list[executions.Record] | None = None
+                     ) -> list[Decision]:
     return [d for d in for_scope(project_root, work_item=work_item, execution=execution,
-                                 session=session)
+                                 session=session, records=records)
             if d.state == "assumption"]

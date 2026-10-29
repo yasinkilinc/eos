@@ -187,3 +187,82 @@ def test_failing_approve_keeps_earlier_lines(project, monkeypatch, capsys):
     out = _prompt(monkeypatch, capsys, project, f"{first.id} onay {second.id} onay")
 
     assert f"EOS: {first.id} approved" in out and second.id not in out
+
+
+# --- whole-branch review fixes (I3/M2, I6, I7, I8) ---
+
+
+@pytest.mark.parametrize("tail", ["onay mı?", "onay?", "onay bekliyor", "onay bekleniyor", "onay sonra",
+                                  "ONAY MI", "onay mü"])
+def test_i6_a_question_or_a_wait_is_not_approval(project, monkeypatch, capsys, tail):
+    executions.start(project, "run", session="s1")
+    found = _assumption(project)
+
+    out = _prompt(monkeypatch, capsys, project, f"{found.id} {tail}")
+
+    assert _state(project, found.id).state == "assumption"
+    assert "approved by the user" not in out
+
+
+def test_i6_a_yes_ending_its_sentence_approves(project, monkeypatch, capsys):
+    executions.start(project, "run", session="s1")
+    found = _assumption(project)
+
+    _prompt(monkeypatch, capsys, project, f"{found.id} onay.")
+
+    assert _state(project, found.id).state == "approved"
+
+
+def test_i7_a_child_session_with_the_run_in_its_env_approves_nothing(project, monkeypatch, capsys):
+    run = executions.start(project, "run", session="s1")
+    found = _assumption(project)
+    execution, ledger = executions.current(project, "s1")
+    assert execution == run.id
+    monkeypatch.setenv("EOS_EXECUTION", execution)
+    monkeypatch.setenv("EOS_EXECUTION_LEDGER", str(ledger))
+    payload = {"session_id": "s2", "cwd": str(project), "prompt": f"{found.id} onay"}
+    monkeypatch.setattr(sys, "stdin", io.StringIO(json.dumps(payload)))
+
+    assert hooks.main(["user-prompt"]) == 0
+
+    assert "approved by the user" not in capsys.readouterr().out
+    monkeypatch.delenv("EOS_EXECUTION")
+    monkeypatch.delenv("EOS_EXECUTION_LEDGER")
+    assert _state(project, found.id).state == "assumption"
+
+
+def test_i8_devin_approves_nothing(project, monkeypatch, capsys):
+    executions.start(project, "run", session="s1")
+    found = _assumption(project)
+    payload = {"session_id": "s1", "cwd": str(project), "prompt": f"{found.id} onay"}
+    monkeypatch.setattr(sys, "stdin", io.StringIO(json.dumps(payload)))
+
+    hooks.main(["user-prompt", "--host", "devin"])
+
+    assert _state(project, found.id).state == "assumption"
+
+
+def test_m2_one_approval_reads_the_ledgers_once(project, monkeypatch, capsys):
+    executions.start(project, "run", session="s1")
+    found = _assumption(project)
+    real = decisions.all_records
+    calls = []
+    monkeypatch.setattr(decisions, "all_records", lambda *a, **k: calls.append(1) or real(*a, **k))
+
+    _prompt(monkeypatch, capsys, project, f"{found.id} onay")
+
+    assert len(calls) == 1
+    monkeypatch.setattr(decisions, "all_records", real)
+    assert _state(project, found.id).state == "approved"
+
+
+@pytest.mark.parametrize("text", ["see xd-1a2b3c4d onay in the log", "build-d-1a2b3c4d onay",
+                                  "d-1a2b3c4d failed again, look"])
+def test_m2_no_approval_shape_reads_no_ledger(project, monkeypatch, capsys, text):
+    executions.start(project, "run", session="s1")
+    calls = []
+    monkeypatch.setattr(decisions, "all_records", lambda *a, **k: calls.append(1) or [])
+
+    _prompt(monkeypatch, capsys, project, text)
+
+    assert calls == []

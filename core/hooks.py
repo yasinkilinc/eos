@@ -1171,31 +1171,38 @@ def _new_sections(text: str, seen: set[str]) -> tuple[str, list[str]]:
     return "\n\n".join(kept), digests
 
 
-_ID = re.compile(r"d-[0-9a-f]{8}", re.I)
+_ID = re.compile(r"(?<![\w-])d-[0-9a-f]{8}", re.I)
 # The yes must follow its own id at once, in folded text (ı->i, ş->s, ...).
 _APPROVAL = re.compile(r"(?<![\w-])(d-[0-9a-f]{8})\s*(?:[:,\-]\s*)?"
                        r"(onayladim|onayliyorum|onay|approved|approve)(?!\w)")
-_REFUSAL = re.compile(r"\s*\b(yok|degil|verme|not)\b")
+# After the yes: a no, a question (`?`, folded mı/mi/mu/mü) or a wait (bekliyor, sonra).
+_REFUSAL = re.compile(r"\s*(?:\?|\b(?:yok|degil|verme|not|mi|mu|bekl\w*|sonra)\b)")
 _NOTICE_TAG = re.compile(r"<[a-z][a-z-]*-(?:notification|message|reminder)\b", re.I)
 _APPROVAL_NOTICES = _NOTICE_MARKS + ("<teammate-message",)
 
 
 def _approvals(root: Path, hook: Hook) -> list[str]:
-    """Ids of the session's open assumptions the user's own prompt approves (C2, R32)."""
+    """Ids of the session's open assumptions the user's own prompt approves (C2, R32):
+    only on the run this session opened (a child `claude -p` that inherited
+    `EOS_EXECUTION` has another session id), never from Devin until A19."""
     prompt = hook.prompt
-    if not hook.session or not _ID.search(prompt):
+    if hook.host == DEVIN or not hook.session or not _ID.search(prompt):
         return []
     if any(mark in prompt for mark in _APPROVAL_NOTICES) or _NOTICE_TAG.search(prompt):
         return []
     try:
         from core import decisions
 
-        run = decisions._open_run(root, hook.session)[0]
+        folded = prompt.replace("İ", "i").replace("I", "ı").lower().translate(decisions._FOLD)
+        if not _APPROVAL.search(folded):
+            return []
+        run, _, records = decisions._open_run(root, hook.session)
+        if run.session != hook.session:
+            return []
         open_ids = {d.id for d in decisions.open_assumptions(
-            root, work_item=run.work_item, execution=run.id, session=hook.session)}
+            root, work_item=run.work_item, execution=run.id, session=hook.session, records=records)}
     except Exception:  # noqa: BLE001 - an approval never costs the prompt
         return []
-    folded = prompt.replace("İ", "i").replace("I", "ı").lower().translate(decisions._FOLD)
     done: list[str] = []
     for found in _APPROVAL.finditer(folded):
         decision_id = found.group(1)
@@ -1205,7 +1212,7 @@ def _approvals(root: Path, hook: Hook) -> list[str]:
             continue
         try:
             decisions.approve(root, decision_id, prompt_excerpt=f"user prompt: {found.group(2)}",
-                              session=hook.session)
+                              session=hook.session, records=records)
         except Exception:  # noqa: BLE001 - one refused approval keeps the others
             continue
         done.append(decision_id)
