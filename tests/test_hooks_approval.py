@@ -115,3 +115,75 @@ def test_works_with_brief_off(project, monkeypatch, capsys):
 def test_excerpt_passes_checked():
     for word in ("onay", "onaylıyorum", "onayladım", "approve", "approved"):
         assert executions._checked(f"user prompt: {word}", "check")
+
+
+@pytest.mark.parametrize("tail", ["onaylamıyorum", "onay yok", "disapprove", "onay değil", "onay degil",
+                                  "onay verme", "approve not", "onaylama", "not approved"])
+def test_refusal_is_not_approval(project, monkeypatch, capsys, tail):
+    executions.start(project, "run", session="s1")
+    found = _assumption(project)
+
+    out = _prompt(monkeypatch, capsys, project, f"{found.id} {tail}")
+
+    assert _state(project, found.id).state == "assumption"
+    assert "approved by the user" not in out
+
+
+@pytest.mark.parametrize("form", ["{id}: onay", "{id} - approved", "{ID} ONAY", "{id}, onaylıyorum", "{ID} ONAYLIYORUM"])
+def test_plain_yes_forms_approve(project, monkeypatch, capsys, form):
+    executions.start(project, "run", session="s1")
+    found = _assumption(project)
+
+    _prompt(monkeypatch, capsys, project, form.format(id=found.id, ID=found.id.upper()))
+
+    assert _state(project, found.id).state == "approved"
+
+
+@pytest.mark.parametrize("glue", ["hayır", "ve"])
+def test_word_belongs_to_its_own_id(project, monkeypatch, capsys, glue):
+    executions.start(project, "run", session="s1")
+    first, second = _assumption(project, "first guess"), _assumption(project, "second guess")
+
+    _prompt(monkeypatch, capsys, project, f"{first.id} {glue} {second.id} onay")
+
+    assert _state(project, first.id).state == "assumption"
+    assert _state(project, second.id).state == "approved"
+
+
+@pytest.mark.parametrize("wrap", ["{pad}<task-notification>{t}</task-notification>",
+                                  "<teammate-message from=x>{t}</teammate-message>",
+                                  "x <custom-notification a=b>{t}"])
+def test_notice_anywhere_blocks_approval(project, monkeypatch, capsys, wrap):
+    executions.start(project, "run", session="s1")
+    found = _assumption(project)
+
+    _prompt(monkeypatch, capsys, project, wrap.format(pad="x" * 210, t=f"{found.id} onay"))
+
+    assert _state(project, found.id).state == "assumption"
+
+
+def test_no_id_reads_no_ledger(project, monkeypatch, capsys):
+    executions.start(project, "run", session="s1")
+    calls = []
+    monkeypatch.setattr(decisions, "all_records", lambda *a, **k: calls.append(1) or [])
+
+    _prompt(monkeypatch, capsys, project, "just a normal prompt")
+
+    assert calls == []
+
+
+def test_failing_approve_keeps_earlier_lines(project, monkeypatch, capsys):
+    executions.start(project, "run", session="s1")
+    first, second = _assumption(project, "first guess"), _assumption(project, "second guess")
+    real = decisions.approve
+
+    def flaky(root, decision_id, **kw):
+        if decision_id == second.id:
+            raise ValueError("boom")
+        return real(root, decision_id, **kw)
+
+    monkeypatch.setattr(decisions, "approve", flaky)
+
+    out = _prompt(monkeypatch, capsys, project, f"{first.id} onay {second.id} onay")
+
+    assert f"EOS: {first.id} approved" in out and second.id not in out

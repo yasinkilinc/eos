@@ -56,3 +56,12 @@ error or unknown action adds `"error"` and no refusals.
   edit in `core/gates.py`, shared by every host.
 - A gate cannot see what the host did not report: a wrong `--action` is a wrong
   answer, not a refusal.
+
+## Residual risk: approval forgery
+
+EOS cannot tell a hook call delivered by the harness from one invoked from a
+shell: `eos hook user-prompt` with a forged payload, `decisions.approve` from
+Python, or a direct write to the ledger can all close an assumption as
+`approved`. The host must refuse shell calls to `eos hook`, `decisions.approve`
+and direct ledger writes. The record stays auditable: the event has source
+`hook` and the excerpt `user prompt: <word>`, visible in `why-did`.

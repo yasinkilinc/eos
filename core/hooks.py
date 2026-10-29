@@ -1171,12 +1171,21 @@ def _new_sections(text: str, seen: set[str]) -> tuple[str, list[str]]:
     return "\n\n".join(kept), digests
 
 
-_APPROVAL = re.compile(r"(d-[0-9a-f]{8}).{0,20}?(onayladım|onaylıyorum|onay|approved|approve)", re.I | re.S)
+_ID = re.compile(r"d-[0-9a-f]{8}", re.I)
+# The yes must follow its own id at once, in folded text (ı->i, ş->s, ...).
+_APPROVAL = re.compile(r"(?<![\w-])(d-[0-9a-f]{8})\s*(?:[:,\-]\s*)?"
+                       r"(onayladim|onayliyorum|onay|approved|approve)(?!\w)")
+_REFUSAL = re.compile(r"\s*\b(yok|degil|verme|not)\b")
+_NOTICE_TAG = re.compile(r"<[a-z][a-z-]*-(?:notification|message|reminder)\b", re.I)
+_APPROVAL_NOTICES = _NOTICE_MARKS + ("<teammate-message",)
 
 
 def _approvals(root: Path, hook: Hook) -> list[str]:
     """Ids of the session's open assumptions the user's own prompt approves (C2, R32)."""
-    if not hook.session:
+    prompt = hook.prompt
+    if not hook.session or not _ID.search(prompt):
+        return []
+    if any(mark in prompt for mark in _APPROVAL_NOTICES) or _NOTICE_TAG.search(prompt):
         return []
     try:
         from core import decisions
@@ -1184,17 +1193,23 @@ def _approvals(root: Path, hook: Hook) -> list[str]:
         run = decisions._open_run(root, hook.session)[0]
         open_ids = {d.id for d in decisions.open_assumptions(
             root, work_item=run.work_item, execution=run.id, session=hook.session)}
-        done: list[str] = []
-        for found in _APPROVAL.finditer(hook.prompt):
-            decision_id = found.group(1).lower()
-            if decision_id not in open_ids or decision_id in done:
-                continue
-            decisions.approve(root, decision_id, prompt_excerpt=f"user prompt: {found.group(2).lower()}",
-                              session=hook.session)
-            done.append(decision_id)
-        return done
     except Exception:  # noqa: BLE001 - an approval never costs the prompt
         return []
+    folded = prompt.replace("İ", "i").replace("I", "ı").lower().translate(decisions._FOLD)
+    done: list[str] = []
+    for found in _APPROVAL.finditer(folded):
+        decision_id = found.group(1)
+        if decision_id not in open_ids or decision_id in done:
+            continue
+        if _REFUSAL.match(folded[found.end():found.end() + 15]):
+            continue
+        try:
+            decisions.approve(root, decision_id, prompt_excerpt=f"user prompt: {found.group(2)}",
+                              session=hook.session)
+        except Exception:  # noqa: BLE001 - one refused approval keeps the others
+            continue
+        done.append(decision_id)
+    return done
 
 
 def _user_prompt(root: Path, hook: Hook, cfg: dict, agent: str | None) -> str:
@@ -1202,14 +1217,11 @@ def _user_prompt(root: Path, hook: Hook, cfg: dict, agent: str | None) -> str:
     if not prompt or any(mark in prompt.lstrip()[:200] for mark in _NOTICE_MARKS):
         return ""
     approved = "\n".join(f"EOS: {i} approved by the user's prompt." for i in _approvals(root, hook))
-    text = _prompt_brief(root, hook, cfg, agent)
+    text = _prompt_brief(root, hook, cfg, agent, prompt)
     return "\n\n".join(part for part in (approved, text) if part)
 
 
-def _prompt_brief(root: Path, hook: Hook, cfg: dict, agent: str | None) -> str:
-    prompt = hook.prompt.strip()[:MAX_TASK_CHARS]
-    if not prompt or any(mark in prompt.lstrip()[:200] for mark in _NOTICE_MARKS):
-        return ""
+def _prompt_brief(root: Path, hook: Hook, cfg: dict, agent: str | None, prompt: str) -> str:
     if cfg["inject"] and hook.session:
         _save_task(hook.session, prompt)
     if not cfg["brief"]:
