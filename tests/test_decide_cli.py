@@ -165,3 +165,21 @@ def test_resolve_without_evidence_exits_3_with_no_evidence(project, env):
     assert out.returncode == 3
     assert out.stdout.splitlines() == [f"decision={did} state=assumption",
                                        "reason=no-evidence evidence=-"]
+
+
+def test_a_check_holding_sql_exits_2(project, env):
+    _start(project, env)
+    out = _run(["decide", str(project), "--claim", "the row exists", "--check",
+                "db.sh pg env1 crm \"select * from cust where msisdn='905321234567'\"",
+                "--session", "s1"], env)
+    assert out.returncode == 2
+    assert out.stdout == ""
+    assert out.stderr.startswith("error: ") and "automation/db.sh pg env1 crm" in out.stderr
+    assert "905321234567" not in out.stderr
+
+
+def test_an_empty_claim_exits_2(project, env):
+    _start(project, env)
+    out = _run(["decide", str(project), "--claim", "  ", "--session", "s1"], env)
+    assert out.returncode == 2
+    assert out.stdout == "" and out.stderr.startswith("error: ")

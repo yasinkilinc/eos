@@ -407,3 +407,60 @@ def test_project_roots_cover_the_workspace_and_its_projects(workspace):
     found = decisions.project_roots(root)
 
     assert root.resolve() in found and service.resolve() in found
+
+
+REVIEWER_CHECK = "db.sh pg env1 crm \"select * from cust where msisdn='905321234567'\""
+
+
+@pytest.mark.parametrize("check", [REVIEWER_CHECK, "db.sh pg env1 crm 'x'", 'db.sh pg "x"',
+                                   "db.sh pg msisdn=905321234567", "db.sh pg env1; rm",
+                                   "db.sh pg SELECT", "db.sh pg Insert", "db.sh pg update",
+                                   "db.sh pg delete", "db.sh pg WHERE", "db.sh " + "x" * 120])
+def test_a_check_holding_a_query_or_value_is_refused(project, check):
+    executions.start(project, "Work", session="s1")
+    before = executions.path_for(project).read_text()
+
+    with pytest.raises(ValueError, match="wrapper, subcommand and first operand"):
+        decisions.record(project, "the row exists", [], check=check, session="s1")
+
+    assert executions.path_for(project).read_text() == before
+
+
+def test_a_refused_check_is_not_echoed(project):
+    executions.start(project, "Work", session="s1")
+
+    with pytest.raises(ValueError) as refused:
+        decisions.record(project, "the row exists", [], check=REVIEWER_CHECK, session="s1")
+
+    assert "905321234567" not in str(refused.value)
+
+
+def test_a_plain_check_is_kept(project):
+    executions.start(project, "Work", session="s1", work_item="W1")
+
+    found = decisions.record(project, "the row exists", [], check="automation/db.sh pg env1 crm",
+                             session="s1")
+
+    assert found.check == "automation/db.sh pg env1 crm"
+    assert [d.check for d in decisions.for_scope(project, work_item="W1", execution=None)] == [
+        "automation/db.sh pg env1 crm"]
+
+
+def test_words_holding_a_sql_verb_are_a_plain_check(project):
+    executions.start(project, "Work", session="s1")
+
+    found = decisions.record(project, "the row exists", [], check="bpmn.sh check updated-flow",
+                             session="s1")
+
+    assert found.check == "bpmn.sh check updated-flow"
+
+
+@pytest.mark.parametrize("claim", ["", "   ", "\t\n"])
+def test_an_empty_claim_is_refused(project, claim):
+    executions.start(project, "Work", session="s1")
+    before = executions.path_for(project).read_text()
+
+    with pytest.raises(ValueError, match="claim"):
+        decisions.record(project, claim, [], session="s1")
+
+    assert executions.path_for(project).read_text() == before

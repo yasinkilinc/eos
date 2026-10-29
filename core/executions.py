@@ -23,6 +23,7 @@ from __future__ import annotations
 import dataclasses
 import json
 import os
+import re
 import secrets
 import time
 from pathlib import Path
@@ -280,6 +281,22 @@ def _checked(value: str | None, what: str) -> str | None:
     return value
 
 
+CHECK_MAX = 120
+_CHECK_REFUSED = re.compile(r"['\"=;]|\b(?:select|insert|update|delete|where)\b", re.I)
+
+
+def _plain_check(check: str | None) -> None:
+    """A decision's check names the command, never the query or the value it
+    would run with: the ledger is pushed, and a customer's number in a WHERE
+    clause would go with it. The value is not echoed back for the same reason."""
+    if check is None:
+        return
+    if len(check) > CHECK_MAX or _CHECK_REFUSED.search(check):
+        raise ValueError(f"check must be the wrapper, subcommand and first operand only "
+                         f"(e.g. `automation/db.sh pg env1 crm`), at most {CHECK_MAX} characters, "
+                         f"with no quote, `=`, `;` or SQL verb")
+
+
 def start(project_root: str | Path, title: str, *, procedure: str | None = None,
           work_item: str | None = None, session: str | None = None,
           agent: str | None = None, target: str | None = None) -> Record:
@@ -346,6 +363,7 @@ def event(project_root: str | Path, execution: str | None = None, *, kind: str,
     _checked(ref, "ref")
     _checked(body, "body")
     _checked(check, "check")
+    _plain_check(check)
     if tool_use_id and recorded(ledger, tool_use_id):
         return None
     entry = Event(execution=execution, ord=None, at=utc_now(), kind=kind, tool=normalize_tool(tool),

@@ -209,6 +209,8 @@ def _write(project_root: str | Path, run: executions.Record, ledger: Path, decis
 def record(project_root: str | Path, claim: str, evidence: list[str], *,
            check: str | None = None, session: str | None = None, agent: str | None = None,
            now: str | None = None) -> Decision:
+    if not claim or not claim.strip():
+        raise ValueError("a decision needs a claim: one sentence saying what was decided")
     run, ledger, records = _open_run(project_root, session)
     executions._checked(claim, "claim")
     _well_formed(evidence)
