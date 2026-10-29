@@ -39,6 +39,25 @@ canonical `core/` runtime to `~/.local/share/eos/<version>/` and installs an
 executable launcher under `~/.local/bin/eos`. Override the locations with
 `EOS_INSTALL_PREFIX`, `EOS_DATA_DIR`, `EOS_BIN_DIR`, or `EOS_PYTHON`.
 
+## What changed in 2.5.0
+
+- **Decisions name their evidence (ADR-037).** `eos decide --claim "…" --evidence
+  <event-id>` records a decision with the ledger events that prove it. Each id
+  is checked: unknown, another work item, not recorded by a tool, a subagent's
+  report, a note read, stale (live environment tools after 24 h), a failed
+  call, a hedged claim or no evidence at all make it an `assumption`, and every
+  refusal is printed with the id it refused. `--resolve` re-checks an
+  assumption with new evidence; `--open` lists the open ones.
+- `eos why-did <run | work item | ticket>` lists the decisions in time order
+  with the evidence behind each: tool, target, ref, exit code, time, and
+  whether the wrapper's raw output is still present with the same sha256.
+- Every ledger event carries an id (`e-` + 8 hex; older lines get
+  `<execution>#<ord>` when loaded), and `eos-event --output <file>` records the
+  raw output's sha256 and path, never its content.
+- A decision's `check` names the command only: a quote, `=`, `;`, a SQL verb or
+  a run of 5+ digits is refused, so no query or customer value reaches the
+  pushed ledger.
+
 ## What changed in 2.4.2
 
 - A procedure is named by the rarity of its title words only on a near miss
