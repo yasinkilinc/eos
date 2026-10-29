@@ -25,8 +25,10 @@ LIVE_MAX_AGE = datetime.timedelta(hours=24)
 TOOL = "decide"
 _ACCEPTED_KINDS = ("ran", "called", "read", "verified")
 _ACCEPTED_SOURCES = ("wrapper", "hook")
-_HEDGES = re.compile(r"\b(muhtemelen|galiba|olmali|sanirim|herhalde|probably|likely|should|"
-                     r"seems|assume|assuming|presumably)\b")
+_HEDGES = re.compile(r"\b(muhtemel\w*|olmali\w*|saniyor\w*|sanirim|galiba|herhalde|probably|"
+                     r"likely|should|seem|seems|seemed|assume|assumed|assumes|assuming|"
+                     r"presumably)\b")
+_EVIDENCE_ID = re.compile(r"^(e-[0-9a-f]{8}|x-[^\s#]+#[0-9]+)$")
 _FOLD = str.maketrans("ışğüöç", "isguoc")
 
 
@@ -72,6 +74,21 @@ def _refusal(entry: executions.Event, owner: executions.Record, run: executions.
     return None
 
 
+def _well_formed(evidence: list[str]) -> None:
+    for cited in evidence:
+        executions._checked(cited, "evidence")
+        if not _EVIDENCE_ID.match(cited):
+            raise ValueError(f"evidence must be event ids (e-xxxxxxxx or <execution>#<n>); "
+                             f"got {cited!r}")
+
+
+def _ledger(project_root: str | Path, session: str | None = None) -> Path:
+    """The one ledger decisions are written to and read from: the one the
+    session's run is in (a workspace run's can be another project's)."""
+    found = executions.current(project_root, session)
+    return found[1] if found else executions.path_for(project_root)
+
+
 def _reasons(records: list[executions.Record], run: executions.Record, evidence: list[str],
              now: str | None) -> list[str]:
     clock = _parse(now) if now else datetime.datetime.now(datetime.timezone.utc)
@@ -113,6 +130,8 @@ def _fold(records: list[executions.Record], work_item: str | None, execution: st
         for entry in record.events:
             if entry.kind != "decided" or entry.tool != TOOL or not entry.ref:
                 continue
+            if entry.claim_state == "approved" and entry.source != "hook":
+                continue
             latest[entry.ref] = Decision(
                 id=entry.ref, execution=record.id, work_item=record.work_item, at=entry.at,
                 claim=entry.body or "", evidence=tuple(entry.evidence or ()),
@@ -140,6 +159,7 @@ def record(project_root: str | Path, claim: str, evidence: list[str], *,
            now: str | None = None) -> Decision:
     run, ledger, records = _open_run(project_root, session)
     executions._checked(claim, "claim")
+    _well_formed(evidence)
     reasons = _reasons(records, run, evidence, now)
     if _hedged(claim):
         reasons.append("hedged")
@@ -155,6 +175,8 @@ def _existing(records: list[executions.Record], run: executions.Record, decision
     found = [d for d in _fold(records, run.work_item, run.id) if d.id == decision_id]
     if not found:
         raise ValueError(f"no decision {decision_id} in this work item")
+    if found[0].state != "assumption":
+        raise ValueError(f"decision {decision_id} is {found[0].state}, not an open assumption")
     return found[0]
 
 
@@ -164,6 +186,7 @@ def resolve(project_root: str | Path, decision_id: str, evidence: list[str], *,
     the decision stays as it was and the refusal codes come back on the result."""
     run, ledger, records = _open_run(project_root, session)
     before = _existing(records, run, decision_id)
+    _well_formed(evidence)
     reasons = _reasons(records, run, evidence, now)
     if not evidence:
         reasons.append("no-evidence")
@@ -186,7 +209,7 @@ def approve(project_root: str | Path, decision_id: str, *, prompt_excerpt: str,
 
 def for_scope(project_root: str | Path, *, work_item: str | None, execution: str | None
               ) -> list[Decision]:
-    return _fold(executions.load(project_root), work_item, execution)
+    return _fold(executions.load_path(_ledger(project_root)), work_item, execution)
 
 
 def open_assumptions(project_root: str | Path, *, work_item: str | None, execution: str | None

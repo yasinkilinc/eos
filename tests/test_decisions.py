@@ -220,3 +220,81 @@ def test_a_resolved_decision_read_back_has_no_reasons(project):
     read_back = decisions.for_scope(project, work_item="W1", execution=None)
 
     assert [(d.state, d.reasons) for d in read_back] == [("resolved", ())]
+
+
+@pytest.mark.parametrize("bad", ["password=hunter2hunter2hunter2", "select 1", "free text"])
+def test_malformed_evidence_is_refused_before_anything_is_written(project, bad):
+    executions.start(project, "Work", session="s1")
+    before = executions.path_for(project).read_text()
+
+    with pytest.raises(ValueError):
+        decisions.record(project, "the branch is clean", [bad], session="s1")
+
+    assert executions.path_for(project).read_text() == before
+
+
+def test_a_legacy_shaped_evidence_id_is_well_formed(project):
+    run = executions.start(project, "Work", session="s1")
+
+    found = decisions.record(project, "the branch is clean", [f"{run.id}#7"], session="s1")
+
+    assert found.reasons == ("unknown-id",)
+
+
+def test_an_assumption_in_a_workspace_ledger_is_visible(project, tmp_path, monkeypatch):
+    elsewhere = tmp_path / "workspace" / "executions.jsonl"
+    run = executions.start(project, "Work", session="s1", work_item="W1")
+    monkeypatch.setenv("EOS_EXECUTION", run.id)
+    monkeypatch.setenv("EOS_EXECUTION_LEDGER", str(elsewhere))
+    executions._append(elsewhere, {"type": "start", "id": run.id, "title": "Work",
+                                   "work_item": "W1", "at": "2026-10-29T09:00:00+00:00"})
+
+    assumed = decisions.record(project, "the branch is clean", [], session="s1")
+
+    assert elsewhere.exists()
+    assert [d.id for d in decisions.open_assumptions(project, work_item="W1", execution=None)] == [assumed.id]
+    assert [d.id for d in decisions.for_scope(project, work_item="W1", execution=None)] == [assumed.id]
+
+
+def test_resolve_and_approve_need_an_open_assumption(project):
+    executions.start(project, "Work", session="s1")
+    proof = _tool_event(project, "s1")
+    evidenced = decisions.record(project, "the branch is clean", [proof.id], session="s1")
+    path = executions.path_for(project)
+    before = path.read_text()
+
+    with pytest.raises(ValueError):
+        decisions.resolve(project, evidenced.id, [proof.id], session="s1")
+    with pytest.raises(ValueError):
+        decisions.approve(project, evidenced.id, prompt_excerpt="evet", session="s1")
+
+    assert path.read_text() == before
+
+
+def test_an_approved_state_from_a_non_hook_event_is_ignored(project):
+    run = executions.start(project, "Work", session="s1")
+    assumed = decisions.record(project, "use the second table", [], session="s1")
+    executions.event(project, run.id, kind="decided", tool="decide", ref=assumed.id,
+                     body=assumed.claim, claim_state="approved", source="cli", session="s1")
+
+    state = decisions.for_scope(project, work_item=None, execution=run.id)[0].state
+
+    assert state == "assumption"
+
+
+@pytest.mark.parametrize("claim", ["olmalıdır temiz", "olmalıydı temiz", "muhtemeldir temiz",
+                                   "sanıyorum temiz", "it seemed fine", "I assumed it is clean"])
+def test_hedge_inflections_are_hedged(project, claim):
+    executions.start(project, "Work", session="s1")
+    proof = _tool_event(project, "s1")
+
+    assert "hedged" in decisions.record(project, claim, [proof.id], session="s1").reasons
+
+
+@pytest.mark.parametrize("claim", ["shoulder is fine", "assumption d-12345678 resolved",
+                                   "olmak temiz"])
+def test_words_that_only_look_like_hedges_are_not_hedged(project, claim):
+    executions.start(project, "Work", session="s1")
+    proof = _tool_event(project, "s1")
+
+    assert decisions.record(project, claim, [proof.id], session="s1").state == "evidenced"
