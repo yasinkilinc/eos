@@ -42,7 +42,7 @@ def _stop(monkeypatch, capsys, root, message, **extra):
 
 def _changed(root):
     executions.start(root, "a run", session="s1")
-    executions.event(root, kind="changed", tool="Edit", target="a.py", source="hook", session="s1")
+    executions.event(root, kind="changed", tool="Edit", ref="a.py", source="hook", session="s1")
 
 
 def _ran(root, *, kind="ran", tool="mvn", exit_code=0, source="wrapper"):
@@ -93,7 +93,7 @@ def test_run_before_the_change_does_not_count(project, monkeypatch, capsys):
     _mode(project, "block")
     executions.start(project, "a run", session="s1")
     _ran(project)
-    executions.event(project, kind="changed", tool="Edit", target="a.py", source="hook", session="s1")
+    executions.event(project, kind="changed", tool="Edit", ref="a.py", source="hook", session="s1")
     assert _stop(monkeypatch, capsys, project, "fixed")
 
 
@@ -176,3 +176,87 @@ def test_block_with_close_on_gives_both_the_open_run_and_the_done_reason(project
     assert out["decision"] == "block"
     assert "run(s) open" in out["reason"] and "done-without-evidence" not in out["reason"]
     assert "completion claimed, no passing check" in out["reason"]
+
+
+# --- whole-branch review fixes (C1, I1, I2, I8, M4) ---
+
+
+def test_c1_a_passing_wrapper_call_is_not_a_check(project, monkeypatch, capsys):
+    _mode(project, "block")
+    _changed(project)
+    _ran(project, kind="called", tool="search")
+    assert json.loads(_stop(monkeypatch, capsys, project, "bitti"))["decision"] == "block"
+
+
+def test_c1_a_passing_hook_verify_is_a_check(project, monkeypatch, capsys):
+    _mode(project, "block")
+    _changed(project)
+    _ran(project, kind="verified", tool="verify", source="hook")
+    assert _stop(monkeypatch, capsys, project, "bitti") == ""
+
+
+def _green_then(root, **change):
+    executions.start(root, "a run", session="s1")
+    executions.event(root, kind="changed", tool="Edit", ref="src/A.java", source="hook", session="s1")
+    _ran(root)
+    executions.event(root, session="s1", source="hook", kind="changed", **change)
+
+
+def test_i1_a_note_after_a_green_check_keeps_it_green(project, monkeypatch, capsys):
+    _mode(project, "block")
+    _green_then(project, tool="Edit", ref="docs/plan.md")
+    note = executions.note_written(project, project / ".eos" / "knowledge" / "n.md", action="add",
+                                   session="s1")
+    assert note is not None
+    assert _stop(monkeypatch, capsys, project, "testler geçti") == ""
+    assert _gate_events(project) == []
+
+
+def test_i1_a_change_in_the_knowledge_dir_keeps_it_green(project, monkeypatch, capsys):
+    (project / ".eos" / "config.toml").write_text(
+        '[hooks]\nclose = false\n[gates]\nmode = "block"\n[knowledge]\ndir = "kb"\n', encoding="utf-8")
+    _green_then(project, tool="Write", ref="kb/procedures/flow.yaml")
+    assert _stop(monkeypatch, capsys, project, "bitti") == ""
+
+
+def test_i1_a_source_change_after_a_green_check_reopens_it(project, monkeypatch, capsys):
+    _mode(project, "block")
+    _green_then(project, tool="Edit", ref="src/B.java")
+    assert json.loads(_stop(monkeypatch, capsys, project, "bitti"))["decision"] == "block"
+
+
+def test_i2_a_service_gets_the_workspace_mode(project, tmp_path, monkeypatch, capsys):
+    service = tmp_path / "svc"
+    service.mkdir()
+    assert subprocess.run(EOS + ["init", str(service), "--no-ai"], capture_output=True).returncode == 0
+    (service / ".eos" / "config.toml").write_text('[hooks]\nclose = false\n[workspace]\nroot = "../proj"\n',
+                                                  encoding="utf-8")
+    (project / ".eos" / "projects.toml").write_text('[[project]]\nname = "svc"\nroot = "../svc"\n',
+                                                    encoding="utf-8")
+    _mode(project, "block")
+    _changed(service)
+    assert json.loads(_stop(monkeypatch, capsys, service, "bitti"))["decision"] == "block"
+
+
+def test_i8_devin_gets_no_done_gate(project, monkeypatch, capsys):
+    _mode(project, "block")
+    _changed(project)
+    payload = {"session_id": "s1", "cwd": str(project), "last_assistant_message": "bitti"}
+    monkeypatch.setattr(sys, "stdin", io.StringIO(json.dumps(payload)))
+    assert hooks.main(["stop", "--host", "devin"]) == 0
+    assert capsys.readouterr().out == ""
+    assert _gate_events(project) == []
+
+
+def test_m4_only_the_pointer_ledger_counts(project, monkeypatch, capsys):
+    from core import decisions
+
+    _mode(project, "block")
+    _changed(project)
+    run_id = executions.current(project, "s1")[0]
+    foreign = executions.Record(id=run_id, title="elsewhere", events=[executions.Event(
+        execution=run_id, ord=10_000, at="2026-10-29T12:00:00+00:00", kind="ran", tool="mvn",
+        exit_code=0, source="wrapper", id="e-0000beef")])
+    real = decisions.all_records
+    monkeypatch.setattr(decisions, "all_records", lambda *a, **k: real(*a, **k) + [foreign])
+    assert json.loads(_stop(monkeypatch, capsys, project, "bitti"))["decision"] == "block"

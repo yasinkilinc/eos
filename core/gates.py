@@ -23,7 +23,7 @@ _EXEMPT_PROCEDURE = "upgrade"
 _FIX_WORDS = re.compile(r"\b(bug|fix|hata|duzelt\w*)\b")
 _ROOT_CAUSE = ("root cause:", "kok neden:")
 _UNSAFE_TARGET = re.compile(r"[\s='\"]")
-_VERIFY_KINDS = ("ran", "verified", "called")
+_VERIFY_KINDS = ("ran", "verified")
 _VERIFY_SOURCES = ("wrapper", "hook")
 
 _CODE = re.compile(r"```.*?(?:```|\Z)|`[^`\n]*`", re.S)
@@ -48,15 +48,27 @@ class Refusal:
     ids: tuple[str, ...]
 
 
-def mode(project_root: str | Path) -> str:
-    """`[gates] mode` of `.eos/config.toml`; anything unreadable or unknown is `off`."""
+def _gates_table(project_root: str | Path) -> dict | None:
     from core.lib.config_io import ConfigIO
 
     try:
         table = ConfigIO.read_toml(Path(project_root) / ".eos" / "config.toml").get("gates")
     except (OSError, ValueError):
-        return "off"
-    value = table.get("mode") if isinstance(table, dict) else None
+        return None
+    return table if isinstance(table, dict) else None
+
+
+def mode(project_root: str | Path) -> str:
+    """`[gates] mode` of the project's `.eos/config.toml`; a project with no `[gates]` table
+    takes its workspace's, so a session in a service has the workspace's switch. Anything
+    unreadable or unknown is `off`."""
+    from core import workspace
+
+    table = _gates_table(project_root)
+    if table is None:
+        parent = workspace.of(project_root)
+        table = _gates_table(parent) if parent is not None else None
+    value = table.get("mode") if table is not None else None
     return value if value in MODES else "off"
 
 
@@ -84,20 +96,33 @@ def _red_exempt(run: executions.Record, tool: str | None) -> bool:
     return tool == _EXEMPT_TOOL or (run.procedure or "").startswith(_EXEMPT_PROCEDURE)
 
 
+def _looked_at(scope: list[decisions.Decision], records: list[executions.Record],
+               run: executions.Record, now: str | None) -> list[decisions.Decision]:
+    """The scope's evidenced or resolved decisions whose evidence, checked again now,
+    still passes: live-state evidence older than 24 h no longer does."""
+    index = decisions.event_index(records)
+    return [d for d in scope if d.state in _LOOKED_AT
+            and not decisions._reasons(records, run, list(d.evidence), now, index=index)]
+
+
 def check(project_root: str | Path, *, session: str | None, action: str, path: str | None = None,
           tool: str | None = None, records: list[executions.Record] | None = None,
           now: str | None = None) -> list[Refusal]:
-    """The refusals for `action`, empty when the ledger backs it. `path` and `now` are
-    the host's context; no rule reads them yet."""
+    """The refusals for `action`, empty when the ledger backs it. `path` is the host's
+    context, no rule reads it yet; `now` dates the evidence freshness check."""
     if action not in ACTIONS:
         raise ValueError(f"action must be one of {', '.join(ACTIONS)}; got {action!r}")
+    no_run = [Refusal("no-open-run", "no execution is open for this session", _FIX_RUN, ())]
+    found = executions.current(project_root, session)
+    if found is None:
+        return no_run
     if records is None:
         records = decisions.all_records(project_root, session)
-    found = executions.current(project_root, session)
-    run = next((r for r in records if found and r.id == found[0]), None)
+    run = next((r for r in records if r.id == found[0]), None)
     if run is None:
-        return [Refusal("no-open-run", "no execution is open for this session", _FIX_RUN, ())]
+        return no_run
     scope = decisions._fold(records, run.work_item, run.id)
+    looked_at = _looked_at(scope, records, run, now)
     wanted = _rules(action)
     refusals: list[Refusal] = []
     pending = [d for d in scope if d.state == "assumption"]
@@ -108,7 +133,7 @@ def check(project_root: str | Path, *, session: str | None, action: str, path: s
             "; ".join(f"{d.id} unverified, check: {d.check or '-'}" for d in pending),
             f"eos decide --resolve {first} --evidence <e-id> or the user writes `{first} onay`",
             tuple(d.id for d in pending)))
-    if "nothing-looked-at" in wanted and not any(d.state in _LOOKED_AT for d in scope):
+    if "nothing-looked-at" in wanted and not looked_at:
         refusals.append(Refusal("nothing-looked-at",
                                 "no decision in this scope rests on evidence", _FIX_LOOK, ()))
     if "red-first" in wanted and not _red_exempt(run, tool) and not any(
@@ -118,19 +143,35 @@ def check(project_root: str | Path, *, session: str | None, action: str, path: s
         refusals.append(Refusal("red-first", "no failing mvn or apitest run before this edit",
                                 _FIX_RED, ()))
     if "root-cause" in wanted and _FIX_WORDS.search(_folded(run.title)) and not any(
-            d.state in _LOOKED_AT and _folded(d.claim).lstrip().startswith(_ROOT_CAUSE)
-            for d in scope):
+            _folded(d.claim).lstrip().startswith(_ROOT_CAUSE) for d in looked_at):
         refusals.append(Refusal("root-cause", "a fix run writes to an environment with no root "
                                 "cause decision", _FIX_ROOT, ()))
     return refusals
 
 
+def source_change(entry: executions.Event, project_root: str | Path) -> bool:
+    """A `changed` event the done gate owes a check for: a source file (the note gate's
+    suffixes) outside the project's knowledge dir. A note EOS wrote never is one."""
+    from core import note_gate, notes
+
+    if entry.kind != "changed" or executions.is_memory_write(entry) or not entry.ref:
+        return False
+    if not entry.ref.endswith(note_gate.SOURCE_SUFFIXES):
+        return False
+    root = Path(project_root).expanduser().resolve()
+    target = Path(entry.ref).expanduser()
+    target = (target if target.is_absolute() else root / target).resolve()
+    knowledge = notes.notes_dir(root)
+    return target != knowledge and knowledge not in target.parents
+
+
 def fresh_verification(records: list[executions.Record], run: executions.Record, *,
                        after: executions.Event | None) -> executions.Event | None:
-    """The latest event of `run` a tool recorded as a passing check, later in the run's
-    ledger order than `after` (the last `changed` event; None: anywhere). Order is the
-    event's position, never its whole-second stamp. A subagent's report, a cli-written
-    event and a non-zero exit never count."""
+    """The latest event of `run` a tool recorded as a passing check (`ran` or `verified`
+    with exit 0; a `called` lookup is no check), later in the run's ledger order than
+    `after` (the last source change; None: anywhere). Order is the event's position,
+    never its whole-second stamp, so `records` should be the run's own ledger. A
+    subagent's report, a cli-written event and a non-zero exit never count."""
     best: executions.Event | None = None
     for record in records:
         if record.id != run.id:
@@ -172,21 +213,31 @@ def _repo_relative(target: str) -> str:
         return path.name
 
 
+def _rule_action(body: str | None) -> tuple[str, str]:
+    rule, _, rest = (body or "").partition(": ")
+    return rule, rest.split(" ")[0]
+
+
 def record_refusals(project_root: str | Path, refusals: list[Refusal], *, session: str | None,
-                    action: str, target: str | None) -> None:
-    """One `noted` event, tool `gate`, per (rule, target) per run; a repeat writes nothing.
-    The body is the rule, the action and the decision ids; the target is repo-relative."""
+                    action: str, target: str | None,
+                    records: list[executions.Record] | None = None) -> None:
+    """One `noted` event, tool `gate`, per (rule, action, target) per run; a repeat writes
+    nothing. The body is the rule, the action and the decision ids; the target is
+    repo-relative. `records`, when the caller already read them, hold the run; else
+    the run alone is read from its ledger."""
     found = executions.current(project_root, session)
     if found is None or not refusals:
         return
     execution, ledger = found
+    if records is None:
+        records = executions.load_path(ledger, only=execution)
     relative = _repo_relative(target) if target else None
-    seen = {(e.body or "").split(":")[0] for r in executions.load_path(ledger) if r.id == execution
+    seen = {_rule_action(e.body) for r in records if r.id == execution
             for e in r.events if e.kind == "noted" and e.tool == TOOL and e.ref == relative}
     for refusal in refusals:
-        if refusal.rule in seen:
+        if (refusal.rule, action) in seen:
             continue
-        seen.add(refusal.rule)
+        seen.add((refusal.rule, action))
         body = f"{refusal.rule}: {action}" + (f" {' '.join(refusal.ids)}" if refusal.ids else "")
         executions.event(project_root, execution, ledger=ledger, kind="noted", tool=TOOL,
                          ref=relative, body=body, source="hook", session=session)

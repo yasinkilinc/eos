@@ -151,9 +151,12 @@ def event_index(records: list[executions.Record]
 
 
 def _reasons(records: list[executions.Record], run: executions.Record, evidence: list[str],
-             now: str | None) -> list[str]:
+             now: str | None, *, index: dict | None = None) -> list[str]:
+    """The refusal codes of `evidence` as of `now`; `index` is `event_index(records)`
+    when the caller already built it."""
     clock = _parse(now) if now else datetime.datetime.now(datetime.timezone.utc)
-    index = event_index(records)
+    if index is None:
+        index = event_index(records)
     found: list[str] = []
     for cited in evidence:
         hit = index.get(cited)

@@ -408,7 +408,7 @@ def test_the_cli_answers_json_when_the_check_raises(project, monkeypatch, capsys
 
     monkeypatch.setattr(gates, "check", broken)
     args = argparse.Namespace(gate_command="check", path=str(project), session="s1",
-                              action="edit-test", file=None, tool=None)
+                              action="edit-test", file=None, tool=None, host=None)
 
     assert gate.cmd_gate(args) == 0
     lines = capsys.readouterr().out.strip().splitlines()
@@ -420,3 +420,161 @@ def test_the_cli_answers_json_for_an_unknown_or_missing_action(project, tmp_path
     out = _cli(["gate", "check", str(project), "--session", "s1", *args], project, tmp_path)
     assert out.returncode == 0, out.stderr
     assert json.loads(out.stdout) == {"mode": "off", "refusals": [], "error": "unknown-action"}
+
+
+# --- whole-branch review fixes (C1, I2, I3, I5, I8, M1, M3, M6) ---
+
+
+def test_c1_a_passing_called_event_is_no_fresh_verification(project):
+    run = executions.start(project, "Work", session="s1")
+    changed = _tool(project, "s1", kind="changed", tool="edit", source="hook")
+    _tool(project, "s1", kind="called", tool="search", exit_code=0)
+    records = decisions.all_records(project, "s1")
+    assert gates.fresh_verification(records, run, after=_loaded(records, changed)) is None
+
+    passed = _tool(project, "s1", kind="verified", tool="verify", exit_code=0, source="hook")
+    records = decisions.all_records(project, "s1")
+    assert gates.fresh_verification(records, run, after=_loaded(records, changed)).id == passed.id
+
+
+def _service_in_workspace(tmp_path):
+    ws, svc = tmp_path / "ws", tmp_path / "svc"
+    (ws / ".eos").mkdir(parents=True)
+    (svc / ".eos").mkdir(parents=True)
+    (ws / ".eos" / "projects.toml").write_text('[[project]]\nname = "svc"\nroot = "../svc"\n',
+                                               encoding="utf-8")
+    (svc / ".eos" / "config.toml").write_text('[workspace]\nroot = "../ws"\n', encoding="utf-8")
+    return ws, svc
+
+
+def test_i2_mode_falls_back_to_the_workspace(tmp_path):
+    ws, svc = _service_in_workspace(tmp_path)
+    assert gates.mode(svc) == "off"
+    _config(ws, '[gates]\nmode = "warn"\n')
+    assert gates.mode(svc) == "warn"
+    (svc / "src").mkdir()
+    assert gates.mode(svc / "src") == "off"
+    _config(svc, '[workspace]\nroot = "../ws"\n[gates]\nmode = "block"\n')
+    assert gates.mode(svc) == "block"
+    _config(svc, '[workspace]\nroot = "../ws"\n[gates]\nmode = "off"\n')
+    assert gates.mode(svc) == "off"
+
+
+def test_i2_the_cli_gives_a_service_the_workspace_mode(project, tmp_path):
+    ws, svc = _service_in_workspace(tmp_path)
+    _config(ws, '[gates]\nmode = "warn"\n')
+    out = _cli(["gate", "check", str(svc), "--session", "s1", "--action", "commit"], project, tmp_path)
+    assert json.loads(out.stdout)["mode"] == "warn"
+    assert _cli(["gate", "mode", str(svc)], project, tmp_path).stdout.strip() == "warn"
+
+
+def _gate_args(project, action, *, file=None, host=None):
+    import argparse
+
+    return argparse.Namespace(gate_command="check", path=str(project), session="s1", action=action,
+                              file=file, tool=None, host=host)
+
+
+def test_i3_no_open_run_reads_no_ledger(project, monkeypatch):
+    calls = []
+    monkeypatch.setattr(decisions, "all_records", lambda *a, **k: calls.append(1) or [])
+    assert _rules(project, "s1", "commit") == ["no-open-run"]
+    assert calls == []
+
+
+def test_i3_gate_check_reads_every_ledger_once(project, monkeypatch, capsys):
+    from core.cli import gate
+
+    _config(project, '[gates]\nmode = "warn"\n')
+    executions.start(project, "Work", session="s1")
+    ledgers = len(decisions._ledgers(project, "s1"))
+    real_all, real_load = decisions.all_records, executions.load_path
+    calls, full = [], []
+    monkeypatch.setattr(decisions, "all_records",
+                        lambda *a, **k: calls.append(1) or real_all(*a, **k))
+
+    def load(ledger, *, only=None):
+        if only is None:
+            full.append(ledger)
+        return real_load(ledger, only=only)
+
+    monkeypatch.setattr(executions, "load_path", load)
+
+    assert gate.cmd_gate(_gate_args(project, "edit-main", file="src/A.java")) == 0
+    assert gate.cmd_gate(_gate_args(project, "edit-main", file="src/A.java")) == 0
+
+    assert len(calls) == 2 and len(full) == 2 * ledgers
+    payload = json.loads(capsys.readouterr().out.strip().splitlines()[-1])
+    assert [r["rule"] for r in payload["refusals"]] == ["nothing-looked-at", "red-first"]
+    events = [e for r in real_all(project, "s1") for e in r.events if e.tool == "gate"]
+    assert len(events) == 2
+
+
+def test_i5_stale_live_evidence_is_not_looked_at(project):
+    import datetime
+
+    executions.start(project, "Fix the bug", session="s1")
+    proof = _tool(project, "s1", tool="db")
+    decisions.record(project, "kök neden: env1 has the row", [proof.id], session="s1")
+    later = (datetime.datetime.now(datetime.timezone.utc)
+             + datetime.timedelta(hours=25)).isoformat()
+
+    assert _rules(project, "s1", "env-write") == []
+    assert _rules(project, "s1", "edit-test", now=later) == ["nothing-looked-at"]
+    assert _rules(project, "s1", "env-write", now=later) == ["nothing-looked-at", "root-cause"]
+
+
+def test_i8_devin_gets_mode_off_and_nothing_recorded(project, tmp_path):
+    _config(project, '[gates]\nmode = "block"\n')
+    _cli(["run", "start", str(project), "--title", "Work", "--session", "s1"], project, tmp_path)
+    out = _cli(["gate", "check", str(project), "--session", "s1", "--action", "edit-main",
+                "--file", "src/A.java", "--host", "devin"], project, tmp_path)
+
+    assert out.returncode == 0, out.stderr
+    assert json.loads(out.stdout) == {"mode": "off", "refusals": []}
+    claude = _cli(["gate", "check", str(project), "--session", "s1", "--action", "edit-main",
+                   "--host", "claude"], project, tmp_path)
+    assert json.loads(claude.stdout)["mode"] == "block"
+
+
+def test_m1_refusals_are_printed_when_recording_fails(project, monkeypatch, capsys):
+    from core.cli import gate
+
+    _config(project, '[gates]\nmode = "block"\n')
+    executions.start(project, "Work", session="s1")
+
+    def broken(*args, **kwargs):
+        raise TimeoutError("lock")
+
+    monkeypatch.setattr(gates, "record_refusals", broken)
+
+    assert gate.cmd_gate(_gate_args(project, "edit-main", file="src/A.java")) == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["mode"] == "block"
+    assert [r["rule"] for r in payload["refusals"]] == ["nothing-looked-at", "red-first"]
+
+
+def test_m3_the_same_rule_on_another_action_is_recorded(project):
+    run = executions.start(project, "Work", session="s1")
+    for action in ("confirm", "push", "push"):
+        found = gates.check(project, session="s1", action=action)
+        gates.record_refusals(project, found, session="s1", action=action, target=None)
+
+    bodies = [e.body for r in executions.load_path(executions.current(project, "s1")[1])
+              if r.id == run.id for e in r.events if e.tool == "gate"]
+    assert bodies == ["nothing-looked-at: confirm", "nothing-looked-at: push"]
+
+
+def test_m6_eos_help_does_not_import_gates(tmp_path):
+    code = ("import runpy, sys\n"
+            "sys.argv = ['eos.py', 'gate', 'check', '--help']\n"
+            "try:\n"
+            f"    runpy.run_path({str(REPO / 'core' / 'eos.py')!r}, run_name='__main__')\n"
+            "except SystemExit:\n"
+            "    pass\n"
+            "print('GATES-IMPORTED' if 'core.gates' in sys.modules else 'GATES-NOT-IMPORTED')\n")
+    out = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, encoding="utf-8",
+                         cwd=str(tmp_path), env={**os.environ, "COLUMNS": "400"})
+    assert "GATES-NOT-IMPORTED" in out.stdout, out.stdout + out.stderr
+    for action in gates.ACTIONS:
+        assert action in out.stdout

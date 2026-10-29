@@ -49,7 +49,7 @@ if __name__ == "__main__" and sys.argv[1:2] == ["hook"]:
 
     raise SystemExit(_hooks.main(sys.argv[2:]))
 
-from core import gates, notes
+from core import notes
 
 
 _FILL_SESSION = frozenset(
@@ -546,10 +546,12 @@ def main(argv: list[str] | None = None) -> int:
     gate_sub = gate_p.add_subparsers(dest="gate_command", required=True)
     gate_check_p = gate_sub.add_parser("check", help="Print the refusals for one action as a JSON line; exit 0")
     add_path(gate_check_p)
-    gate_check_p.add_argument("--action", default=None, help="One of " + ", ".join(gates.ACTIONS) + "; anything else answers error unknown-action")
+    gate_check_p.add_argument("--action", default=None, help="One of edit-test, edit-main, edit-other, confirm, env-write, commit, push; "
+                              "anything else answers error unknown-action")
     gate_check_p.add_argument("--file", default=None, help="The file the action touches")
     gate_check_p.add_argument("--tool", default=None, help="The agent type acting, e.g. product-upgrade")
     gate_check_p.add_argument("--session", default=None, help="Session id; defaults to the harness's own")
+    gate_check_p.add_argument("--host", default=None, help="The asking host; devin answers mode off until A19")
     gate_mode_p = gate_sub.add_parser("mode", help="Print off, warn or block")
     add_path(gate_mode_p)
 

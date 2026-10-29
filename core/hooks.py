@@ -2082,9 +2082,10 @@ def _done_reasons(root: Path, hook: Hook) -> list[str]:
     """A completion claim in the main session's answer needs a passing check recorded
     after the run's last change (`core.gates`). Once per message; `warn` records the
     refusal and says nothing, `block` stops the turn with it."""
-    if hook.stop_active or hook.agent_id or not hook.last_message or not hook.session:
+    # Devin gets no gate until A19 brings its hooks to them.
+    if hook.host == DEVIN or hook.stop_active or hook.agent_id or not hook.last_message or not hook.session:
         return []
-    from core import decisions, executions, gates
+    from core import executions, gates
 
     level = gates.mode(root)
     if level == "off" or not gates.done_claim(hook.last_message):
@@ -2092,9 +2093,10 @@ def _done_reasons(root: Path, hook: Hook) -> list[str]:
     found = _open_run(root, hook.session)
     if found is None:
         return []
-    records = decisions.all_records(root, hook.session)
+    # The run's own ledger alone: event order means nothing across two ledgers.
+    records = executions.load_path(found[1], only=found[0])
     run = next((r for r in records if r.id == found[0]), None)
-    changes = [e for e in run.events if e.kind == "changed"] if run else []
+    changes = [e for e in run.events if gates.source_change(e, root)] if run else []
     if not changes or gates.fresh_verification(records, run, after=changes[-1]) is not None:
         return []
     signature = hashlib.sha1(hook.last_message.encode("utf-8", "replace")).hexdigest()[:16]
@@ -2105,7 +2107,8 @@ def _done_reasons(root: Path, hook: Hook) -> list[str]:
                             "run the check that proves it, e.g. `automation/mvn.sh test <service>` / "
                             "`automation/apitest.sh run env1 <spec>`", ())
     claim = hashlib.sha256(hook.last_message.encode("utf-8", "replace")).hexdigest()[:8]
-    gates.record_refusals(root, [refusal], session=hook.session, action="done", target=claim)
+    gates.record_refusals(root, [refusal], session=hook.session, action="done", target=claim,
+                          records=records)
     if level == "warn":
         return []
     return [f"EOS: {refusal.detail}. Fix: {refusal.fix}"]
