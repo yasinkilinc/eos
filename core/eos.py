@@ -61,6 +61,7 @@ _FILL_SESSION = frozenset(
 
 
 from core.cli.common import VERSION  # noqa: F401
+from core.cli.decide import cmd_decide  # noqa: F401
 from core.cli.intel import cmd_ask, cmd_brief, cmd_cite, cmd_consolidate, cmd_cost, cmd_draft_test, cmd_impact, cmd_parent, cmd_parents, cmd_query, cmd_rules, cmd_trace, cmd_verify, cmd_why  # noqa: F401
 from core.cli.notes import cmd_findings, cmd_note  # noqa: F401
 from core.cli.procedures import cmd_procedure  # noqa: F401
@@ -526,6 +527,18 @@ def main(argv: list[str] | None = None) -> int:
     add_path(proc_audit_p)
     proc_audit_p.add_argument("--format", choices=("text", "json"), default="text")
 
+    decide_p = sub.add_parser("decide", help="Record a decision with its evidence, resolve an assumption, list open ones")
+    add_path(decide_p)
+    what = decide_p.add_mutually_exclusive_group(required=True)
+    what.add_argument("--claim", help="The decision, one sentence")
+    what.add_argument("--resolve", metavar="D-ID", help="Close this assumption with --evidence")
+    what.add_argument("--open", action="store_true", help="List this work item's open assumptions")
+    decide_p.add_argument("--evidence", action="append", default=[], metavar="ID",
+                          help="Ledger event id (e-xxxxxxxx or <execution>#<n>); repeatable")
+    decide_p.add_argument("--check", help="The command that would settle it")
+    decide_p.add_argument("--session", default=None,
+                          help="Session id; defaults to the harness's own (EOS_SESSION, CLAUDE_CODE_SESSION_ID)")
+
     run_p = sub.add_parser("run", help="What a session did: executions and their events (ADR-022)")
     run_sub = run_p.add_subparsers(dest="run_command", required=True)
 
@@ -746,6 +759,7 @@ def main(argv: list[str] | None = None) -> int:
         "parents": cmd_parents,
         "note": cmd_note,
         "work": cmd_work,
+        "decide": cmd_decide,
         "run": cmd_run,
         "procedure": cmd_procedure,
         "brief": cmd_brief,
