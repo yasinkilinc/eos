@@ -39,7 +39,7 @@ canonical `core/` runtime to `~/.local/share/eos/<version>/` and installs an
 executable launcher under `~/.local/bin/eos`. Override the locations with
 `EOS_INSTALL_PREFIX`, `EOS_DATA_DIR`, `EOS_BIN_DIR`, or `EOS_PYTHON`.
 
-## Unreleased
+## What changed in 2.6.0
 
 - **`eos run start` without a session prints an `export` line.** After its warning, the last
   stdout line is `export EOS_EXECUTION=… EOS_EXECUTION_LEDGER=…`: `eval "$(eos run start … | tail -1)"`.
