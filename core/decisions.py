@@ -116,8 +116,9 @@ def _reasons(records: list[executions.Record], run: executions.Record, evidence:
     for cited in evidence:
         hit = index.get(cited)
         reason = "unknown-id" if hit is None else _refusal(hit[1], hit[0], run, clock)
-        if reason and reason not in found:
-            found.append(reason)
+        entry = f"{reason} {cited}" if reason else None
+        if entry and entry not in found:
+            found.append(entry)
     return found
 
 

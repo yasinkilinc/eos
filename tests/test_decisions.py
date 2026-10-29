@@ -48,7 +48,7 @@ def test_unknown_id_is_refused(project):
 
     found = decisions.record(project, "the branch is clean", ["e-00000000"], session="s1")
 
-    assert found.state == "assumption" and "unknown-id" in found.reasons
+    assert found.state == "assumption" and "unknown-id e-00000000" in found.reasons
 
 
 def test_evidence_from_another_work_item_is_refused(project):
@@ -58,7 +58,7 @@ def test_evidence_from_another_work_item_is_refused(project):
 
     found = decisions.record(project, "the branch is clean", [proof.id], session="sb")
 
-    assert found.state == "assumption" and "other-work-item" in found.reasons
+    assert found.state == "assumption" and f"other-work-item {proof.id}" in found.reasons
 
 
 def test_evidence_from_an_earlier_run_of_the_same_item_counts(project):
@@ -77,7 +77,7 @@ def test_cli_written_event_is_not_evidence(project):
 
     found = decisions.record(project, "the branch is clean", [claimed.id], session="s1")
 
-    assert "not-recorded-by-a-tool" in found.reasons and found.state == "assumption"
+    assert f"not-recorded-by-a-tool {claimed.id}" in found.reasons and found.state == "assumption"
 
 
 def test_subagent_citation_count_is_not_evidence(project):
@@ -86,7 +86,7 @@ def test_subagent_citation_count_is_not_evidence(project):
 
     found = decisions.record(project, "the branch is clean", [report.id], session="s1")
 
-    assert "subagent-report" in found.reasons and found.state == "assumption"
+    assert f"subagent-report {report.id}" in found.reasons and found.state == "assumption"
 
 
 def test_subagent_tool_call_is_evidence(project):
@@ -110,7 +110,7 @@ def test_live_evidence_older_than_24h_is_stale(project):
     old_static = decisions.record(project, "the tree is clean", [static.id], session="s1",
                                   now=_shifted(static, days=30))
 
-    assert "stale" in old_live.reasons and old_live.state == "assumption"
+    assert f"stale {live.id}" in old_live.reasons and old_live.state == "assumption"
     assert fresh_live.state == "evidenced"
     assert old_static.state == "evidenced"
 
@@ -123,7 +123,7 @@ def test_failed_call_is_not_evidence(project):
     refused = decisions.record(project, "the api answers", [failed.id], session="s1")
     accepted = decisions.record(project, "the test is red", [red_test.id], session="s1")
 
-    assert "failed-call" in refused.reasons and refused.state == "assumption"
+    assert f"failed-call {failed.id}" in refused.reasons and refused.state == "assumption"
     assert accepted.state == "evidenced"
 
 
@@ -167,7 +167,7 @@ def test_resolve_without_valid_evidence_leaves_it_open(project):
 
     refused = decisions.resolve(project, assumed.id, ["e-00000000"], session="s1")
 
-    assert refused.state == "assumption" and "unknown-id" in refused.reasons
+    assert refused.state == "assumption" and "unknown-id e-00000000" in refused.reasons
     assert len(decisions.open_assumptions(project, work_item=None, execution=run.id)) == 1
 
 
@@ -207,8 +207,8 @@ def test_refusal_reasons_are_kept_on_the_ledger(project):
 
     read_back = decisions.for_scope(project, work_item="W1", execution=None)
 
-    assert recorded.reasons == ("unknown-id",)
-    assert [d.reasons for d in read_back] == [("unknown-id",)]
+    assert recorded.reasons == ("unknown-id e-00000000",)
+    assert [d.reasons for d in read_back] == [("unknown-id e-00000000",)]
 
 
 def test_a_resolved_decision_read_back_has_no_reasons(project):
@@ -238,7 +238,7 @@ def test_a_legacy_shaped_evidence_id_is_well_formed(project):
 
     found = decisions.record(project, "the branch is clean", [f"{run.id}#7"], session="s1")
 
-    assert found.reasons == ("unknown-id",)
+    assert found.reasons == (f"unknown-id {run.id}#7",)
 
 
 def test_an_assumption_in_a_workspace_ledger_is_visible(project, tmp_path, monkeypatch):
@@ -316,7 +316,7 @@ def test_a_real_execution_id_with_an_ordinal_is_accepted(project):
 
     found = decisions.record(project, "the branch is clean", [f"{run.id}#7"], session="s1")
 
-    assert found.reasons == ("unknown-id",)
+    assert found.reasons == (f"unknown-id {run.id}#7",)
 
 
 @pytest.fixture
@@ -374,3 +374,16 @@ def test_evidence_kept_in_another_ledger_of_the_same_item_counts(workspace, monk
     found = decisions.record(root, "the branch is clean", [proof.id], session="s1")
 
     assert earlier.id != run.id and found.state == "evidenced"
+
+
+def test_two_stale_ids_give_two_entries_and_a_repeated_id_one(project):
+    executions.start(project, "Work", session="s1")
+    first = _tool_event(project, "s1", tool="db")
+    second = _tool_event(project, "s1", tool="db")
+    late = _shifted(second, hours=25)
+
+    two = decisions.record(project, "the row exists", [first.id, second.id], session="s1", now=late)
+    once = decisions.record(project, "the row exists", [first.id, first.id], session="s1", now=late)
+
+    assert two.reasons == (f"stale {first.id}", f"stale {second.id}")
+    assert once.reasons == (f"stale {first.id}",)

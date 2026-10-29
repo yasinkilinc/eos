@@ -10,9 +10,9 @@ import sys
 
 def _print(decision) -> None:
     print(f"decision={decision.id} state={decision.state}")
-    # Decision carries a flat reasons tuple, not a code per evidence id.
     for reason in decision.reasons:
-        print(f"reason={reason} evidence=-")
+        code, _, cited = reason.partition(" ")
+        print(f"reason={code} evidence={cited or '-'}")
 
 
 def cmd_decide(args: argparse.Namespace) -> int:

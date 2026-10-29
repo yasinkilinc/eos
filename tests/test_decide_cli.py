@@ -102,7 +102,7 @@ def test_resolve_without_evidence_exits_3(project, env):
                 "--session", "s1"], env)
     assert out.returncode == 3
     assert out.stdout.splitlines()[0] == f"decision={did} state=assumption"
-    assert "reason=unknown-id evidence=-" in out.stdout.splitlines()
+    assert "reason=unknown-id evidence=e-00000000" in out.stdout.splitlines()
 
 
 def test_malformed_evidence_exits_2_with_nothing_on_stdout(project, env):
@@ -127,3 +127,41 @@ def test_no_approve_flag(project, env):
     out = _run(["decide", str(project), "--claim", "x is y", "--approve", "d-00000000", "--session", "s1"], env)
     assert out.returncode == 2
     assert "unrecognized arguments: --approve" in out.stderr
+
+
+def test_refusal_names_the_refused_id_and_not_the_good_one(project, env):
+    execution = _start(project, env)
+    good = _tool_event(project, env, execution)
+    out = _run(["decide", str(project), "--claim", "build passes", "--evidence", good,
+                "--evidence", "e-00000000", "--session", "s1"], env)
+    assert out.returncode == 0, out.stderr
+    assert out.stdout.splitlines()[1:] == ["reason=unknown-id evidence=e-00000000"]
+
+
+def test_hedged_claim_without_evidence_prints_bare_reasons(project, env):
+    _start(project, env)
+    out = _run(["decide", str(project), "--claim", "it is probably fine", "--session", "s1"], env)
+    assert out.returncode == 0, out.stderr
+    assert out.stdout.splitlines()[1:] == ["reason=hedged evidence=-",
+                                           "reason=no-evidence evidence=-"]
+
+
+def test_open_ignores_an_assumption_from_a_different_run(project, env):
+    _start(project, env)
+    _run(["decide", str(project), "--claim", "old run thing", "--session", "s1"], env)
+    out = _run(["run", "finish", str(project), "--outcome", "ok", "--session", "s1"], env)
+    assert out.returncode == 0, out.stderr
+    _start(project, env)
+    listed = _run(["decide", str(project), "--open", "--session", "s1"], env)
+    assert listed.returncode == 0, listed.stderr
+    assert "old run thing" not in listed.stdout
+
+
+def test_resolve_without_evidence_exits_3_with_no_evidence(project, env):
+    _start(project, env)
+    made = _run(["decide", str(project), "--claim", "pool is sized", "--session", "s1"], env)
+    did = made.stdout.split()[0].split("=")[1]
+    out = _run(["decide", str(project), "--resolve", did, "--session", "s1"], env)
+    assert out.returncode == 3
+    assert out.stdout.splitlines() == [f"decision={did} state=assumption",
+                                       "reason=no-evidence evidence=-"]
