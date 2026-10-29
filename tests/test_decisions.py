@@ -399,3 +399,11 @@ def test_find_evidence_reads_a_second_project_ledger(workspace):
 
     assert found is not None and found[0].id == run.id and found[1].id == proof.id
     assert decisions.find_evidence(root, "e-00000000") is None
+
+
+def test_project_roots_cover_the_workspace_and_its_projects(workspace):
+    root, service = workspace
+
+    found = decisions.project_roots(root)
+
+    assert root.resolve() in found and service.resolve() in found

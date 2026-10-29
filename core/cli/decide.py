@@ -9,10 +9,11 @@ import sys
 
 
 def _print(decision) -> None:
+    from core import decisions
+
     print(f"decision={decision.id} state={decision.state}")
     for reason in decision.reasons:
-        code, _, cited = reason.partition(" ")
-        print(f"reason={code} evidence={cited or '-'}")
+        print(decisions.reason_line(reason))
 
 
 def cmd_decide(args: argparse.Namespace) -> int:

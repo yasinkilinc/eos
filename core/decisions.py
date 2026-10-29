@@ -46,6 +46,17 @@ class Decision:
     agent: str | None
 
 
+def reason_parts(reason: str) -> tuple[str, str]:
+    """A stored reason as (code, evidence id or "-")."""
+    code, _, cited = reason.partition(" ")
+    return code, cited or "-"
+
+
+def reason_line(reason: str) -> str:
+    code, cited = reason_parts(reason)
+    return f"reason={code} evidence={cited}"
+
+
 def _hedged(claim: str) -> bool:
     folded = claim.replace("İ", "i").replace("I", "ı").lower().translate(_FOLD)
     return _HEDGES.search(folded) is not None
@@ -82,21 +93,28 @@ def _well_formed(evidence: list[str]) -> None:
                              f"got {cited!r}")
 
 
+def project_roots(project_root: str | Path) -> list[Path]:
+    """The project and the projects of the workspace it is, or stands in."""
+    from core import workspace
+
+    root = Path(project_root).expanduser().resolve()
+    found = [root]
+    for candidate in (root, workspace.of(root)):
+        if candidate is None:
+            continue
+        found.extend(p.root for p in workspace.load_quiet(candidate))
+    return found
+
+
 def _ledgers(project_root: str | Path, session: str | None = None) -> list[Path]:
     """Every ledger this project knows, each with its rotated parts read by
     `load_path`: the session's run ledger, the project's own, and the ledgers of
     the projects of the workspace the project is, or stands in
     (`workspace.ledger_holding` resolves a workspace run the same way)."""
-    from core import workspace
-
     found = executions.current(project_root, session)
     paths = [found[1]] if found else []
     paths.append(executions.path_for(project_root))
-    root = Path(project_root).expanduser().resolve()
-    for candidate in (root, workspace.of(root)):
-        if candidate is None:
-            continue
-        paths.extend(executions.path_for(p.root) for p in workspace.load_quiet(candidate))
+    paths.extend(executions.path_for(p) for p in project_roots(project_root)[1:])
     unique: dict[Path, Path] = {}
     for path in paths:
         unique.setdefault(path.expanduser().resolve(), path)

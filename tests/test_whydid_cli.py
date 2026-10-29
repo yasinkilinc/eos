@@ -1,5 +1,6 @@
 """`eos why-did`: the decisions of a run, work item or ticket, and what proved them."""
 import os
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -27,6 +28,7 @@ def env(tmp_path, monkeypatch):
     monkeypatch.delenv("EOS_EXECUTION_LEDGER", raising=False)
     e = os.environ.copy()
     e["EOS_STATE_DIR"] = str(tmp_path / "state")
+    e["TZ"] = "UTC"
     e.pop("EOS_EXECUTION", None)
     e.pop("EOS_EXECUTION_LEDGER", None)
     return e
@@ -137,3 +139,84 @@ def test_why_did_without_decisions_says_so(project, env):
     out = _run(["why-did", str(project), execution], env)
 
     assert out.returncode == 0 and len(out.stdout.splitlines()) == 1
+
+
+def test_why_did_unreadable_output_is_a_visible_state(project, env, tmp_path):
+    if os.geteuid() == 0:
+        pytest.skip("root reads every file")
+    execution = _start(project, env, "s1")
+    raw = tmp_path / "raw.txt"
+    raw.write_bytes(b"rows")
+    proof = _proof(project, env, "s1", raw)
+    _decide(project, env, "s1", "the table has the column", proof)
+    raw.chmod(0)
+    try:
+        out = _run(["why-did", str(project), execution], env)
+    finally:
+        raw.chmod(0o600)
+
+    assert out.returncode == 0, out.stderr
+    assert "output: unreadable" in out.stdout
+
+
+def test_why_did_ticket_in_a_second_project_ledger(tmp_path, env, monkeypatch):
+    ws = tmp_path / "ws"
+    (ws / ".eos").mkdir(parents=True)
+    svc = tmp_path / "svc"
+    (svc / ".eos").mkdir(parents=True)
+    (ws / ".eos" / "projects.toml").write_text(
+        '[[project]]\nname = "svc"\nroot = "../svc"\n', encoding="utf-8")
+    work.open_item(svc, "Fix it", ticket="FM-7")
+    item = work.items(svc)[0].id
+    _start(svc, env, "s1", item)
+    did = _decide(svc, env, "s1", "service side claim")
+
+    out = _run(["why-did", str(ws), "FM-7"], env)
+
+    assert out.returncode == 0, out.stderr
+    assert did in out.stdout
+
+
+def test_why_did_shows_local_time(project, env):
+    execution = _start(project, env, "s1")
+    _decide(project, env, "s1", "a claim")
+    utc = _run(["why-did", str(project), execution], env).stdout.split()[:2]
+    istanbul = _run(["why-did", str(project), execution], {**env, "TZ": "Europe/Istanbul"}
+                    ).stdout.split()[:2]
+
+    def moment(parts):
+        import datetime
+        return datetime.datetime.strptime(" ".join(parts), "%Y-%m-%d %H:%M")
+
+    assert re.fullmatch(r"\d{4}-\d\d-\d\d \d\d:\d\d", " ".join(istanbul))
+    assert moment(istanbul) - moment(utc) == __import__("datetime").timedelta(hours=3)
+
+
+def test_why_did_assumption_prints_reasons_check_and_missing(project, env):
+    execution = _start(project, env, "s1")
+    out = _run(["decide", str(project), "--claim", "pool is sized", "--check", "db.sh pg x",
+                "--evidence", "e-00000000", "--session", "s1"], env)
+    assert out.returncode == 0, out.stderr
+
+    shown = _run(["why-did", str(project), execution], env).stdout
+
+    assert "check=db.sh pg x" in shown
+    assert "reason=unknown-id evidence=e-00000000" in shown
+    assert re.search(r"^\s+e-00000000\s+missing$", shown, re.M)
+
+
+def test_why_did_keeps_first_time_and_latest_state(project, env, tmp_path):
+    execution = _start(project, env, "s1")
+    made = _run(["decide", str(project), "--claim", "first claim", "--session", "s1"], env)
+    first = made.stdout.split()[0].split("=")[1]
+    other = _decide(project, env, "s1", "second claim")
+    proof = _proof(project, env, "s1")
+    done = _run(["decide", str(project), "--resolve", first, "--evidence", proof,
+                 "--session", "s1"], env)
+    assert done.returncode == 0, done.stderr
+
+    shown = _run(["why-did", str(project), execution], env).stdout
+
+    heads = [l for l in shown.splitlines() if re.match(r"\d{4}-", l)]
+    assert [h.split()[2] for h in heads] == [first, other]
+    assert "resolved" in heads[0] and "assumption" in heads[1]

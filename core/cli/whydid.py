@@ -11,7 +11,10 @@ from pathlib import Path
 
 
 def _stamp(at: str, date: bool) -> str:
-    return f"{at[:10]} {at[11:16]}" if date else at[11:16]
+    from core import decisions
+
+    local = decisions._parse(at).astimezone()
+    return local.strftime("%Y-%m-%d %H:%M" if date else "%H:%M")
 
 
 def _output(entry) -> str:
@@ -20,7 +23,14 @@ def _output(entry) -> str:
     path = Path(entry.output_path)
     if not path.is_file():
         return "output: gone"
-    same = hashlib.sha256(path.read_bytes()).hexdigest() == entry.output_sha256
+    digest = hashlib.sha256()
+    try:
+        with path.open("rb") as handle:
+            while chunk := handle.read(1 << 20):
+                digest.update(chunk)
+    except OSError:
+        return "output: unreadable"
+    same = digest.hexdigest() == entry.output_sha256
     return f"output: present ({'sha ok' if same else 'sha differs'}) {path}"
 
 
@@ -43,7 +53,7 @@ def _scope(root, value: str, session):
     records = decisions._all_records(root, session)
     if any(r.id == value for r in records):
         return [(None, value)]
-    found = work.items(root, status="all")
+    found = [i for r in decisions.project_roots(root) for i in work.items(r, status="all")]
     if any(r.work_item == value for r in records) or any(i.id == value for i in found):
         return [(value, None)]
     tickets = [i.id for i in found if i.ticket == value]
@@ -86,8 +96,7 @@ def cmd_whydid(args: argparse.Namespace) -> int:
         if item.check:
             print(f"    check={item.check}")
         for reason in item.reasons:
-            code, _, cited = reason.partition(" ")
-            print(f"    reason={code} evidence={cited or '-'}")
+            print(f"    {decisions.reason_line(reason)}")
         for cited in item.evidence:
             print(_evidence_line(root, cited, args.session))
     return 0
