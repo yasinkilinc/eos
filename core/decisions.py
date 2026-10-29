@@ -116,7 +116,8 @@ def _fold(records: list[executions.Record], work_item: str | None, execution: st
             latest[entry.ref] = Decision(
                 id=entry.ref, execution=record.id, work_item=record.work_item, at=entry.at,
                 claim=entry.body or "", evidence=tuple(entry.evidence or ()),
-                state=entry.claim_state or "assumption", check=entry.check, reasons=(),
+                state=entry.claim_state or "assumption", check=entry.check,
+                reasons=tuple(entry.reasons or ()),
                 agent=entry.agent)
     return list(latest.values())
 
@@ -127,7 +128,8 @@ def _write(project_root: str | Path, run: executions.Record, ledger: Path, decis
            ) -> Decision:
     entry = executions.event(project_root, run.id, ledger=ledger, kind="decided", tool=TOOL,
                              ref=decision_id, body=claim, evidence=evidence, claim_state=state,
-                             check=check, session=session, agent=agent, source=source)
+                             check=check, reasons=reasons, session=session, agent=agent,
+                             source=source)
     return Decision(id=decision_id, execution=run.id, work_item=run.work_item, at=entry.at,
                     claim=claim, evidence=tuple(evidence), state=state, check=check,
                     reasons=tuple(reasons), agent=agent)

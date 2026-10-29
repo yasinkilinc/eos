@@ -97,6 +97,8 @@ class Event:
     evidence: list[str] | None = None
     claim_state: str | None = None
     check: str | None = None
+    # The refusal codes a decision had when it was written; frozen, never recomputed.
+    reasons: list[str] | None = None
 
 
 @dataclasses.dataclass
@@ -316,7 +318,8 @@ def event(project_root: str | Path, execution: str | None = None, *, kind: str,
           session: str | None = None, agent: str | None = None, source: str | None = None,
           status: str | None = None, tool_use_id: str | None = None,
           ledger: Path | None = None, evidence: list[str] | None = None,
-          claim_state: str | None = None, check: str | None = None) -> Event | None:
+          claim_state: str | None = None, check: str | None = None,
+          reasons: list[str] | None = None) -> Event | None:
     """Append one thing the session did. Without an id, to this session's current execution.
 
     `ledger` names the ledger holding `execution` when it is not
@@ -350,7 +353,8 @@ def event(project_root: str | Path, execution: str | None = None, *, kind: str,
                   session=session_for(project_root, session), agent=agent or None,
                   source=source, status=status, tool_use_id=tool_use_id or None,
                   id=f"e-{secrets.token_hex(4)}", evidence=list(evidence) if evidence else None,
-                  claim_state=claim_state, check=check)
+                  claim_state=claim_state, check=check,
+                  reasons=list(reasons) if reasons else None)
     line = {"type": LINE_EVENT, **{k: v for k, v in dataclasses.asdict(entry).items()
                                    if v is not None or k in _BASE_EVENT_FIELDS}}
     _append(ledger, line)

@@ -199,3 +199,24 @@ def test_claim_with_a_credential_is_refused(project):
 
     with pytest.raises(ValueError, match="credential"):
         decisions.record(project, "the password is password=hunter2hunter2hunter2", [], session="s1")
+
+
+def test_refusal_reasons_are_kept_on_the_ledger(project):
+    executions.start(project, "Work", session="s1", work_item="W1")
+    recorded = decisions.record(project, "the branch is clean", ["e-00000000"], session="s1")
+
+    read_back = decisions.for_scope(project, work_item="W1", execution=None)
+
+    assert recorded.reasons == ("unknown-id",)
+    assert [d.reasons for d in read_back] == [("unknown-id",)]
+
+
+def test_a_resolved_decision_read_back_has_no_reasons(project):
+    executions.start(project, "Work", session="s1", work_item="W1")
+    assumed = decisions.record(project, "the branch is clean", [], session="s1")
+    proof = _tool_event(project, "s1")
+    decisions.resolve(project, assumed.id, [proof.id], session="s1")
+
+    read_back = decisions.for_scope(project, work_item="W1", execution=None)
+
+    assert [(d.state, d.reasons) for d in read_back] == [("resolved", ())]
