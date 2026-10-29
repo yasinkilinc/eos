@@ -188,11 +188,19 @@ def test_c1_a_passing_wrapper_call_is_not_a_check(project, monkeypatch, capsys):
     assert json.loads(_stop(monkeypatch, capsys, project, "bitti"))["decision"] == "block"
 
 
-def test_c1_a_passing_hook_verify_is_a_check(project, monkeypatch, capsys):
+def test_c1_only_a_wrapper_check_clears_it(project, monkeypatch, capsys):
+    """What the hooks and `eos verify` really write never clears it: the hook's `verified
+    tool=verify` and a passing Bash `ran` carry no exit code, `eos verify` writes no source,
+    the depth-2 check writes source `cli`. A wrapper's `ran` or `verified` with exit 0 does."""
     _mode(project, "block")
     _changed(project)
-    _ran(project, kind="verified", tool="verify", source="hook")
-    assert _stop(monkeypatch, capsys, project, "bitti") == ""
+    _ran(project, kind="verified", tool="verify", source="hook", exit_code=None)
+    _ran(project, kind="ran", tool="bash", source="hook", exit_code=None)
+    _ran(project, kind="verified", tool="eos verify", source=None)
+    _ran(project, kind="verified", tool="mvn", source="cli")
+    assert json.loads(_stop(monkeypatch, capsys, project, "bitti"))["decision"] == "block"
+    _ran(project, kind="verified", tool="mvn", source="wrapper")
+    assert _stop(monkeypatch, capsys, project, "bitti, again") == ""
 
 
 def _green_then(root, **change):
@@ -260,3 +268,35 @@ def test_m4_only_the_pointer_ledger_counts(project, monkeypatch, capsys):
     real = decisions.all_records
     monkeypatch.setattr(decisions, "all_records", lambda *a, **k: real(*a, **k) + [foreign])
     assert json.loads(_stop(monkeypatch, capsys, project, "bitti"))["decision"] == "block"
+
+
+def test_n5_a_service_change_is_seen_from_the_workspace_root(project, tmp_path, monkeypatch, capsys):
+    service = tmp_path / "svc"
+    service.mkdir()
+    assert subprocess.run(EOS + ["init", str(service), "--no-ai"], capture_output=True).returncode == 0
+    (service / ".eos" / "config.toml").write_text('[hooks]\nclose = false\n[workspace]\nroot = "../proj"\n',
+                                                  encoding="utf-8")
+    (project / ".eos" / "projects.toml").write_text('[[project]]\nname = "svc"\nroot = "../svc"\n',
+                                                    encoding="utf-8")
+    (project / ".eos" / "config.toml").write_text(
+        '[hooks]\nclose = false\n[gates]\nmode = "block"\n[knowledge]\ndir = "app"\n', encoding="utf-8")
+    executions.start(service, "a run", session="s1")
+    executions.event(service, kind="changed", tool="Edit", ref="app/Main.java", source="hook", session="s1")
+    assert json.loads(_stop(monkeypatch, capsys, project, "bitti"))["decision"] == "block"
+
+
+def test_n5_a_workspace_knowledge_change_is_no_change_from_a_service(project, tmp_path, monkeypatch, capsys):
+    service = tmp_path / "svc"
+    service.mkdir()
+    assert subprocess.run(EOS + ["init", str(service), "--no-ai"], capture_output=True).returncode == 0
+    (service / ".eos" / "config.toml").write_text('[hooks]\nclose = false\n[workspace]\nroot = "../proj"\n',
+                                                  encoding="utf-8")
+    (project / ".eos" / "projects.toml").write_text('[[project]]\nname = "svc"\nroot = "../svc"\n',
+                                                    encoding="utf-8")
+    (project / ".eos" / "config.toml").write_text(
+        '[hooks]\nclose = false\n[gates]\nmode = "block"\n[knowledge]\ndir = "kb"\n', encoding="utf-8")
+    executions.start(project, "a run", session="s1")
+    executions.event(project, kind="changed", tool="Edit", ref="src/A.java", source="hook", session="s1")
+    _ran(project)
+    executions.event(project, kind="changed", tool="Write", ref="kb/flow.yaml", source="hook", session="s1")
+    assert _stop(monkeypatch, capsys, service, "bitti") == ""

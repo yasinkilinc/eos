@@ -578,3 +578,43 @@ def test_m6_eos_help_does_not_import_gates(tmp_path):
     assert "GATES-NOT-IMPORTED" in out.stdout, out.stdout + out.stderr
     for action in gates.ACTIONS:
         assert action in out.stdout
+
+
+# --- fix round 2 (N2, N5) ---
+
+
+def test_n2_a_sessionless_run_is_told_to_resolve(project, monkeypatch):
+    from core import telemetry
+
+    for name in telemetry.SESSION_VARIABLES:
+        monkeypatch.delenv(name, raising=False)
+    run = executions.start(project, "Work", session=None)
+    assert run.session is None
+    monkeypatch.setenv("EOS_EXECUTION", run.id)
+    monkeypatch.setenv("EOS_EXECUTION_LEDGER", str(executions.path_for(project)))
+    pending = decisions.record(project, "env1 has the row", [], session=None)
+
+    found = [r for r in gates.check(project, session=None, action="commit") if r.rule == "open-assumption"]
+
+    assert found[0].fix == f"resolve it with evidence: eos decide --resolve {pending.id} --evidence <e-id>"
+    assert "onay" not in found[0].fix
+
+
+def test_n2_a_session_run_still_offers_the_prompt_yes(project):
+    executions.start(project, "Work", session="s1")
+    pending = decisions.record(project, "env1 has the row", [], session="s1")
+    found = [r for r in gates.check(project, session="s1", action="commit") if r.rule == "open-assumption"]
+    assert f"`{pending.id} onay`" in found[0].fix
+
+
+def _changed_in(root, ref):
+    return executions.Event(execution="x", ord=1, at="2026-10-29T12:00:00+00:00", kind="changed",
+                            tool="edit", ref=ref, source="hook")
+
+
+def test_n5_a_relative_ref_resolves_against_the_ledger_project(tmp_path):
+    ws, svc = _service_in_workspace(tmp_path)
+    _config(ws, '[knowledge]\ndir = "app"\n')
+    ledger = executions.path_for(svc)
+    assert gates.source_change(_changed_in(svc, "app/Main.java"), ws, ledger=ledger)
+    assert not gates.source_change(_changed_in(svc, ".eos/knowledge/x.yaml"), ws, ledger=ledger)

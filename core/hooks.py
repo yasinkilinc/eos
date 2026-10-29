@@ -2102,7 +2102,7 @@ def _done_reasons(root: Path, hook: Hook) -> list[str]:
     # The run's own ledger alone: event order means nothing across two ledgers.
     records = executions.load_path(found[1], only=found[0])
     run = next((r for r in records if r.id == found[0]), None)
-    changes = [e for e in run.events if gates.source_change(e, root)] if run else []
+    changes = [e for e in run.events if gates.source_change(e, root, ledger=found[1])] if run else []
     if not changes or gates.fresh_verification(records, run, after=changes[-1]) is not None:
         return []
     signature = hashlib.sha1(hook.last_message.encode("utf-8", "replace")).hexdigest()[:16]

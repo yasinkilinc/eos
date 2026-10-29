@@ -128,11 +128,14 @@ def check(project_root: str | Path, *, session: str | None, action: str, path: s
     pending = [d for d in scope if d.state == "assumption"]
     if "open-assumption" in wanted and pending:
         first = pending[0].id
+        # A prompt approves only on a run its session opened: a session-less run has none.
+        fix = (f"eos decide --resolve {first} --evidence <e-id> or the user writes `{first} onay`"
+               if run.session else
+               f"resolve it with evidence: eos decide --resolve {first} --evidence <e-id>")
         refusals.append(Refusal(
             "open-assumption",
             "; ".join(f"{d.id} unverified, check: {d.check or '-'}" for d in pending),
-            f"eos decide --resolve {first} --evidence <e-id> or the user writes `{first} onay`",
-            tuple(d.id for d in pending)))
+            fix, tuple(d.id for d in pending)))
     if "nothing-looked-at" in wanted and not looked_at:
         refusals.append(Refusal("nothing-looked-at",
                                 "no decision in this scope rests on evidence", _FIX_LOOK, ()))
@@ -149,16 +152,20 @@ def check(project_root: str | Path, *, session: str | None, action: str, path: s
     return refusals
 
 
-def source_change(entry: executions.Event, project_root: str | Path) -> bool:
+def source_change(entry: executions.Event, project_root: str | Path, *,
+                  ledger: Path | None = None) -> bool:
     """A `changed` event the done gate owes a check for: a source file (the note gate's
-    suffixes) outside the project's knowledge dir. A note EOS wrote never is one."""
+    suffixes) outside the knowledge dir of the project whose `ledger` recorded it
+    (`project_root` when there is no ledger or it belongs to no project); a relative
+    ref is that project's. A note EOS wrote never is one."""
     from core import note_gate, notes
 
     if entry.kind != "changed" or executions.is_memory_write(entry) or not entry.ref:
         return False
     if not entry.ref.endswith(note_gate.SOURCE_SUFFIXES):
         return False
-    root = Path(project_root).expanduser().resolve()
+    owner = executions._root_of(ledger) if ledger is not None else None
+    root = Path(owner or project_root).expanduser().resolve()
     target = Path(entry.ref).expanduser()
     target = (target if target.is_absolute() else root / target).resolve()
     knowledge = notes.notes_dir(root)
