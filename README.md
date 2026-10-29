@@ -51,9 +51,12 @@ executable launcher under `~/.local/bin/eos`. Override the locations with
 - **A source-less legacy event is refused as `no-source`**, not `not-recorded-by-a-tool`.
 - **Approval comes from the user's prompt (C2).** `d-xxxxxxxx onay` (or `approve`) in a
   prompt closes that open assumption of the work item (else the run), on a run the
-  prompting session opened; a question or a wait after it (`onay mı?`, `onay?`,
-  `onay bekliyor`, `onay sonra`) approves nothing. A shell call or a direct ledger
-  write can still forge one: the host must refuse them (ADR-038 "Residual risk").
+  prompting session opened, only when the yes ends its line (at most `.` or `!` after
+  it); anything after it (`onay mı?`, `onay vermem`, `onay sonra deploy et`) approves
+  nothing and the hook says `EOS: <id> not approved — write "<id> onay" alone on a line.`
+  On a session-less run the gate offers only `eos decide --resolve`. A shell call
+  (`eos hook`, `claude -p --resume`) or a direct ledger write can still forge one: the
+  host must refuse them (ADR-038 "Residual risk").
 - **Gates read the ledger (ADR-038).** `eos gate check . --session S --action
   edit-main` prints one JSON line with the refusals (`no-open-run`,
   `open-assumption`, `nothing-looked-at`, `red-first`, `root-cause`), each with
@@ -64,9 +67,11 @@ executable launcher under `~/.local/bin/eos`. Override the locations with
   until A19.
 - **A done claim needs a check (C3).** With gates on, the Stop hook compares a
   completion word in the answer (`bitti`, `done`, `passing`…) with the run: a
-  change to a source file outside the knowledge dir with no passing wrapper or
-  hook `ran`/`verified` after it records `done-without-evidence` (`warn`) or
-  stops the turn (`block`). A `called` lookup is no check; a note is no change.
+  change to a source file outside the knowledge dir with no passing check after
+  it records `done-without-evidence` (`warn`) or stops the turn (`block`). A
+  passing check is a wrapper's `ran` or `verified` with exit 0 (the hooks, `eos
+  verify` and the depth-2 check record none that counts); a `called` lookup is
+  no check; a note is no change.
 
 ## What changed in 2.5.0
 

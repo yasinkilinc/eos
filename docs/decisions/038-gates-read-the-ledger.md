@@ -47,6 +47,16 @@ Devin's hooks are not part of P2: `eos gate check --host devin` answers
 `{"mode": "off", "refusals": []}` and reads nothing, and the Stop done gate and
 prompt approvals do nothing for a Devin hook, until A19 brings them to Devin.
 
+**An approval is the user's yes alone.** The prompt hook approves an open
+assumption of the work item (else the run) only when `<id>`, a space or one of
+`:` `,` `-`, and a yes word (`onay`, `onaylıyorum`, `onayladım`, `approve`,
+`approved`) end their line, with at most a `.` or `!` after them: an allowlist,
+because any word after the yes can make it a question or a no. An id named with
+a yes word and anything after it is not approved, and the hook says so:
+`EOS: <id> not approved — write "<id> onay" alone on a line.` On a run opened
+without a session no prompt can approve, so the `open-assumption` fix there
+offers only `eos decide --resolve <id> --evidence <e-id>`.
+
 **What a gate event holds.** `record_refusals` appends one `noted` event,
 `tool=gate`, `source=hook`, per (rule, action, target) per run; a repeat in the
 same run writes nothing. `ref` is the target: an absolute path becomes the part
@@ -61,11 +71,16 @@ work item; the Stop hook's done gate reads only the run, from the run's own
 ledger (the session pointer's), because event order means nothing across two
 ledgers. A completion word in the main session's answer needs a passing check
 after the run's last source change. A source change is a `changed` event whose
-file has a source suffix (the note gate's list) and lies outside the project's
-knowledge dir; a note or a document edit is none. A passing check is a `ran` or
-`verified` event with exit 0 that a wrapper or a hook recorded, never a
-`called` lookup, a subagent report or a cli-written event; order is the event's
-position in the ledger (`ord`), not its whole-second stamp. Its refusal is
+file has a source suffix (the note gate's list) and lies outside the knowledge
+dir of the project whose ledger recorded it; a relative path is that project's,
+whatever directory the session stands in at Stop. A note or a document edit is
+none. A passing check is a `ran` or `verified` event with exit 0 and source
+`wrapper` or `hook`, never a `called` lookup, a subagent report or a
+cli-written event; order is the event's position in the ledger (`ord`), not its
+whole-second stamp. In practice only a wrapper clears it: the hooks record a
+passing call with no exit code (a Bash `ran`, `verified tool=verify`),
+`eos verify` writes its `verified` event with no source and the depth-2 check
+with source `cli`, so none of them counts. Its refusal is
 `done-without-evidence`, recorded with `action=done` and, as `ref`, the first
 eight hex digits of the claim message's SHA-256: one event per distinct claim.
 
@@ -87,9 +102,12 @@ shell, nor a wrapper's event from one a script wrote. Each path, and who closes 
 - **A child harness session.** `EOS_EXECUTION`/`EOS_EXECUTION_LEDGER` in the
   environment name the run before the session pointer does, so a
   `claude -p "d-… onay"` started from the session's shell fires a genuine
-  prompt hook on the parent's run. Closed in EOS: an approval needs the run to
-  have been opened by the prompting session (`run.session`), and a child has
-  another session id.
+  prompt hook on the parent's run. An approval needs the run to have been
+  opened by the prompting session (`run.session`), which closes a new child
+  session: it has its own id. It does not close `claude -p --resume <sid>` or
+  `--continue` (without `--fork-session`): they reuse the session id, and their
+  prompt hook approves like the user's. EOS cannot tell them apart; the host
+  must refuse shell calls to the `claude` CLI (nexus P2 Task 7).
 - **A shell call to `eos hook`.** `eos hook user-prompt` with a forged payload
   (the right session id included) is indistinguishable from the harness. The
   host must refuse it.
@@ -101,8 +119,9 @@ shell, nor a wrapper's event from one a script wrote. Each path, and who closes 
   `core.executions` imports, a direct `bin/eos-event` call).
 
 ADR-037 accepted an unauthenticated `source` on the condition that the P2 gate
-does not trust `source` alone. That condition is met by the session check
-above together with the host's refusal of `eos hook`, `bin/eos-event` and the
-writes that remain; it is not met by EOS alone. The record stays auditable: an
+does not trust `source` alone. That condition is met when the host refusals
+land (nexus P2 Task 7: the `claude` CLI, `eos hook`, `bin/eos-event` and the
+writes that remain), together with the session check above; it is not met by
+EOS alone, and not before then. The record stays auditable: an
 approval has source `hook` and the excerpt `user prompt: <word>`, visible in
 `why-did` as `approved later`.

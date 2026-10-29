@@ -145,8 +145,8 @@ word. It writes nothing.
   can run it can write a `wrapper` or `hook` event. The source check keeps
   honest paths apart; it is not a barrier. P1 accepts this on three
   conditions:
-  - the P2 gate that blocks work must not trust `source` alone (met with the
-    host's refusals, ADR-038 "Residual risk");
+  - the P2 gate that blocks work must not trust `source` alone (met when the
+    host refusals land, nexus P2 Task 7; ADR-038 "Residual risk");
   - the workspace's guard (nexus `wrapper_guard`) must refuse an agent's
     direct `eos-event` call, so only a wrapper writes `wrapper` events;
   - this ADR says so, which it does here.
