@@ -104,11 +104,18 @@ num() {
   esac
 }
 
+id=e-$(od -An -N4 -tx1 /dev/urandom 2>/dev/null | tr -d ' \n')
+case "$id" in
+  e-????????) ;;
+  *) exit 0 ;;
+esac
 at=$(date -u +%Y-%m-%dT%H:%M:%S+00:00 2>/dev/null) || exit 0
-line=$(printf '{"v": 1, "type": "event", "execution": %s, "ord": null, "at": %s, "kind": %s, "tool": %s, "target": %s, "ref": %s, "exit_code": %s, "ms": %s, "body": %s, "session": %s, "source": %s}' \
+line=$(printf '{"v": 1, "type": "event", "execution": %s, "ord": null, "at": %s, "kind": %s, "tool": %s, "target": %s, "ref": %s, "exit_code": %s, "ms": %s, "body": %s, "session": %s, "source": %s, "id": "%s"}' \
   "$(str "$execution")" "$(str "$at")" "$(str "$kind")" "$(str "$tool")" "$(str "$target")" \
-  "$(str "$ref")" "$(num "$exit_code")" "$(num "$ms")" "$(str "$body")" "$(str "$session")" "$(str "$source")")
+  "$(str "$ref")" "$(num "$exit_code")" "$(num "$ms")" "$(str "$body")" "$(str "$session")" "$(str "$source")" "$id")
 [ -n "$status" ] && line="${line%?}, \"status\": $(str "$status")}"
 
-{ printf '%s\n' "$line" >> "$ledger"; } 2>/dev/null
+if { printf '%s\n' "$line" >> "$ledger"; } 2>/dev/null; then
+  printf 'evidence=%s\n' "$id"
+fi
 exit 0

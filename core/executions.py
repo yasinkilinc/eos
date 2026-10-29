@@ -23,6 +23,7 @@ from __future__ import annotations
 import dataclasses
 import json
 import os
+import secrets
 import time
 from pathlib import Path
 
@@ -84,6 +85,9 @@ class Event:
     status: str | None = None
     # The harness's id for the tool call this event records, when it has one.
     tool_use_id: str | None = None
+    # "e-" + 8 hex, so a decision can cite the event; "<execution>#<ord>" for a
+    # line written before events had one.
+    id: str | None = None
 
 
 @dataclasses.dataclass
@@ -333,7 +337,8 @@ def event(project_root: str | Path, execution: str | None = None, *, kind: str,
     entry = Event(execution=execution, ord=None, at=utc_now(), kind=kind, tool=normalize_tool(tool),
                   target=normalize_target(target), ref=ref, exit_code=exit_code, ms=ms, body=body,
                   session=session_for(project_root, session), agent=agent or None,
-                  source=source, status=status, tool_use_id=tool_use_id or None)
+                  source=source, status=status, tool_use_id=tool_use_id or None,
+                  id=f"e-{secrets.token_hex(4)}")
     line = {"type": LINE_EVENT, **{k: v for k, v in dataclasses.asdict(entry).items()
                                    if v is not None or k in _BASE_EVENT_FIELDS}}
     _append(ledger, line)
@@ -568,7 +573,7 @@ _EVENT_FIELDS = [f.name for f in dataclasses.fields(Event)]
 # Written on every event line, null or not, as before 1.3.0; the attribution
 # fields after them are written only when they carry something.
 _BASE_EVENT_FIELDS = ("execution", "ord", "at", "kind", "tool", "target", "ref", "exit_code",
-                      "ms", "body", "session")
+                      "ms", "body", "session", "id")
 
 
 def _identities(parts: list[Path]) -> tuple:
@@ -658,6 +663,7 @@ def load_path(ledger: Path, *, only: str | None = None) -> list[Record]:
             record = get(data["execution"])
             values = {name: data.get(name) for name in _EVENT_FIELDS}
             values["ord"] = len(record.events)
+            values["id"] = values["id"] or f"{record.id}#{values['ord']}"
             # An event appended without a session id belongs to the session
             # that opened the run: a wrapper called from a context with no
             # harness variable did not stop being part of it.
@@ -686,6 +692,16 @@ def load_path(ledger: Path, *, only: str | None = None) -> list[Record]:
 
 def load(project_root: str | Path) -> list[Record]:
     return load_path(path_for(project_root))
+
+
+def find_event(project_root: str | Path, event_id: str) -> tuple[Record, Event] | None:
+    """The event with this id and its run, searching the ledger and the rotated
+    files the fold reads."""
+    for record in load(project_root):
+        for found in record.events:
+            if found.id == event_id:
+                return record, found
+    return None
 
 
 def fold_events_for_display(events: list[Event]) -> list[tuple[Event, int, str, str]]:

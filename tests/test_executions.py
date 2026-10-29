@@ -519,3 +519,71 @@ def test_finish_works_when_the_scopes_file_is_broken(tmp_path, monkeypatch):
     run = executions.start(root, "r", session="s1")
     executions.event(root, run.id, kind="changed", ref="src/a.py")
     assert executions.finish(root, run.id, outcome="ok").outcome_source is None
+
+
+# --- event ids -------------------------------------------------------------------------
+
+ID_PATTERN = r"^e-[0-9a-f]{8}$"
+
+
+def test_event_gets_an_id(project):
+    import re
+
+    executions.start(project, "Deploy", session="s-id")
+    written = executions.event(project, kind="ran", tool="build", session="s-id")
+
+    assert re.match(ID_PATTERN, written.id)
+    [line] = [json.loads(raw) for raw in executions.path_for(project).read_text().splitlines()
+              if json.loads(raw)["type"] == "event"]
+    assert line["id"] == written.id
+    assert executions.load(project)[0].events[0].id == written.id
+
+
+def test_helper_prints_the_id_it_wrote(project, tmp_path):
+    import re
+
+    executions.start(project, "Deploy", session="s-sh")
+
+    done = _helper(["--kind", "ran", "--tool", "db"], _env(tmp_path, CLAUDE_CODE_SESSION_ID="s-sh"))
+
+    assert done.returncode == 0, done.stderr
+    assert re.match(r"^evidence=e-[0-9a-f]{8}\n$", done.stdout)
+    assert done.stdout == f"evidence={executions.load(project)[0].events[0].id}\n"
+
+
+def test_helper_prints_nothing_without_a_run(project, tmp_path):
+    done = _helper(["--kind", "ran", "--tool", "db"], _env(tmp_path, CLAUDE_CODE_SESSION_ID="s-none"))
+
+    assert done.returncode == 0
+    assert done.stdout == ""
+
+
+def test_legacy_line_gets_execution_ord_id(project):
+    ledger = executions.path_for(project)
+    ledger.parent.mkdir(parents=True, exist_ok=True)
+    lines = [{"type": "start", "id": "x-old", "title": "Old", "at": "2026-09-24T09:00:00+00:00"},
+             {"type": "event", "execution": "x-old", "at": "2026-09-24T09:01:00+00:00", "kind": "ran"},
+             {"type": "event", "execution": "x-old", "at": "2026-09-24T09:02:00+00:00", "kind": "ran"}]
+    ledger.write_text("".join(json.dumps(line) + "\n" for line in lines), encoding="utf-8")
+
+    assert [e.id for e in executions.load(project)[0].events] == ["x-old#0", "x-old#1"]
+
+
+def test_find_event_reads_rotated_ledgers(project):
+    executions.start(project, "Deploy", session="s-rot")
+    written = executions.event(project, kind="ran", tool="build", session="s-rot")
+    executions._rotate(executions.path_for(project))
+    assert not executions.path_for(project).exists()
+
+    record, found = executions.find_event(project, written.id)
+
+    assert found.id == written.id and record.id == found.execution
+    assert executions.find_event(project, "e-00000000") is None
+
+
+def test_ids_do_not_repeat(project):
+    executions.start(project, "Deploy", session="s-many")
+    ids = {executions.event(project, kind="ran", tool="build", session="s-many").id
+           for _ in range(500)}
+
+    assert len(ids) == 500
