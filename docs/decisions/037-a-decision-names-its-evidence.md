@@ -80,8 +80,8 @@ event is accepted only when all of these hold:
 - a `called` event has no non-zero exit code;
 - if its tool is a live environment tool (`LIVE_TOOLS`, `:21-23`: db, obs,
   admintoolbox, argo, bssapi, apitest, scenario, env-ready, grafana, kafka,
-  ntf, eca, usermgmt, bpmn, cache-clear, vpn), it is at most 24 hours old
-  (`LIVE_MAX_AGE`, `:24`). Every other event stays valid for the life of the
+  ntf, eca, usermgmt, bpmn, cache-clear, vpn, db-grant-check, schema-drift,
+  s3, jenkins), it is at most 24 hours old (`LIVE_MAX_AGE`, `:24`). Every other event stays valid for the life of the
   work item.
 
 **Refusal codes.** A decision with any refusal is an `assumption`, and every

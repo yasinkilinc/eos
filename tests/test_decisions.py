@@ -566,7 +566,8 @@ def test_a_plain_sentence_stays_evidenced(project, claim):
     assert decisions.record(project, claim, [proof.id], session="s1").state == "evidenced"
 
 
-@pytest.mark.parametrize("tool", ["env-ready", "bpmn", "cache-clear", "vpn"])
+@pytest.mark.parametrize("tool", ["env-ready", "bpmn", "cache-clear", "vpn", "db-grant-check",
+                                  "schema-drift", "s3", "jenkins"])
 def test_wrapper_tools_that_read_an_environment_go_stale(project, tool):
     executions.start(project, "Work", session="s1")
     live = _tool_event(project, "s1", tool=tool)

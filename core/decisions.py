@@ -20,7 +20,7 @@ from core import executions
 STATES = ("evidenced", "assumption", "resolved", "approved")
 LIVE_TOOLS = frozenset({"db", "obs", "admintoolbox", "argo", "bssapi", "apitest", "scenario",
                         "env-ready", "grafana", "kafka", "ntf", "eca", "usermgmt", "bpmn",
-                        "cache-clear", "vpn"})
+                        "cache-clear", "vpn", "db-grant-check", "schema-drift", "s3", "jenkins"})
 LIVE_MAX_AGE = datetime.timedelta(hours=24)
 
 TOOL = "decide"
