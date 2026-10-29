@@ -47,8 +47,8 @@ def _start(project, env, session, work_item=None):
     return out.stdout.splitlines()[0]
 
 
-def _proof(project, env, session, raw=None):
-    args = ["--kind", "ran", "--tool", "db"]
+def _proof(project, env, session, raw=None, *extra):
+    args = ["--kind", "ran", "--tool", "db", *extra]
     if raw:
         args += ["--output", str(raw)]
     e = {**env, "CLAUDE_CODE_SESSION_ID": session, "PATH": "/usr/bin:/bin"}
@@ -96,6 +96,9 @@ def test_why_did_by_ticket_spans_runs(project, env):
     assert out.returncode == 0, out.stderr
     assert one in out.stdout and two in out.stdout
     assert out.stdout.index(one) < out.stdout.index(two)
+    lower = _run(["why-did", str(project), "fm-1"], env)
+    assert lower.returncode == 0, lower.stderr
+    assert lower.stdout == out.stdout
 
 
 def test_why_did_reports_missing_output(project, env, tmp_path):
@@ -220,3 +223,55 @@ def test_why_did_keeps_first_time_and_latest_state(project, env, tmp_path):
     heads = [l for l in shown.splitlines() if re.match(r"\d{4}-", l)]
     assert [h.split()[2] for h in heads] == [first, other]
     assert "resolved" in heads[0] and "assumption" in heads[1]
+
+
+def test_why_did_evidence_line_shows_the_ref(project, env, tmp_path):
+    execution = _start(project, env, "s1")
+    raw = tmp_path / "raw.txt"
+    raw.write_bytes(b"rows")
+    proof = _proof(project, env, "s1", raw, "--target", "env1", "--ref", "pg crm", "--exit", "0")
+    _decide(project, env, "s1", "the table has the column", proof)
+
+    shown = _run(["why-did", str(project), execution], env).stdout
+
+    assert re.search(rf"^    {proof}  db env1 pg crm  exit 0  \d\d:\d\d  output: present \(sha ok\) ",
+                     shown, re.M), shown
+
+
+def test_why_did_evidence_from_another_day_shows_its_date(project, env):
+    execution = _start(project, env, "s1")
+    executions._append(executions.path_for(project), {
+        "type": "event", "execution": execution, "ord": None, "at": "2026-10-01T10:00:00+00:00",
+        "kind": "ran", "tool": "gitx", "source": "wrapper", "id": "e-0000beef"})
+    _decide(project, env, "s1", "the branch is clean", "e-0000beef")
+
+    shown = _run(["why-did", str(project), execution], env).stdout
+
+    assert re.search(r"^    e-0000beef  gitx  2026-10-01 10:00  output: -$", shown, re.M), shown
+
+
+def test_why_did_loads_the_ledgers_once(project, env, monkeypatch, capsys):
+    import argparse
+
+    from core import decisions
+    from core.cli import whydid
+
+    execution = _start(project, env, "s1")
+    proofs = [executions.event(project, execution, kind="ran", tool="gitx", source="wrapper",
+                               session="s1").id for _ in range(3)]
+    _decide(project, env, "s1", "the branch is clean", *proofs)
+    calls = []
+    real = decisions.all_records
+
+    def counted(*args, **kwargs):
+        calls.append(args)
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(decisions, "all_records", counted)
+
+    done = whydid.cmd_whydid(argparse.Namespace(words=[str(project), execution], path=None,
+                                                grep=None, session=None))
+
+    assert done == 0 and len(calls) == 1
+    out = capsys.readouterr().out
+    assert all(re.search(rf"^    {p}  gitx  ", out, re.M) for p in proofs), out

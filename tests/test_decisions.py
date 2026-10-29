@@ -389,16 +389,16 @@ def test_two_stale_ids_give_two_entries_and_a_repeated_id_one(project):
     assert once.reasons == (f"stale {first.id}",)
 
 
-def test_find_evidence_reads_a_second_project_ledger(workspace):
+def test_the_event_index_holds_a_second_project_ledger(workspace):
     root, service = workspace
     run = executions.start(service, "Work", session="s2", work_item="W1")
     proof = executions.event(service, run.id, kind="ran", tool="gitx", source="wrapper",
                              session="s2")
 
-    found = decisions.find_evidence(root, proof.id)
+    index = decisions.event_index(decisions.all_records(root))
 
-    assert found is not None and found[0].id == run.id and found[1].id == proof.id
-    assert decisions.find_evidence(root, "e-00000000") is None
+    assert index[proof.id][0].id == run.id and index[proof.id][1].id == proof.id
+    assert "e-00000000" not in index
 
 
 def test_project_roots_cover_the_workspace_and_its_projects(workspace):
@@ -496,7 +496,7 @@ def test_the_latest_state_is_the_latest_in_time_across_ledgers(workspace, monkey
 
 def test_the_fold_does_not_depend_on_ledger_read_order(workspace, monkeypatch):
     root, assumed = _resolved_across_ledgers(workspace, monkeypatch)
-    records = decisions._all_records(root)
+    records = decisions.all_records(root)
 
     for order in (records, list(reversed(records))):
         assert [(d.id, d.state) for d in decisions._fold(order, "W1", None)] == [
@@ -596,7 +596,7 @@ def test_the_fold_orders_by_time_then_by_what_can_follow(workspace, monkeypatch,
               for i in range(20)]
     _clock(monkeypatch, *stamps)
     root, assumed = _resolved_across_ledgers(workspace, monkeypatch)
-    records = decisions._all_records(root)
+    records = decisions.all_records(root)
 
     for order in (records, list(reversed(records))):
         assert [(d.id, d.state) for d in decisions._fold(order, "W1", None)] == [

@@ -128,25 +128,23 @@ def _ledgers(project_root: str | Path, session: str | None = None) -> list[Path]
     return list(unique.values())
 
 
-def _all_records(project_root: str | Path, session: str | None = None
-                 ) -> list[executions.Record]:
+def all_records(project_root: str | Path, session: str | None = None
+                ) -> list[executions.Record]:
+    """Every run in every ledger decisions reads. One call reads them all; a
+    caller that needs them more than once keeps the list."""
     return [r for ledger in _ledgers(project_root, session) for r in executions.load_path(ledger)]
 
 
-def find_evidence(project_root: str | Path, event_id: str, session: str | None = None
-                  ) -> tuple[executions.Record, executions.Event] | None:
-    """The event with this id and its run, over every ledger decisions reads."""
-    for record in _all_records(project_root, session):
-        for found in record.events:
-            if found.id == event_id:
-                return record, found
-    return None
+def event_index(records: list[executions.Record]
+                ) -> dict[str, tuple[executions.Record, executions.Event]]:
+    """{event id: (its run, the event)} over these records."""
+    return {e.id: (r, e) for r in records for e in r.events}
 
 
 def _reasons(records: list[executions.Record], run: executions.Record, evidence: list[str],
              now: str | None) -> list[str]:
     clock = _parse(now) if now else datetime.datetime.now(datetime.timezone.utc)
-    index = {e.id: (r, e) for r in records for e in r.events}
+    index = event_index(records)
     found: list[str] = []
     for cited in evidence:
         hit = index.get(cited)
@@ -163,7 +161,7 @@ def _open_run(project_root: str | Path, session: str | None
     if found is None:
         raise ValueError("no execution is open for this session; `eos run start` opens one")
     execution, ledger = found
-    records = _all_records(project_root, session)
+    records = all_records(project_root, session)
     run = next((r for r in records if r.id == execution), None)
     if run is None:
         raise ValueError(f"execution {execution} is not in {ledger}")
@@ -288,8 +286,12 @@ def approve(project_root: str | Path, decision_id: str, *, prompt_excerpt: str,
 
 
 def for_scope(project_root: str | Path, *, work_item: str | None, execution: str | None,
-              session: str | None = None) -> list[Decision]:
-    return _fold(_all_records(project_root, session), work_item, execution)
+              session: str | None = None, records: list[executions.Record] | None = None
+              ) -> list[Decision]:
+    """The decisions of a work item or run; `records` when the caller already read them."""
+    if records is None:
+        records = all_records(project_root, session)
+    return _fold(records, work_item, execution)
 
 
 def open_assumptions(project_root: str | Path, *, work_item: str | None, execution: str | None,
