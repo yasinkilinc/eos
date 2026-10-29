@@ -35,6 +35,10 @@ def _evidenced(project, session, claim="the branch is clean"):
     return decisions.record(project, claim, [_tool(project, session).id], session=session)
 
 
+def _loaded(records, entry):
+    return decisions.event_index(records)[entry.id][1]
+
+
 def _config(project, text):
     (project / ".eos" / "config.toml").write_text(text, encoding="utf-8")
 
@@ -244,19 +248,35 @@ def test_fresh_verification_needs_a_wrapper_pass_after_the_change(project):
     _tool(project, "s1", tool="mvn", exit_code=1)
     _tool(project, "s1", tool="mvn", exit_code=0, agent="reviewer", source="cli")
     records = decisions.all_records(project, "s1")
-    assert gates.fresh_verification(records, run, after=changed.at) is None
+    assert gates.fresh_verification(records, run, after=_loaded(records, changed)) is None
 
     good = _tool(project, "s1", tool="mvn", exit_code=0)
     records = decisions.all_records(project, "s1")
-    assert gates.fresh_verification(records, run, after=changed.at).id == good.id
+    assert gates.fresh_verification(records, run, after=_loaded(records, changed)).id == good.id
     assert gates.fresh_verification(records, run, after=None).id == good.id
 
 
 def test_fresh_verification_ignores_events_before_the_change(project):
     run = executions.start(project, "Work", session="s1")
     _tool(project, "s1", tool="mvn", exit_code=0)
+    changed = _tool(project, "s1", kind="changed", tool="edit", source="hook")
     records = decisions.all_records(project, "s1")
-    assert gates.fresh_verification(records, run, after="2999-01-01T00:00:00+00:00") is None
+    assert gates.fresh_verification(records, run, after=_loaded(records, changed)) is None
+
+
+def test_fresh_verification_orders_by_ledger_position_inside_one_second(project, monkeypatch):
+    from core.knowledge import evidence
+
+    monkeypatch.setattr(evidence, "utc_now", lambda: "2026-10-29T12:00:05+00:00")
+    run = executions.start(project, "Work", session="s1")
+    _tool(project, "s1", tool="mvn", exit_code=0)
+    changed = _tool(project, "s1", kind="changed", tool="edit", source="hook")
+    records = decisions.all_records(project, "s1")
+    assert gates.fresh_verification(records, run, after=_loaded(records, changed)) is None
+
+    after = _tool(project, "s1", tool="mvn", exit_code=0)
+    records = decisions.all_records(project, "s1")
+    assert gates.fresh_verification(records, run, after=_loaded(records, changed)).id == after.id
 
 
 def test_record_refusals_writes_one_event_per_rule_and_target(project):
@@ -357,3 +377,46 @@ def test_the_cli_mode_command_prints_the_mode(project, tmp_path):
     _config(project, '[gates]\nmode = "block"\n')
     out = _cli(["gate", "mode", str(project)], project, tmp_path)
     assert out.returncode == 0 and out.stdout.strip() == "block"
+
+
+def test_a_cli_written_failure_does_not_clear_red_first(project):
+    executions.start(project, "Work", session="s1")
+    _evidenced(project, "s1")
+    _tool(project, "s1", tool="mvn", exit_code=1, source="cli")
+    assert "red-first" in _rules(project, "s1", "edit-main")
+    _tool(project, "s1", tool="mvn", exit_code=1, source="hook")
+    assert "red-first" not in _rules(project, "s1", "edit-main")
+
+
+@pytest.mark.parametrize("target", ["../../etc/x.java", "a b/C.java", "a=b/C.java", "src/'C'.java",
+                                    'src/"C".java'])
+def test_an_unsafe_relative_target_is_stored_as_its_basename(project, target):
+    executions.start(project, "Work", session="s1")
+    found = gates.check(project, session="s1", action="edit-main")
+    gates.record_refusals(project, found, session="s1", action="edit-main", target=target)
+    refs = {e.ref for r in decisions.all_records(project, "s1") for e in r.events if e.tool == "gate"}
+    assert refs == {Path(target).name}
+
+
+def test_the_cli_answers_json_when_the_check_raises(project, monkeypatch, capsys):
+    import argparse
+
+    from core.cli import gate
+
+    def broken(*args, **kwargs):
+        raise KeyError("ts")
+
+    monkeypatch.setattr(gates, "check", broken)
+    args = argparse.Namespace(gate_command="check", path=str(project), session="s1",
+                              action="edit-test", file=None, tool=None)
+
+    assert gate.cmd_gate(args) == 0
+    lines = capsys.readouterr().out.strip().splitlines()
+    assert [json.loads(line) for line in lines] == [{"mode": "off", "refusals": [], "error": "KeyError"}]
+
+
+@pytest.mark.parametrize("args", [["--action", "deploy"], []])
+def test_the_cli_answers_json_for_an_unknown_or_missing_action(project, tmp_path, args):
+    out = _cli(["gate", "check", str(project), "--session", "s1", *args], project, tmp_path)
+    assert out.returncode == 0, out.stderr
+    assert json.loads(out.stdout) == {"mode": "off", "refusals": [], "error": "unknown-action"}

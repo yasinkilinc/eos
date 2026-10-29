@@ -45,8 +45,10 @@ claim text and no check text is written: the ledger is pushed.
 
 `fresh_verification` is the done gate's question (Task 2): the latest event of
 the run that a wrapper or hook recorded as a passing `ran`/`verified`/`called`,
-never a subagent report or a cli-written event. `after` compares whole-second
-stamps and counts the same second.
+never a subagent report or a cli-written event. `after` is the last `changed`
+event; order is the event's position in the run (`ord`), not its whole-second
+stamp. `eos gate check` always prints one JSON line and exits 0; an internal
+error or unknown action adds `"error"` and no refusals.
 
 ## Consequences
 

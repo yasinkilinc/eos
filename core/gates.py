@@ -22,6 +22,7 @@ _EXEMPT_TOOL = "product-upgrade"
 _EXEMPT_PROCEDURE = "upgrade"
 _FIX_WORDS = re.compile(r"\b(bug|fix|hata|duzelt\w*)\b")
 _ROOT_CAUSE = ("root cause:", "kok neden:")
+_UNSAFE_TARGET = re.compile(r"[\s='\"]")
 _VERIFY_KINDS = ("ran", "verified", "called")
 _VERIFY_SOURCES = ("wrapper", "hook")
 
@@ -105,6 +106,7 @@ def check(project_root: str | Path, *, session: str | None, action: str, path: s
                                 "no decision in this scope rests on evidence", _FIX_LOOK, ()))
     if "red-first" in wanted and not _red_exempt(run, tool) and not any(
             e.kind == "ran" and e.tool in _RED_TOOLS and e.exit_code not in (None, 0)
+            and e.source in _VERIFY_SOURCES
             for e in _scope_events(records, run)):
         refusals.append(Refusal("red-first", "no failing mvn or apitest run before this edit",
                                 _FIX_RED, ()))
@@ -117,9 +119,10 @@ def check(project_root: str | Path, *, session: str | None, action: str, path: s
 
 
 def fresh_verification(records: list[executions.Record], run: executions.Record, *,
-                       after: str | None) -> executions.Event | None:
-    """The latest event of `run` a tool recorded as a passing check, at or after `after`
-    (whole-second stamps: the same second counts). A subagent's report, a cli-written
+                       after: executions.Event | None) -> executions.Event | None:
+    """The latest event of `run` a tool recorded as a passing check, later in the run's
+    ledger order than `after` (the last `changed` event; None: anywhere). Order is the
+    event's position, never its whole-second stamp. A subagent's report, a cli-written
     event and a non-zero exit never count."""
     best: executions.Event | None = None
     for record in records:
@@ -129,9 +132,10 @@ def fresh_verification(records: list[executions.Record], run: executions.Record,
             if (entry.kind not in _VERIFY_KINDS or entry.source not in _VERIFY_SOURCES
                     or entry.tool == "subagent" or entry.exit_code != 0):
                 continue
-            if after and decisions._when(entry.at) < decisions._when(after):
+            if after is not None and (entry.ord is None or after.ord is None
+                                      or entry.ord <= after.ord):
                 continue
-            if best is None or decisions._when(entry.at) >= decisions._when(best.at):
+            if best is None or entry.ord > best.ord:
                 best = entry
     return best
 
@@ -139,6 +143,8 @@ def fresh_verification(records: list[executions.Record], run: executions.Record,
 def _repo_relative(target: str) -> str:
     path = Path(target)
     if not path.is_absolute():
+        if ".." in path.parts or _UNSAFE_TARGET.search(target):
+            return path.name
         return target
     try:
         top = subprocess.run(["git", "-C", str(path.parent), "rev-parse", "--show-toplevel"],
