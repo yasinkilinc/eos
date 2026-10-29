@@ -728,16 +728,6 @@ def load(project_root: str | Path) -> list[Record]:
     return load_path(path_for(project_root))
 
 
-def find_event(project_root: str | Path, event_id: str) -> tuple[Record, Event] | None:
-    """The event with this id and its run, searching the ledger and the rotated
-    files the fold reads."""
-    for record in load(project_root):
-        for found in record.events:
-            if found.id == event_id:
-                return record, found
-    return None
-
-
 def fold_events_for_display(events: list[Event]) -> list[tuple[Event, int, str, str]]:
     """Consecutive events identical in everything `run show` prints except the
     ordinal and the timestamp, folded into one display group (2.x roadmap N4):

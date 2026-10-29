@@ -569,18 +569,6 @@ def test_legacy_line_gets_execution_ord_id(project):
     assert [e.id for e in executions.load(project)[0].events] == ["x-old#0", "x-old#1"]
 
 
-def test_find_event_reads_rotated_ledgers(project):
-    executions.start(project, "Deploy", session="s-rot")
-    written = executions.event(project, kind="ran", tool="build", session="s-rot")
-    executions._rotate(executions.path_for(project))
-    assert not executions.path_for(project).exists()
-
-    record, found = executions.find_event(project, written.id)
-
-    assert found.id == written.id and record.id == found.execution
-    assert executions.find_event(project, "e-00000000") is None
-
-
 def test_ids_do_not_repeat(project):
     executions.start(project, "Deploy", session="s-many")
     ids = {executions.event(project, kind="ran", tool="build", session="s-many").id
