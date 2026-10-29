@@ -31,7 +31,7 @@ from core import links
 from core import notes
 from core.lib.config_io import ConfigIO
 
-SCHEMA_VERSION = 8
+SCHEMA_VERSION = 9
 
 # Search results scoring below this fraction of the best BM25 score are cut.
 # The OR query (0.35.0) made a question in a sentence find its answer; it also

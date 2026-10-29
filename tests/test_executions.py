@@ -587,3 +587,23 @@ def test_ids_do_not_repeat(project):
            for _ in range(500)}
 
     assert len(ids) == 500
+
+
+def test_an_index_built_before_event_ids_is_stale_and_rebuilt(project, monkeypatch):
+    # The execution_event.id column changed the index's shape: an index built at
+    # schema 8 must not look current, or the first `SELECT id` fails.
+    monkeypatch.setattr(index, "SCHEMA_VERSION", 8)
+    index.build(project)
+    conn = sqlite3.connect(index.db_path(project))
+    conn.execute("ALTER TABLE execution_event DROP COLUMN id")
+    conn.commit()
+    conn.close()
+    monkeypatch.undo()
+
+    assert index.is_stale(project) is True
+    assert index.refresh(project) is not None
+    conn = sqlite3.connect(index.db_path(project))
+    try:
+        assert "id" in [row[1] for row in conn.execute("PRAGMA table_info(execution_event)")]
+    finally:
+        conn.close()
