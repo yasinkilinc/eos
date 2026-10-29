@@ -28,7 +28,7 @@ _ACCEPTED_SOURCES = ("wrapper", "hook")
 _HEDGES = re.compile(r"\b(muhtemel\w*|olmali\w*|saniyor\w*|sanirim|galiba|herhalde|probably|"
                      r"likely|should|seem|seems|seemed|assume|assumed|assumes|assuming|"
                      r"presumably)\b")
-_EVIDENCE_ID = re.compile(r"^(e-[0-9a-f]{8}|x-[^\s#]+#[0-9]+)$")
+_EVIDENCE_ID = re.compile(r"^(e-[0-9a-f]{8}|x-[a-z0-9]+(?:-[a-z0-9]+)*-[0-9a-f]{4}#[0-9]+)$")
 _FOLD = str.maketrans("ışğüöç", "isguoc")
 
 
@@ -82,11 +82,30 @@ def _well_formed(evidence: list[str]) -> None:
                              f"got {cited!r}")
 
 
-def _ledger(project_root: str | Path, session: str | None = None) -> Path:
-    """The one ledger decisions are written to and read from: the one the
-    session's run is in (a workspace run's can be another project's)."""
+def _ledgers(project_root: str | Path, session: str | None = None) -> list[Path]:
+    """Every ledger this project knows, each with its rotated parts read by
+    `load_path`: the session's run ledger, the project's own, and the ledgers of
+    the projects of the workspace the project is, or stands in
+    (`workspace.ledger_holding` resolves a workspace run the same way)."""
+    from core import workspace
+
     found = executions.current(project_root, session)
-    return found[1] if found else executions.path_for(project_root)
+    paths = [found[1]] if found else []
+    paths.append(executions.path_for(project_root))
+    root = Path(project_root).expanduser().resolve()
+    for candidate in (root, workspace.of(root)):
+        if candidate is None:
+            continue
+        paths.extend(executions.path_for(p.root) for p in workspace.load_quiet(candidate))
+    unique: dict[Path, Path] = {}
+    for path in paths:
+        unique.setdefault(path.expanduser().resolve(), path)
+    return list(unique.values())
+
+
+def _all_records(project_root: str | Path, session: str | None = None
+                 ) -> list[executions.Record]:
+    return [r for ledger in _ledgers(project_root, session) for r in executions.load_path(ledger)]
 
 
 def _reasons(records: list[executions.Record], run: executions.Record, evidence: list[str],
@@ -108,7 +127,7 @@ def _open_run(project_root: str | Path, session: str | None
     if found is None:
         raise ValueError("no execution is open for this session; `eos run start` opens one")
     execution, ledger = found
-    records = executions.load_path(ledger)
+    records = _all_records(project_root, session)
     run = next((r for r in records if r.id == execution), None)
     if run is None:
         raise ValueError(f"execution {execution} is not in {ledger}")
@@ -124,12 +143,16 @@ def _in_scope(record: executions.Record, work_item: str | None, execution: str |
 def _fold(records: list[executions.Record], work_item: str | None, execution: str | None
           ) -> list[Decision]:
     latest: dict[str, Decision] = {}
+    seen: set[str] = set()
     for record in records:
         if not _in_scope(record, work_item, execution):
             continue
         for entry in record.events:
             if entry.kind != "decided" or entry.tool != TOOL or not entry.ref:
                 continue
+            if entry.id in seen:
+                continue
+            seen.add(entry.id)
             if entry.claim_state == "approved" and entry.source != "hook":
                 continue
             latest[entry.ref] = Decision(
@@ -207,12 +230,13 @@ def approve(project_root: str | Path, decision_id: str, *, prompt_excerpt: str,
                   reasons=[])
 
 
-def for_scope(project_root: str | Path, *, work_item: str | None, execution: str | None
-              ) -> list[Decision]:
-    return _fold(executions.load_path(_ledger(project_root)), work_item, execution)
+def for_scope(project_root: str | Path, *, work_item: str | None, execution: str | None,
+              session: str | None = None) -> list[Decision]:
+    return _fold(_all_records(project_root, session), work_item, execution)
 
 
-def open_assumptions(project_root: str | Path, *, work_item: str | None, execution: str | None
-                     ) -> list[Decision]:
-    return [d for d in for_scope(project_root, work_item=work_item, execution=execution)
+def open_assumptions(project_root: str | Path, *, work_item: str | None, execution: str | None,
+                     session: str | None = None) -> list[Decision]:
+    return [d for d in for_scope(project_root, work_item=work_item, execution=execution,
+                                 session=session)
             if d.state == "assumption"]

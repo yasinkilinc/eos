@@ -298,3 +298,79 @@ def test_words_that_only_look_like_hedges_are_not_hedged(project, claim):
     proof = _tool_event(project, "s1")
 
     assert decisions.record(project, claim, [proof.id], session="s1").state == "evidenced"
+
+
+@pytest.mark.parametrize("bad", ["x-a/b#1", "x-k=v#1", "x-password=abc#1"])
+def test_evidence_ids_have_the_exact_execution_id_shape(project, bad):
+    executions.start(project, "Work", session="s1")
+    before = executions.path_for(project).read_text()
+
+    with pytest.raises(ValueError):
+        decisions.record(project, "the branch is clean", [bad], session="s1")
+
+    assert executions.path_for(project).read_text() == before
+
+
+def test_a_real_execution_id_with_an_ordinal_is_accepted(project):
+    run = executions.start(project, "Deploy the order capture", session="s1")
+
+    found = decisions.record(project, "the branch is clean", [f"{run.id}#7"], session="s1")
+
+    assert found.reasons == ("unknown-id",)
+
+
+@pytest.fixture
+def workspace(tmp_path, project):
+    root = tmp_path / "ws"
+    (root / ".eos").mkdir(parents=True)
+    service = tmp_path / "svc"
+    (service / ".eos").mkdir(parents=True)
+    (root / ".eos" / "projects.toml").write_text(
+        '[[project]]\nname = "svc"\nroot = "../svc"\n', encoding="utf-8")
+    return root, service
+
+
+def _record_in_service(workspace, monkeypatch):
+    root, service = workspace
+    run = executions.start(service, "Work", session="s1", work_item="W1")
+    monkeypatch.setenv("EOS_EXECUTION", run.id)
+    monkeypatch.setenv("EOS_EXECUTION_LEDGER", str(executions.path_for(service)))
+    assumed = decisions.record(root, "use the second table", [], session="s1")
+    monkeypatch.delenv("EOS_EXECUTION")
+    monkeypatch.delenv("EOS_EXECUTION_LEDGER")
+    return run, assumed
+
+
+def test_a_sessionless_reader_finds_a_decision_in_a_workspace_ledger(workspace, monkeypatch):
+    root, _ = workspace
+    run, assumed = _record_in_service(workspace, monkeypatch)
+
+    found = decisions.for_scope(root, work_item=None, execution=run.id)
+
+    assert [d.id for d in found] == [assumed.id]
+    assert [d.id for d in decisions.open_assumptions(root, work_item="W1", execution=None)] == [assumed.id]
+
+
+def test_a_decision_in_two_ledgers_is_returned_once(workspace, monkeypatch):
+    root, service = workspace
+    run, assumed = _record_in_service(workspace, monkeypatch)
+    own = executions.path_for(root)
+    own.parent.mkdir(parents=True, exist_ok=True)
+    own.write_text(executions.path_for(service).read_text(), encoding="utf-8")
+
+    found = decisions.for_scope(root, work_item=None, execution=run.id)
+
+    assert [d.id for d in found] == [assumed.id]
+
+
+def test_evidence_kept_in_another_ledger_of_the_same_item_counts(workspace, monkeypatch):
+    root, service = workspace
+    earlier = executions.start(root, "Earlier", session="s0", work_item="W1")
+    proof = _tool_event(root, "s0")
+    run = executions.start(service, "Work", session="s1", work_item="W1")
+    monkeypatch.setenv("EOS_EXECUTION", run.id)
+    monkeypatch.setenv("EOS_EXECUTION_LEDGER", str(executions.path_for(service)))
+
+    found = decisions.record(root, "the branch is clean", [proof.id], session="s1")
+
+    assert earlier.id != run.id and found.state == "evidenced"
