@@ -647,3 +647,33 @@ def test_an_event_line_without_output_fields_stays_valid(project, tmp_path):
     raw = [json.loads(l) for l in executions.path_for(project).read_text().splitlines()][-1]
     assert "output_sha256" not in raw and "output_path" not in raw
     assert executions.load(project)[0].events[0].output_sha256 is None
+
+
+def test_helper_writes_the_event_without_an_id_when_od_fails(project, tmp_path):
+    run = executions.start(project, "Deploy", session="s-sh")
+    fake = tmp_path / "fakebin"
+    fake.mkdir()
+    (fake / "od").write_text("#!/bin/sh\nexit 1\n")
+    (fake / "od").chmod(0o755)
+
+    done = _helper(["--kind", "ran", "--tool", "db"],
+                   _env(tmp_path, CLAUDE_CODE_SESSION_ID="s-sh", PATH=f"{fake}:/usr/bin:/bin"))
+
+    assert done.returncode == 0 and done.stdout == ""
+    raw = [json.loads(l) for l in executions.path_for(project).read_text().splitlines()][-1]
+    assert raw["kind"] == "ran" and "id" not in raw
+    assert executions.load(project)[0].events[0].id == f"{run.id}#0"
+
+
+@pytest.mark.parametrize("kind, prints", [("ran", True), ("called", True), ("read", True),
+                                          ("verified", True), ("changed", False),
+                                          ("noted", False), ("decided", False)])
+def test_helper_prints_evidence_only_for_evidence_kinds(project, tmp_path, kind, prints):
+    executions.start(project, "Deploy", session="s-sh")
+
+    done = _helper(["--kind", kind, "--tool", "db"], _env(tmp_path, CLAUDE_CODE_SESSION_ID="s-sh"))
+
+    assert done.returncode == 0
+    written = executions.load(project)[0].events[0]
+    assert written.kind == kind
+    assert done.stdout == (f"evidence={written.id}\n" if prints else "")

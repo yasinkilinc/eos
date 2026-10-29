@@ -109,10 +109,12 @@ num() {
   esac
 }
 
+# No od or no /dev/urandom: the event is still written, without an id; the
+# loader gives it the legacy id <execution>#<n>.
 id=e-$(od -An -N4 -tx1 /dev/urandom 2>/dev/null | tr -d ' \n')
 case "$id" in
   e-????????) ;;
-  *) exit 0 ;;
+  *) id= ;;
 esac
 output_sha= output_abs=
 if [ -n "$output" ] && [ -f "$output" ] && [ -r "$output" ]; then
@@ -129,15 +131,19 @@ if [ -n "$output" ] && [ -f "$output" ] && [ -r "$output" ]; then
   [ -n "$output_sha" ] || output_abs=
 fi
 at=$(date -u +%Y-%m-%dT%H:%M:%S+00:00 2>/dev/null) || exit 0
-line=$(printf '{"v": 1, "type": "event", "execution": %s, "ord": null, "at": %s, "kind": %s, "tool": %s, "target": %s, "ref": %s, "exit_code": %s, "ms": %s, "body": %s, "session": %s, "source": %s, "id": "%s"}' \
+line=$(printf '{"v": 1, "type": "event", "execution": %s, "ord": null, "at": %s, "kind": %s, "tool": %s, "target": %s, "ref": %s, "exit_code": %s, "ms": %s, "body": %s, "session": %s, "source": %s}' \
   "$(str "$execution")" "$(str "$at")" "$(str "$kind")" "$(str "$tool")" "$(str "$target")" \
-  "$(str "$ref")" "$(num "$exit_code")" "$(num "$ms")" "$(str "$body")" "$(str "$session")" "$(str "$source")" "$id")
+  "$(str "$ref")" "$(num "$exit_code")" "$(num "$ms")" "$(str "$body")" "$(str "$session")" "$(str "$source")")
+[ -n "$id" ] && line="${line%?}, \"id\": \"$id\"}"
 [ -n "$status" ] && line="${line%?}, \"status\": $(str "$status")}"
 if [ -n "$output_sha" ]; then
   line="${line%?}, \"output_sha256\": $(str "$output_sha"), \"output_path\": $(str "$output_abs")}"
 fi
 
-if { printf '%s\n' "$line" >> "$ledger"; } 2>/dev/null; then
-  printf 'evidence=%s\n' "$id"
+# The id is printed only for the kinds a decision may cite as evidence.
+if { printf '%s\n' "$line" >> "$ledger"; } 2>/dev/null && [ -n "$id" ]; then
+  case "$kind" in
+    ran|called|read|verified) printf 'evidence=%s\n' "$id" ;;
+  esac
 fi
 exit 0
