@@ -39,6 +39,14 @@ canonical `core/` runtime to `~/.local/share/eos/<version>/` and installs an
 executable launcher under `~/.local/bin/eos`. Override the locations with
 `EOS_INSTALL_PREFIX`, `EOS_DATA_DIR`, `EOS_BIN_DIR`, or `EOS_PYTHON`.
 
+## Unreleased
+
+- **Gates read the ledger (ADR-038).** `eos gate check . --session S --action
+  edit-main` prints one JSON line with the refusals (`no-open-run`,
+  `open-assumption`, `nothing-looked-at`, `red-first`, `root-cause`), each with
+  the one command that clears it; `eos gate mode .` prints `[gates] mode` of
+  `.eos/config.toml` (`off` by default, `warn`, `block`).
+
 ## What changed in 2.5.0
 
 - **Decisions name their evidence (ADR-037).** `eos decide --claim "…" --evidence

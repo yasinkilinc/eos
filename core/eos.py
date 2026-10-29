@@ -49,7 +49,7 @@ if __name__ == "__main__" and sys.argv[1:2] == ["hook"]:
 
     raise SystemExit(_hooks.main(sys.argv[2:]))
 
-from core import notes
+from core import gates, notes
 
 
 _FILL_SESSION = frozenset(
@@ -62,6 +62,7 @@ _FILL_SESSION = frozenset(
 
 from core.cli.common import VERSION  # noqa: F401
 from core.cli.decide import cmd_decide  # noqa: F401
+from core.cli.gate import cmd_gate  # noqa: F401
 from core.cli.intel import cmd_ask, cmd_brief, cmd_cite, cmd_consolidate, cmd_cost, cmd_draft_test, cmd_impact, cmd_parent, cmd_parents, cmd_query, cmd_rules, cmd_trace, cmd_verify, cmd_why  # noqa: F401
 from core.cli.notes import cmd_findings, cmd_note  # noqa: F401
 from core.cli.procedures import cmd_procedure  # noqa: F401
@@ -540,6 +541,17 @@ def main(argv: list[str] | None = None) -> int:
     decide_p.add_argument("--session", default=None,
                           help="Session id; defaults to the harness's own (EOS_SESSION, CLAUDE_CODE_SESSION_ID)")
 
+    gate_p = sub.add_parser("gate", help="Ask the ledger whether an action is backed by evidence (JSON for a hook)")
+    gate_sub = gate_p.add_subparsers(dest="gate_command", required=True)
+    gate_check_p = gate_sub.add_parser("check", help="Print the refusals for one action as a JSON line; exit 0")
+    add_path(gate_check_p)
+    gate_check_p.add_argument("--action", required=True, choices=gates.ACTIONS)
+    gate_check_p.add_argument("--file", default=None, help="The file the action touches")
+    gate_check_p.add_argument("--tool", default=None, help="The agent type acting, e.g. product-upgrade")
+    gate_check_p.add_argument("--session", default=None, help="Session id; defaults to the harness's own")
+    gate_mode_p = gate_sub.add_parser("mode", help="Print off, warn or block")
+    add_path(gate_mode_p)
+
     whydid_p = sub.add_parser("why-did", help="The decisions of a run, work item or ticket and the evidence behind each")
     whydid_p.add_argument("words", nargs="+", metavar="[path] scope",
                           help="Optional project root, then a run id, work item id or ticket key")
@@ -769,6 +781,7 @@ def main(argv: list[str] | None = None) -> int:
         "note": cmd_note,
         "work": cmd_work,
         "decide": cmd_decide,
+        "gate": cmd_gate,
         "why-did": cmd_whydid,
         "run": cmd_run,
         "procedure": cmd_procedure,
