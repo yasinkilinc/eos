@@ -62,7 +62,8 @@ def test_each_word_is_a_claim(word):
 @pytest.mark.parametrize("text", [
     "run `done` first", "```\nall done\n```\nnothing else", "it is not passing",
     "this isn't working, and doesn't work", "it doesn't pass", "undone and abandoned",
-    "the fixer", "", "tests still fail"])
+    "the fixer", "", "tests still fail", "it is not yet done", "not yet fully done",
+    "henüz bitti denemez", "HENÜZ BİTTİ", "daha bitti sayılmaz", "henüz tam bitti"])
 def test_not_a_claim(text):
     assert not gates.done_claim(text)
 
@@ -147,3 +148,31 @@ def test_skipped_for_stop_active_and_subagent(project, monkeypatch, capsys, extr
     _mode(project, "block")
     _changed(project)
     assert _stop(monkeypatch, capsys, project, "done", **extra) == ""
+
+
+def test_a_claim_after_a_denial_further_than_two_words_is_still_a_claim():
+    assert gates.done_claim("not yet sure about that, but it works")
+    assert gates.done_claim("henüz değil ama şimdi bitti")
+
+
+def test_two_different_claims_in_one_run_record_two_events(project, monkeypatch, capsys):
+    _mode(project, "warn")
+    _changed(project)
+    _stop(monkeypatch, capsys, project, "done")
+    _stop(monkeypatch, capsys, project, "bitti")
+    refs = [e.ref for e in _gate_events(project)]
+    assert len(refs) == 2 and len(set(refs)) == 2
+    import hashlib
+    assert refs[0] == hashlib.sha256(b"done").hexdigest()[:8]
+    assert all(len(r) == 8 for r in refs)
+    assert [e.body for e in _gate_events(project)] == ["done-without-evidence: done"] * 2
+
+
+def test_block_with_close_on_gives_both_the_open_run_and_the_done_reason(project, monkeypatch, capsys):
+    (project / ".eos" / "config.toml").write_text(
+        '[hooks]\nclose = true\n[gates]\nmode = "block"\n', encoding="utf-8")
+    _changed(project)
+    out = json.loads(_stop(monkeypatch, capsys, project, "bitti"))
+    assert out["decision"] == "block"
+    assert "run(s) open" in out["reason"] and "done-without-evidence" not in out["reason"]
+    assert "completion claimed, no passing check" in out["reason"]

@@ -2097,7 +2097,8 @@ def _done_reasons(root: Path, hook: Hook) -> list[str]:
     refusal = gates.Refusal("done-without-evidence", "completion claimed, no passing check after the last change",
                             "run the check that proves it, e.g. `automation/mvn.sh test <service>` / "
                             "`automation/apitest.sh run env1 <spec>`", ())
-    gates.record_refusals(root, [refusal], session=hook.session, action="done", target=None)
+    claim = hashlib.sha256(hook.last_message.encode("utf-8", "replace")).hexdigest()[:8]
+    gates.record_refusals(root, [refusal], session=hook.session, action="done", target=claim)
     if level == "warn":
         return []
     return [f"EOS: {refusal.detail}. Fix: {refusal.fix}"]

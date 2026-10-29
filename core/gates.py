@@ -31,6 +31,8 @@ _CLAIM = re.compile(
     r"(?<!\w)(?P<neg>(?:not|\w*n['\u2019]t)\s+)?"
     r"(?:bitti|tamamlandi|duzeldi|gecti|calisiyor|done|fixed|passing|passes|works)(?!\w)")
 
+_NOT_YET = re.compile(r"(?<!\w)(?:not\s+yet|henuz|daha)\s+(?:\w+\s+)?$")
+
 _FIX_RUN = 'eos run start . --title "…" --work <id>'
 _FIX_LOOK = 'eos decide --claim "…" --evidence <e-id>'
 _FIX_RED = ("automation/mvn.sh test <service> or automation/apitest.sh run env1 <spec> "
@@ -147,11 +149,13 @@ def fresh_verification(records: list[executions.Record], run: executions.Record,
 
 def done_claim(text: str) -> bool:
     """Whether `text` says something is finished or working. A word inside a code span or
-    fence is quoted, not claimed; an English word right after `not ` / `n't ` is denied."""
+    fence is quoted, not claimed; an English word right after `not ` / `n't ` is denied, and so is one with
+    `not yet` / `henüz` / `daha` within the two words before it."""
     if not text:
         return False
     plain = _folded(_CODE.sub(" ", text))
-    return any(not found.group("neg") for found in _CLAIM.finditer(plain))
+    return any(not found.group("neg") and not _NOT_YET.search(plain[:found.start()])
+               for found in _CLAIM.finditer(plain))
 
 
 def _repo_relative(target: str) -> str:

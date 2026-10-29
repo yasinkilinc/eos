@@ -46,6 +46,7 @@ executable launcher under `~/.local/bin/eos`. Override the locations with
 - **`eos decide` keeps the agent and the refusals.** `--agent` (default: the run's) fills
   `Decision.agent`; a refused `--resolve` writes a `noted` event; `why-did` prints it and
   `resolved later: <time> <evidence ids>`; a ledger line with an unreadable `at` no longer breaks either.
+- **The done gate treats `not yet done` / `henüz bitti` / `daha bitti` as no claim**, and records one event per distinct claim of a run.
 - **A source-less legacy event is refused as `no-source`**, not `not-recorded-by-a-tool`.
 - **Approval comes from the user's prompt (C2).** `d-xxxxxxxx onay` (or `approve`) in a
   prompt closes that open assumption of the run; the hook is the only writer of `approved`.
