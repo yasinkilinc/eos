@@ -157,3 +157,30 @@ def test_brief_lists_parked_first(root):
     assert shown.index("PARKED (1)") < shown.index("KNOWN HERE")
     assert "PARKED (1)" in shown.split("\n\n")[1]
     assert "env:env1" in shown and "automation/env-ready.sh env1" in shown
+
+
+def test_claim_clears_wait(root):
+    item = _item(root)
+    assert _block(root, item, "--until", "user").returncode == 0
+    assert _eos("work", "claim", str(root), item, "--session", "s2").returncode == 0
+    assert work.parked(root) == []
+    shown = _eos("brief", str(root)).stdout
+    assert "PARKED" not in shown
+    assert "IN FLIGHT (1" in shown and item in shown
+
+
+def test_brief_parked_section_is_capped_and_shows_holder_and_age(root):
+    ids = [_item(root, f"Parked job number {n}") for n in range(8)]
+    for item in ids:
+        assert _block(root, item, "--until", "user").returncode == 0
+    shown = _eos("brief", str(root)).stdout
+    assert "PARKED (8)" in shown
+    assert "more: eos work parked ." in shown
+    assert "s1" in shown and "ago" in shown
+
+
+def test_wait_on_a_non_block_event_is_refused_by_the_api(root):
+    item = _item(root)
+    with pytest.raises(ValueError):
+        work.append(root, "log", item, body="x", until="user")
+    assert work.parked(root) == []

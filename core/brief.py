@@ -394,17 +394,23 @@ def _branch_text(root: Path, facts: dict, *, session: str | None, work_limit: in
     now, branch = facts["now"], facts["branch"]
     lines = [f"EOS brief — {root.name}" + (f" @ {branch}" if branch else "")]
 
-    parked = [item for item in facts["in_flight"] if item.until]
+    def is_parked(item) -> bool:
+        return item.status == work.BLOCKED and bool(item.until)
+
+    parked = [item for item in facts["in_flight"] if is_parked(item)]
     if parked:
         lines.append("")
         lines.append(f"PARKED ({len(parked)}) — waiting on a condition; resume when it holds")
-        for item in parked:
-            lines.append(f"  {item.id}  {item.title}  until {item.until}"
+        for item in parked[:work_limit]:
+            lines.extend(_work_lines(item, now, session))
+            lines.append(f"      until {item.until}"
                          + (f"  check: {_clip(item.check, DETAIL_CHARS)}" if item.check else ""))
             if item.resume:
                 lines.append(f"      resume: {_clip(item.resume, DETAIL_CHARS)}")
+        if len(parked) > work_limit:
+            lines.append(f"  …{len(parked) - work_limit} more: eos work parked .")
 
-    in_flight = [item for item in facts["in_flight"] if not item.until]
+    in_flight = [item for item in facts["in_flight"] if not is_parked(item)]
     stale = [item for item in in_flight if item.is_stale(now)]
     if in_flight:
         head = f"IN FLIGHT ({len(in_flight)}"

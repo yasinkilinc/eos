@@ -673,7 +673,7 @@ def main(argv: list[str] | None = None) -> int:
     work_block_p.add_argument("item", help="Item id, or part of its title")
     work_block_p.add_argument("--reason", required=True, help="What it is waiting on")
     work_block_p.add_argument("--until", help="vpn | env:<name> | user | time:<ISO 8601 with offset or Z>: "
-                                              "park it with a checkable wait")
+                                              "park it with a checkable wait; env and vpn names keep their case")
     work_block_p.add_argument("--check", help="Command that exits 0 once the wait is over (vpn, env:*)")
     work_block_p.add_argument("--resume", help="Prompt the resumed session starts with")
     work_block_p.add_argument("--cwd", help="Absolute directory the resumed session starts in")

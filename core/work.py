@@ -382,6 +382,7 @@ def fold(events: list[Event]) -> list[Item]:
                 item.holders.append({"session": entry.session, "agent": entry.agent,
                                      "at": entry.at})
             item.status = ACTIVE
+            _clear_wait(item)
         elif entry.event == EVENT_BLOCK:
             item.status = BLOCKED
             item.reason = entry.body
