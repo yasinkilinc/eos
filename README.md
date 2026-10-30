@@ -39,6 +39,19 @@ canonical `core/` runtime to `~/.local/share/eos/<version>/` and installs an
 executable launcher under `~/.local/bin/eos`. Override the locations with
 `EOS_INSTALL_PREFIX`, `EOS_DATA_DIR`, `EOS_BIN_DIR`, or `EOS_PYTHON`.
 
+## What changed in 2.8.0
+
+- **`eos report [path] [--since TIME] [--format json]`: the morning report.** Done: a run that
+  finished ok, with `outcome_source` verified and every event behind that written by a wrapper
+  or a hook, with their ids; a run without that is only counted, never listed. Waiting: parked
+  items with their condition; the last check result is printed as `not in the ledger`, because
+  a check that does not pass writes nothing there. Questions, one line each: open assumptions
+  (not of a closed work item or a dead run) and `--until user` items. `--since` defaults to
+  the user's last prompt here.
+- **The session-start brief leads with it** when a verified run, a wait or a question is new
+  since that prompt, up to 5 lines a section. A session whose id the ledger shows under agent
+  `resume-runner` neither moves the prompt mark nor gets the report; Devin does neither.
+
 ## What changed in 2.7.0
 
 - **Structured wait (park and resume).** `eos work block` takes `--until`, `--check`,
