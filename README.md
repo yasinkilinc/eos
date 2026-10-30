@@ -39,6 +39,17 @@ canonical `core/` runtime to `~/.local/share/eos/<version>/` and installs an
 executable launcher under `~/.local/bin/eos`. Override the locations with
 `EOS_INSTALL_PREFIX`, `EOS_DATA_DIR`, `EOS_BIN_DIR`, or `EOS_PYTHON`.
 
+## What changed in 2.7.0
+
+- **Structured wait (park and resume).** `eos work block` takes `--until`, `--check`,
+  `--resume` and `--cwd`; `eos work parked` lists the parked items with their wait;
+  a claim clears a parked item's wait. `[resume] auto` in `.eos/config.toml` is read by
+  `gates.resume_auto`; `eos brief` prints a PARKED section.
+- **Red-first counts only a failing run of the edited service.** A failing `mvn` run
+  clears `red-first` for an edit only when its `target` names the edited file's repo
+  (the main checkout's name for a linked worktree); a failing `apitest` run clears it for
+  any repo; with no repo found any failing run still clears it.
+
 ## What changed in 2.6.0
 
 - **`eos run start` without a session prints an `export` line.** After its warning, the last
