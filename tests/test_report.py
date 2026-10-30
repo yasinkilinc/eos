@@ -4,6 +4,8 @@ import io
 import json
 import subprocess
 import sys
+import threading
+import time
 from pathlib import Path
 
 import pytest
@@ -503,6 +505,47 @@ def test_the_report_raises_at_a_prompt_and_the_approval_and_the_brief_stay(proje
 
     assert f"{found.id} approved" in out and "Billing retry fix" in out
     assert report.last_shown(project) == PAST
+
+
+def test_a_report_out_of_time_at_a_prompt_costs_neither_the_brief_nor_the_mark(project, monkeypatch, capsys):
+    report.note_shown(project, at=PAST)
+    before = report.last_shown(project)
+    monkeypatch.setattr(hooks, "PROMPT_SECONDS", 0.2)
+    released = threading.Event()
+    monkeypatch.setattr(report, "for_brief", lambda *a, **k: released.wait(30))
+    _verified(project)
+
+    started = time.monotonic()
+    out = _prompt(monkeypatch, capsys, project)
+    took = time.monotonic() - started
+    released.set()
+
+    assert took < 10
+    assert "DONE (" not in out
+    assert "eos report ." in out
+    assert report.last_shown(project) == before
+
+
+def test_the_out_of_time_line_comes_once_a_session(project, monkeypatch, capsys):
+    monkeypatch.setattr(hooks, "PROMPT_SECONDS", 0.0)
+    released = threading.Event()
+    monkeypatch.setattr(report, "for_brief", lambda *a, **k: released.wait(30))
+
+    first = _prompt(monkeypatch, capsys, project)
+    second = _prompt(monkeypatch, capsys, project)
+    released.set()
+
+    assert "eos report ." in first
+    assert "eos report ." not in second
+
+
+def test_a_report_in_time_at_a_prompt_still_shows(project, monkeypatch, capsys):
+    report.note_shown(project, at=PAST)
+    run, _ = _verified(project)
+
+    out = _prompt(monkeypatch, capsys, project)
+
+    assert "DONE (1)" in out and run.id in out
 
 
 def test_the_runner_lookup_raises_and_the_id_gets_a_line_and_the_prompt_stays(project, monkeypatch, capsys):

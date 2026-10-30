@@ -57,6 +57,7 @@ import json
 import os
 import re
 import sys
+import threading
 import time
 from pathlib import Path
 
@@ -1257,6 +1258,12 @@ def _user_prompt(root: Path, hook: Hook, cfg: dict, agent: str | None) -> str:
     return "\n\n".join(part for part in (approved, text) if part)
 
 
+# The prompt hook dies at 10 s (plugin/hooks/hooks.json) with everything it had: a slow
+# report must not take the brief along. The session start has 20 s and no such limit.
+PROMPT_SECONDS = 7.0
+REPORT_LATE = "EOS: no time left at this prompt to look for a report: eos report ."
+
+
 def _report_to_show(root: Path, hook: Hook):
     """The report this session start or prompt shows, if any; never from Devin until
     A19. An error here never costs the approval or the brief."""
@@ -1268,6 +1275,20 @@ def _report_to_show(root: Path, hook: Hook):
         return report.for_brief(root, hook.session or None)
     except Exception:  # noqa: BLE001 - hand-edited stores never cost the brief
         return None
+
+
+def _report_within(root: Path, hook: Hook, seconds: float) -> tuple:
+    """The report and whether time ran out for it. Out of time, the read goes on in a
+    thread that dies with the hook, nothing is marked, and the next prompt tries again."""
+    if hook.host == DEVIN:
+        return None, False
+    found: list = []
+    reader = threading.Thread(target=lambda: found.append(_report_to_show(root, hook)), daemon=True)
+    reader.start()
+    reader.join(max(seconds, 0))
+    if reader.is_alive():
+        return None, True
+    return (found[0] if found else None), False
 
 
 def _mark_shown(root: Path, shown) -> None:
@@ -1282,6 +1303,7 @@ def _mark_shown(root: Path, shown) -> None:
 
 
 def _prompt_brief(root: Path, hook: Hook, cfg: dict, agent: str | None, prompt: str) -> str:
+    started = time.monotonic()
     if cfg["inject"] and hook.session:
         _save_task(hook.session, prompt)
     if not cfg["brief"]:
@@ -1335,7 +1357,9 @@ def _prompt_brief(root: Path, hook: Hook, cfg: dict, agent: str | None, prompt: 
 
     offer(task_brief(root, width))
     _log_decision(root, hook, _logged(decisions[0], blocks[0] if blocks else "", width if framed[0] else 0))
-    shown = _report_to_show(root, hook)
+    shown, late = _report_within(root, hook, PROMPT_SECONDS - (time.monotonic() - started))
+    if late:
+        offer(REPORT_LATE, records=False)
     if shown is not None:
         # First, framed as records, and never dropped: the budget below is for the task's blocks.
         blocks.insert(0, shown.text)
