@@ -213,6 +213,17 @@ def test_red_first_ref_without_an_operand_clears(project, tmp_path):
     assert "red-first" not in _rules(project, "s1", "edit-main", path=edited)
 
 
+def test_red_first_truncated_ref_clears(project, tmp_path):
+    executions.start(project, "Work", session="s1")
+    _evidenced(project, "s1")
+    ref = ("test /srv/work/area/svc-a/.worktrees/"
+           "svc-a-FEMBS1-1234/src/main/java/long/prefix/of/a/pa")[:120].ljust(120, "x")
+    assert len(ref) == 120
+    _tool(project, "s1", tool="mvn", exit_code=1, ref=ref)
+    edited = _repo(tmp_path, "svc-b")
+    assert "red-first" not in _rules(project, "s1", "edit-main", path=edited)
+
+
 def test_red_first_unknown_repo_keeps_the_old_rule(project, tmp_path):
     executions.start(project, "Work", session="s1")
     _evidenced(project, "s1")

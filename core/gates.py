@@ -18,6 +18,7 @@ TOOL = "gate"
 
 _LOOKED_AT = ("evidenced", "resolved")
 _RED_TOOLS = ("mvn", "apitest")
+_REF_CUT = 120
 _EXEMPT_TOOL = "product-upgrade"
 _EXEMPT_PROCEDURE = "upgrade"
 _FIX_WORDS = re.compile(r"\b(bug|fix|hata|duzelt\w*)\b")
@@ -222,9 +223,13 @@ def done_claim(text: str) -> bool:
 
 def _mvn_service(entry: executions.Event) -> str | None:
     """The service a wrapper `mvn` event ran for: the operand after the subcommand in its
-    `ref` (`test svc-a`, `test ../x/svc-a/`), as a basename; None when it has none."""
-    words = (entry.ref or "").split()
-    return Path(words[1].rstrip("/")).name if len(words) > 1 else None
+    `ref` (`test svc-a`, `test ../x/svc-a/`), as a basename; None when it has none or the
+    wrapper cut the ref (`_REF_CUT` characters), which leaves a meaningless prefix."""
+    ref = entry.ref or ""
+    words = ref.split()
+    if len(ref) >= _REF_CUT or len(words) < 2:
+        return None
+    return Path(words[1].rstrip("/")).name
 
 
 def _services(path: str | None) -> set[str] | None:
