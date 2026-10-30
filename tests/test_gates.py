@@ -153,6 +153,52 @@ def test_a_failing_run_clears_red_first(project, tool):
     assert _rules(project, "s1", "edit-main") == []
 
 
+def _repo(tmp_path, name):
+    top = tmp_path / name
+    (top / "src" / "main" / "java").mkdir(parents=True)
+    subprocess.run(["git", "init", "-q", str(top)], check=True)
+    return str(top / "src" / "main" / "java" / "X.java")
+
+
+def test_red_first_needs_same_service(project, tmp_path):
+    executions.start(project, "Work", session="s1")
+    _evidenced(project, "s1")
+    _tool(project, "s1", tool="mvn", exit_code=1, target="svc-a")
+    edited = _repo(tmp_path, "svc-b")
+    assert "red-first" in _rules(project, "s1", "edit-main", path=edited)
+
+
+def test_red_first_same_service_clears(project, tmp_path):
+    executions.start(project, "Work", session="s1")
+    _evidenced(project, "s1")
+    _tool(project, "s1", tool="mvn", exit_code=1, target="svc-a")
+    edited = _repo(tmp_path, "svc-a")
+    assert "red-first" not in _rules(project, "s1", "edit-main", path=edited)
+
+
+def test_red_first_same_service_clears_from_a_linked_worktree(project, tmp_path):
+    executions.start(project, "Work", session="s1")
+    _evidenced(project, "s1")
+    _tool(project, "s1", tool="mvn", exit_code=1, target="svc-a")
+    edited = _repo(tmp_path, "svc-a")
+    top = tmp_path / "svc-a"
+    git = ["git", "-C", str(top), "-c", "user.name=t", "-c", "user.email=t@t"]
+    subprocess.run(git + ["commit", "-q", "--allow-empty", "-m", "init"], check=True)
+    linked = tmp_path / "wt-1"
+    subprocess.run(git + ["worktree", "add", "-q", str(linked)], check=True)
+    (linked / "src" / "main").mkdir(parents=True)
+    assert "red-first" not in _rules(project, "s1", "edit-main",
+                                     path=str(linked / "src" / "main" / "X.java"))
+
+
+def test_red_first_apitest_clears_any_repo(project, tmp_path):
+    executions.start(project, "Work", session="s1")
+    _evidenced(project, "s1")
+    _tool(project, "s1", tool="apitest", exit_code=1, target="some-spec")
+    edited = _repo(tmp_path, "svc-b")
+    assert "red-first" not in _rules(project, "s1", "edit-main", path=edited)
+
+
 def test_a_passing_or_other_tool_run_does_not_clear_red_first(project):
     executions.start(project, "Work", session="s1")
     _evidenced(project, "s1")

@@ -151,12 +151,14 @@ def check(project_root: str | Path, *, session: str | None, action: str, path: s
     if "nothing-looked-at" in wanted and not looked_at:
         refusals.append(Refusal("nothing-looked-at",
                                 "no decision in this scope rests on evidence", _FIX_LOOK, ()))
-    if "red-first" in wanted and not _red_exempt(run, tool) and not any(
-            e.kind == "ran" and e.tool in _RED_TOOLS and e.exit_code not in (None, 0)
-            and e.source in _VERIFY_SOURCES
-            for e in _scope_events(records, run)):
-        refusals.append(Refusal("red-first", "no failing mvn or apitest run before this edit",
-                                _FIX_RED, ()))
+    if "red-first" in wanted and not _red_exempt(run, tool):
+        services = _services(path)
+        if not any(e.kind == "ran" and e.tool in _RED_TOOLS and e.exit_code not in (None, 0)
+                   and e.source in _VERIFY_SOURCES
+                   and (e.tool != "mvn" or services is None or e.target in services)
+                   for e in _scope_events(records, run)):
+            refusals.append(Refusal("red-first", "no failing apitest run, or mvn run of the "
+                                    "edited service, before this edit", _FIX_RED, ()))
     if "root-cause" in wanted and _FIX_WORDS.search(_folded(run.title)) and not any(
             _folded(d.claim).lstrip().startswith(_ROOT_CAUSE) for d in looked_at):
         refusals.append(Refusal("root-cause", "a fix run writes to an environment with no root "
@@ -216,6 +218,25 @@ def done_claim(text: str) -> bool:
     plain = _folded(_CODE.sub(" ", text))
     return any(not found.group("neg") and not _NOT_YET.search(plain[:found.start()])
                for found in _CLAIM.finditer(plain))
+
+
+def _services(path: str | None) -> set[str] | None:
+    """The service names a wrapper may record for the repo holding `path`: its checkout's
+    name and, for a linked worktree, the main checkout's. None when no repo is found."""
+    if not path or not Path(path).is_absolute():
+        return None
+    where = Path(path).parent
+    try:
+        top, common = (subprocess.run(
+            ["git", "-C", str(where), "rev-parse", flag], capture_output=True, text=True,
+            check=True).stdout.strip() for flag in ("--show-toplevel", "--git-common-dir"))
+    except (OSError, subprocess.CalledProcessError):
+        return None
+    names = {Path(top).name}
+    main = (where / common).resolve() if not Path(common).is_absolute() else Path(common)
+    if main.name == ".git":
+        names.add(main.parent.name)
+    return names
 
 
 def _repo_relative(target: str) -> str:
