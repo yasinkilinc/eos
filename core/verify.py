@@ -341,12 +341,17 @@ def _ends_shell(command: str) -> bool:
     return False
 
 
+# Forms of a check that run nothing: `pytest --collect-only` and `make -n` exit 0 on broken code.
+_DRY_RUN = re.compile(r"(?<![\w-])--(?:dry-?run|collect-only|co|just-print|recon)(?![\w-])"
+                      r"|(?:^|\s)g?make\s(?:.*\s)?-[A-Za-z]*n[A-Za-z]*(?=\s|$)")
+
+
 def _stage_hit(segment: str, regex: str, pipefail: bool, level: int = 0) -> int | None:
     """Where the check is among the segment's pipeline stages, when its status
     reaches the segment's: the last stage, or any under pipefail."""
     stages = _split(segment, "|")
     for n, stage in enumerate(stages):
-        if (re.match(_LEAD + regex, stage)
+        if ((re.match(_LEAD + regex, stage) and not _DRY_RUN.search(_unquoted(stage)))
                 or ((inner := _DASH_C.match(stage)) and _runs(inner.group("inner"), regex, level + 1))
                 or ((inner := _SUBSHELL.match(stage)) and _runs(inner.group("inner"), regex, level + 1))):
             return n if n == len(stages) - 1 or pipefail else None

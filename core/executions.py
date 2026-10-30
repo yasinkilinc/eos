@@ -498,7 +498,8 @@ def _tool_wrote_a_pass(entry: Event) -> bool:
         return False
     if entry.kind == "verified" and entry.tool == "verify":
         return entry.status == "ok"
-    return entry.kind in ("ran", "called", "verified") and entry.exit_code == 0
+    # No status is a wrapper that gave none; `unreachable` and `bypass` exit 0 and checked nothing.
+    return entry.kind in ("ran", "called", "verified") and entry.exit_code == 0 and entry.status in (None, "ok")
 
 
 def proof(project_root: str | Path, record: Record) -> list[Event]:

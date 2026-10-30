@@ -194,3 +194,56 @@ def test_decide_agent_flag_fills_the_decision_agent(project, env):
     from core import decisions
     found = decisions.for_scope(project, work_item=None, execution=execution)
     assert [d.agent for d in found] == ["devin"]
+
+
+def test_resolve_finds_an_open_assumption_in_a_closed_run(project, env):
+    closed = _start(project, env)
+    made = _run(["decide", str(project), "--claim", "pool is sized", "--session", "s1"], env)
+    did = made.stdout.split()[0].split("=")[1]
+    assert _run(["run", "finish", str(project), closed, "--outcome", "abandoned"], env).returncode == 0
+    now = _start(project, env)
+    cited = _tool_event(project, env, now)
+
+    out = _run(["decide", str(project), "--resolve", did, "--evidence", cited, "--session", "s1"], env)
+
+    assert out.returncode == 0, out.stderr
+    assert out.stdout == f"decision={did} state=resolved\n"
+    from core import decisions
+    assert [d.state for d in decisions.for_scope(project, work_item=None, execution=closed)] == ["resolved"]
+    assert decisions.open_assumptions(project, work_item=None, execution=closed) == []
+
+
+def test_resolve_finds_an_open_assumption_of_another_work_item(project, env):
+    from core import decisions, work
+
+    first, second = work.open_item(project, "First").id, work.open_item(project, "Second").id
+    closed = _start(project, env, first)
+    made = _run(["decide", str(project), "--claim", "pool is sized", "--session", "s1"], env)
+    did = made.stdout.split()[0].split("=")[1]
+    assert _run(["run", "finish", str(project), closed, "--outcome", "ok"], env).returncode == 0
+    now = _start(project, env, second)
+    cited = _tool_event(project, env, now)
+
+    out = _run(["decide", str(project), "--resolve", did, "--evidence", cited, "--session", "s1"], env)
+
+    assert out.returncode == 0, out.stderr
+    assert [d.state for d in decisions.for_scope(project, work_item=first, execution=None)] == ["resolved"]
+
+
+def test_resolve_of_an_id_nobody_recorded_says_so(project, env):
+    _start(project, env)
+
+    out = _run(["decide", str(project), "--resolve", "d-00000000", "--evidence", "e-00000000", "--session", "s1"], env)
+
+    assert out.returncode == 2 and "no decision d-00000000 in this project" in out.stderr
+
+
+def test_resolve_of_a_closed_decision_says_so(project, env):
+    execution = _start(project, env)
+    cited = _tool_event(project, env, execution)
+    made = _run(["decide", str(project), "--claim", "pool is sized", "--evidence", cited, "--session", "s1"], env)
+    did = made.stdout.split()[0].split("=")[1]
+
+    out = _run(["decide", str(project), "--resolve", did, "--evidence", cited, "--session", "s1"], env)
+
+    assert out.returncode == 2 and "not an open assumption" in out.stderr

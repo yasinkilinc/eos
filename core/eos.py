@@ -567,7 +567,7 @@ def main(argv: list[str] | None = None) -> int:
     report_p = sub.add_parser("report", help="Since a time: runs proven done, parked work, questions for the user")
     add_path(report_p)
     report_p.add_argument("--since", default=None, metavar="TIME",
-                          help="ISO 8601 date or time; default: the user's last prompt here")
+                          help="ISO 8601 date or time; default: the last report shown here")
     report_p.add_argument("--format", choices=("text", "json"), default="text")
 
     run_p = sub.add_parser("run", help="What a session did: executions and their events (ADR-022)")

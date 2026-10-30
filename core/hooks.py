@@ -861,6 +861,7 @@ def _kept_lines(kept: dict) -> list[str]:
 
 def _session_start(root: Path, hook: Hook, cfg: dict, agent: str | None) -> str:
     parts = []  # the EOS records; host lines and RESUME go in front of the frame
+    shown = None  # the report, marked once it is in the text
     host = []
     briefs: list[tuple[str, str]] = []  # the workspace projects', each with its pointer
     more = ""
@@ -885,13 +886,9 @@ def _session_start(root: Path, hook: Hook, cfg: dict, agent: str | None) -> str:
     if cfg["brief"]:
         from core import brief, workspace
 
-        if hook.host != DEVIN:
-            from core import report
-
-            try:
-                parts.append(report.for_brief(root, hook.session or None))
-            except Exception:  # noqa: BLE001 - hand-edited stores never cost the brief
-                pass
+        shown = _report_to_show(root, hook)
+        if shown is not None:
+            parts.append(shown.text)
         # The frame leads the records, so the first brief's budget holds it.
         first = (brief.build(root, session=hook.session or None, agent=agent,
                              reserve=_frame_width(cfg)) or "").rstrip()
@@ -915,7 +912,9 @@ def _session_start(root: Path, hook: Hook, cfg: dict, agent: str | None) -> str:
     if hook.source == "resume":
         host.append(_resume_line(hook.transcript, cfg))
     # in front of the records only: host lines and RESUME precede it
-    return _fit_start(host, _frame(cfg) if records else "", parts, briefs, more, root)
+    text = _fit_start(host, _frame(cfg) if records else "", parts, briefs, more, root)
+    _mark_shown(root, shown)
+    return text
 
 
 def _fit_start(host: list, frame: str, records: list, briefs: list, more: str, root: Path) -> str:
@@ -1189,65 +1188,97 @@ _APPROVAL_NOTICES = _NOTICE_MARKS + ("<teammate-message",)
 
 
 def _approvals(root: Path, hook: Hook) -> tuple[list[str], list[str]]:
-    """(approved, not approved): ids of the session's open assumptions the user's own
-    prompt approves (C2, R32) -- `<id> onay` alone at the end of its line -- and those
-    it names with a yes word followed by anything else. Only on the run this session
-    opened (a child `claude -p` that inherited `EOS_EXECUTION` has another session id),
-    never from Devin until A19."""
+    """(approved ids, a line for each id not approved): the open assumptions of the
+    project the user's own prompt approves (C2, R32) -- `<id> onay` alone at the end of
+    its line. Only with a run this session opened before the prompt: a child `claude -p`
+    that inherited `EOS_EXECUTION` has another session id, and a runner's session is not
+    the user. Never from Devin until A19."""
     prompt = hook.prompt
-    if hook.host == DEVIN or not hook.session or not _ID.search(prompt):
+    if hook.host == DEVIN or not _ID.search(prompt):
         return [], []
     if any(mark in prompt for mark in _APPROVAL_NOTICES) or _NOTICE_TAG.search(prompt):
         return [], []
-    try:
-        from core import decisions
+    from core import decisions, report
 
-        folded = prompt.replace("İ", "i").replace("I", "ı").lower().translate(decisions._FOLD)
-        if not _APPROVAL.search(folded):
-            return [], []
-        run, _, records = decisions._open_run(root, hook.session)
-        if run.session != hook.session:
-            return [], []
-        open_ids = {d.id for d in decisions.open_assumptions(
-            root, work_item=run.work_item, execution=run.id, session=hook.session, records=records)}
-    except Exception:  # noqa: BLE001 - an approval never costs the prompt
+    folded = prompt.replace("İ", "i").replace("I", "ı").lower().translate(decisions._FOLD)
+    named = list(_APPROVAL.finditer(folded))
+    if not named:
         return [], []
+
+    def line(decision_id: str, why: str) -> str:
+        return f"EOS: {decision_id} not approved — {why} With proof: eos decide --resolve {decision_id} --evidence <e-id>."
+
+    def every(why: str) -> list[str]:
+        return [line(i, why) for i in dict.fromkeys(found.group(1) for found in named)]
+
+    if not hook.session:
+        return [], every("this session has no id, so it holds no run.")
+    try:
+        run, _, records = decisions._open_run(root, hook.session)
+    except ValueError:
+        return [], every("this session opened no run before this prompt.")
+    except Exception:  # noqa: BLE001 - an approval never costs the prompt
+        return [], every("the record could not be read.")
+    try:
+        if run.session != hook.session or report.resumed_session(root, hook.session):
+            return [], every("this session did not open its run for the user: a child or a runner cannot approve.")
+        open_ids = {d.id for d in decisions.all_open(records)}
+    except Exception:  # noqa: BLE001 - an approval never costs the prompt
+        return [], every("the record could not be read.")
     done: list[str] = []
-    refused: list[str] = []
-    for found in _APPROVAL.finditer(folded):
+    refused: dict[str, str] = {}
+    for found in named:
         decision_id = found.group(1)
-        if decision_id not in open_ids or decision_id in done:
+        if decision_id in done:
+            continue
+        if decision_id not in open_ids:
+            refused.setdefault(decision_id, "no open assumption has this id in this project.")
             continue
         if not _APPROVAL_END.match(folded, found.end()):
-            refused.append(decision_id)
+            refused.setdefault(decision_id, f'write "{decision_id} onay" alone on a line.')
             continue
         try:
             decisions.approve(root, decision_id, prompt_excerpt=f"user prompt: {found.group(2)}",
                               session=hook.session, records=records)
         except Exception:  # noqa: BLE001 - one refused approval keeps the others
+            refused.setdefault(decision_id, "the approval could not be written.")
             continue
         done.append(decision_id)
-    return done, [i for i in dict.fromkeys(refused) if i not in done]
+    return done, [line(i, why) for i, why in refused.items() if i not in done]
 
 
 def _user_prompt(root: Path, hook: Hook, cfg: dict, agent: str | None) -> str:
     prompt = hook.prompt.strip()[:MAX_TASK_CHARS]
     if not prompt or any(mark in prompt.lstrip()[:200] for mark in _NOTICE_MARKS):
         return ""
-    _note_user_prompt(root, hook)
     done, refused = _approvals(root, hook)
-    approved = "\n".join([f"EOS: {i} approved by the user's prompt." for i in done]
-                         + [f'EOS: {i} not approved — write "{i} onay" alone on a line.' for i in refused])
+    approved = "\n".join([f"EOS: {i} approved by the user's prompt." for i in done] + refused)
     text = _prompt_brief(root, hook, cfg, agent, prompt)
     return "\n\n".join(part for part in (approved, text) if part)
 
 
-def _note_user_prompt(root: Path, hook: Hook) -> None:
-    """For `eos report`'s window: never from Devin until A19, nor a runner's own prompt."""
+def _report_to_show(root: Path, hook: Hook):
+    """The report this session start or prompt shows, if any; never from Devin until
+    A19. An error here never costs the approval or the brief."""
+    if hook.host == DEVIN:
+        return None
     from core import report
 
-    if hook.host != DEVIN and not report.resumed_session(root, hook.session):
-        report.note_prompt(root)
+    try:
+        return report.for_brief(root, hook.session or None)
+    except Exception:  # noqa: BLE001 - hand-edited stores never cost the brief
+        return None
+
+
+def _mark_shown(root: Path, shown) -> None:
+    if shown is None:
+        return
+    from core import report
+
+    try:
+        report.mark(root, shown)
+    except Exception:  # noqa: BLE001 - an unmarked report only repeats
+        pass
 
 
 def _prompt_brief(root: Path, hook: Hook, cfg: dict, agent: str | None, prompt: str) -> str:
@@ -1304,6 +1335,11 @@ def _prompt_brief(root: Path, hook: Hook, cfg: dict, agent: str | None, prompt: 
 
     offer(task_brief(root, width))
     _log_decision(root, hook, _logged(decisions[0], blocks[0] if blocks else "", width if framed[0] else 0))
+    shown = _report_to_show(root, hook)
+    if shown is not None:
+        # First, framed as records, and never dropped: the budget below is for the task's blocks.
+        blocks.insert(0, shown.text)
+        framed[0] = True
     home = workspace.of(root) if not projects else None
     if home is not None:
         # A session started in a project of a workspace: the workspace's own
@@ -1333,7 +1369,9 @@ def _prompt_brief(root: Path, hook: Hook, cfg: dict, agent: str | None, prompt: 
         except OSError:
             pass
     text = "\n\n".join(blocks)
-    return "\n\n".join(part for part in (*hosted, _framed(text, cfg) if framed[0] else text) if part)
+    output = "\n\n".join(part for part in (*hosted, _framed(text, cfg) if framed[0] else text) if part)
+    _mark_shown(root, shown)
+    return output
 
 
 def _pressure_line(root: Path, hook: Hook, cfg: dict) -> str:

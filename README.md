@@ -42,15 +42,26 @@ executable launcher under `~/.local/bin/eos`. Override the locations with
 ## What changed in 2.8.0
 
 - **`eos report [path] [--since TIME] [--format json]`: the morning report.** Done: a run that
-  finished ok, with `outcome_source` verified and every event behind that written by a wrapper
-  or a hook, with their ids; a run without that is only counted, never listed. Waiting: parked
-  items with their condition; the last check result is printed as `not in the ledger`, because
-  a check that does not pass writes nothing there. Questions, one line each: open assumptions
-  (not of a closed work item or a dead run) and `--until user` items. `--since` defaults to
-  the user's last prompt here.
-- **The session-start brief leads with it** when a verified run, a wait or a question is new
-  since that prompt, up to 5 lines a section. A session whose id the ledger shows under agent
-  `resume-runner` neither moves the prompt mark nor gets the report; Devin does neither.
+  finished ok, whose events recompute to verified, with every event behind that written by a
+  wrapper or a hook and ending `ok`, with their ids; a dry run or a collection is no check. A
+  run without that is only counted, never listed. Done is a proof at the level of text: the
+  guards read commands, so a script file that writes an event can still forge it. They stop
+  mistakes, not a determined session. Waiting: parked items with their condition and the last
+  check result a runner wrote (`eos work log <id> --body "check result: <word> exit=<n>"` under
+  agent `resume-runner`, only when it changes); blocks with no condition are counted on one
+  line. Questions, one line each: open assumptions (not of dropped work, nor of a failed or
+  abandoned run with no work item) and `--until user` items. `--since` defaults to the last
+  report shown here, and the command does not move that mark.
+- **The report is shown at session start, or at a user prompt, when something is new** since
+  the last one shown: a verified run, a wait or a question, up to 5 lines a section. Only
+  showing it moves the mark, so a run that ends overnight in an open session reaches the first
+  prompt of the morning; a report may repeat once. A session a runner started, a child session
+  that inherited a run, a notice and Devin neither get it nor move the mark. On a large project
+  it adds about a second to each prompt.
+- **`eos decide --resolve` and a prompt's `<id> onay` reach any open assumption in the project**,
+  also of a closed run. The prompt still counts only with a run the same session opened before
+  it, which a runner or a child has not. An id it does not approve gets a line saying why, with
+  the `--resolve` form.
 
 ## What changed in 2.7.0
 

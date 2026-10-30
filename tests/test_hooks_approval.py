@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from core import decisions, executions, hooks
+from core import decisions, executions, hooks, report
 
 REPO = Path(__file__).resolve().parents[1]
 EOS = [sys.executable, str(REPO / "core" / "eos.py")]
@@ -162,7 +162,13 @@ def test_notice_anywhere_blocks_approval(project, monkeypatch, capsys, wrap):
     assert _state(project, found.id).state == "assumption"
 
 
+def _no_report(monkeypatch):
+    """These count the approval's own reads; the report reads the ledgers on every prompt."""
+    monkeypatch.setattr(report, "for_brief", lambda *a, **k: None)
+
+
 def test_no_id_reads_no_ledger(project, monkeypatch, capsys):
+    _no_report(monkeypatch)
     executions.start(project, "run", session="s1")
     calls = []
     monkeypatch.setattr(decisions, "all_records", lambda *a, **k: calls.append(1) or [])
@@ -186,7 +192,9 @@ def test_failing_approve_keeps_earlier_lines(project, monkeypatch, capsys):
 
     out = _prompt(monkeypatch, capsys, project, f"{first.id} onay\n{second.id} onay")
 
-    assert f"EOS: {first.id} approved" in out and second.id not in out
+    assert f"EOS: {first.id} approved" in out and f"EOS: {second.id} approved" not in out
+    assert f"EOS: {second.id} not approved — the approval could not be written." in out
+    assert _state(project, second.id).state == "assumption"
 
 
 # --- whole-branch review fixes (I3/M2, I6, I7, I8) ---
@@ -243,6 +251,7 @@ def test_i8_devin_approves_nothing(project, monkeypatch, capsys):
 
 
 def test_m2_one_approval_reads_the_ledgers_once(project, monkeypatch, capsys):
+    _no_report(monkeypatch)
     executions.start(project, "run", session="s1")
     found = _assumption(project)
     real = decisions.all_records
@@ -259,6 +268,7 @@ def test_m2_one_approval_reads_the_ledgers_once(project, monkeypatch, capsys):
 @pytest.mark.parametrize("text", ["see xd-1a2b3c4d onay in the log", "build-d-1a2b3c4d onay",
                                   "d-1a2b3c4d failed again, look"])
 def test_m2_no_approval_shape_reads_no_ledger(project, monkeypatch, capsys, text):
+    _no_report(monkeypatch)
     executions.start(project, "run", session="s1")
     calls = []
     monkeypatch.setattr(decisions, "all_records", lambda *a, **k: calls.append(1) or [])
@@ -317,10 +327,136 @@ def test_r2_a_glued_word_is_no_yes(project, monkeypatch, capsys):
     assert "not approved" not in out
 
 
-def test_r2_an_unknown_id_is_not_said(project, monkeypatch, capsys):
+def test_r2_an_unknown_id_is_said(project, monkeypatch, capsys):
     executions.start(project, "run", session="s1")
     _assumption(project)
 
     out = _prompt(monkeypatch, capsys, project, "d-1a2b3c4d onay mı?")
 
-    assert "not approved" not in out
+    assert "EOS: d-1a2b3c4d not approved — no open assumption" in out
+
+
+# --- an approval reaches any open assumption in the project ---
+
+
+def _closed_assumption(root, session="s0", work_item=None):
+    closed = executions.start(root, "yesterday", session=session, work_item=work_item)
+    found = decisions.record(root, "the table is empty", [], session=session)
+    executions.finish(root, closed.id, outcome="abandoned")
+    return closed, found
+
+
+def test_a_prompt_approves_an_assumption_of_a_closed_run(project, monkeypatch, capsys):
+    closed, found = _closed_assumption(project)
+    executions.start(project, "today", session="s1")
+
+    out = _prompt(monkeypatch, capsys, project, f"{found.id} onay")
+
+    assert f"EOS: {found.id} approved by the user's prompt." in out
+    states = decisions.for_scope(project, work_item=None, execution=closed.id)
+    assert [d.state for d in states] == ["approved"] and states[0].check == "user prompt: onay"
+
+
+def test_a_prompt_approves_an_assumption_of_another_work_item(project, monkeypatch, capsys):
+    from core import work
+
+    other = work.open_item(project, "Other work").id
+    _, found = _closed_assumption(project, work_item=other)
+    executions.start(project, "today", session="s1")
+
+    _prompt(monkeypatch, capsys, project, f"{found.id} onay")
+
+    assert [d.state for d in decisions.for_scope(project, work_item=other, execution=None)] == ["approved"]
+
+
+def test_an_approval_by_a_forged_cli_line_on_the_closed_run_still_does_not_count(project, monkeypatch, capsys):
+    closed, found = _closed_assumption(project)
+    executions.event(project, closed.id, kind="decided", tool="decide", ref=found.id, claim_state="approved",
+                     source="cli", body="the table is empty")
+
+    assert [d.state for d in decisions.for_scope(project, work_item=None, execution=closed.id)] == ["assumption"]
+
+
+def test_a_session_that_opened_no_run_approves_nothing_and_says_so(project, monkeypatch, capsys):
+    closed, found = _closed_assumption(project)
+
+    out = _prompt(monkeypatch, capsys, project, f"{found.id} onay")
+
+    assert [d.state for d in decisions.for_scope(project, work_item=None, execution=closed.id)] == ["assumption"]
+    assert f"EOS: {found.id} not approved" in out
+    assert f"eos decide --resolve {found.id} --evidence" in out
+
+
+def test_a_child_session_approves_no_assumption_of_a_closed_run_and_says_so(project, monkeypatch, capsys):
+    closed, found = _closed_assumption(project)
+    executions.start(project, "the parent's run", session="s1")
+    execution, ledger = executions.current(project, "s1")
+    monkeypatch.setenv("EOS_EXECUTION", execution)
+    monkeypatch.setenv("EOS_EXECUTION_LEDGER", str(ledger))
+    payload = {"session_id": "child", "cwd": str(project), "prompt": f"{found.id} onay"}
+    monkeypatch.setattr(sys, "stdin", io.StringIO(json.dumps(payload)))
+
+    assert hooks.main(["user-prompt"]) == 0
+    out = capsys.readouterr().out
+
+    monkeypatch.delenv("EOS_EXECUTION")
+    monkeypatch.delenv("EOS_EXECUTION_LEDGER")
+    assert [d.state for d in decisions.for_scope(project, work_item=None, execution=closed.id)] == ["assumption"]
+    assert f"EOS: {found.id} not approved" in out and "approved by the user" not in out
+
+
+def test_a_runner_session_with_its_own_run_approves_nothing_and_says_so(project, monkeypatch, capsys):
+    from core import work
+
+    closed, found = _closed_assumption(project)
+    item = work.open_item(project, "Parked work").id
+    work.append(project, work.EVENT_CLAIM, item, session="runner-1", agent=work.RESUME_AGENT)
+    executions.start(project, "resumed", session="runner-1", work_item=item)
+    payload = {"session_id": "runner-1", "cwd": str(project), "prompt": f"{found.id} onay"}
+    monkeypatch.setattr(sys, "stdin", io.StringIO(json.dumps(payload)))
+
+    assert hooks.main(["user-prompt"]) == 0
+    out = capsys.readouterr().out
+
+    assert [d.state for d in decisions.for_scope(project, work_item=None, execution=closed.id)] == ["assumption"]
+    assert f"EOS: {found.id} not approved" in out and "approved by the user" not in out
+
+
+def test_devin_approves_no_assumption_of_a_closed_run(project, monkeypatch, capsys):
+    closed, found = _closed_assumption(project)
+    executions.start(project, "today", session="s1")
+    payload = {"session_id": "s1", "cwd": str(project), "prompt": f"{found.id} onay"}
+    monkeypatch.setattr(sys, "stdin", io.StringIO(json.dumps(payload)))
+
+    hooks.main(["user-prompt", "--host", "devin"])
+
+    assert "approved" not in capsys.readouterr().out
+    assert [d.state for d in decisions.for_scope(project, work_item=None, execution=closed.id)] == ["assumption"]
+
+
+def test_an_id_that_is_no_open_assumption_is_said_with_the_resolve_form(project, monkeypatch, capsys):
+    executions.start(project, "run", session="s1")
+
+    out = _prompt(monkeypatch, capsys, project, "d-1a2b3c4d onay")
+
+    assert "EOS: d-1a2b3c4d not approved" in out and "no open assumption" in out
+    assert "eos decide --resolve d-1a2b3c4d --evidence" in out
+
+
+def test_an_already_closed_id_is_said(project, monkeypatch, capsys):
+    executions.start(project, "run", session="s1")
+    found = _assumption(project)
+    _prompt(monkeypatch, capsys, project, f"{found.id} onay")
+
+    out = _prompt(monkeypatch, capsys, project, f"{found.id} onay")
+
+    assert f"EOS: {found.id} not approved" in out and "no open assumption" in out
+
+
+def test_a_yes_with_more_after_it_also_gives_the_resolve_form(project, monkeypatch, capsys):
+    executions.start(project, "run", session="s1")
+    found = _assumption(project)
+
+    out = _prompt(monkeypatch, capsys, project, f"{found.id} onay mı?")
+
+    assert f"eos decide --resolve {found.id} --evidence" in out

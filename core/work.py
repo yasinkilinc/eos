@@ -80,6 +80,9 @@ STALE_AFTER_HOURS = 24
 
 # The agent a runner of parked items writes under: a session it starts is not the user.
 RESUME_AGENT = "resume-runner"
+# The log body such a runner writes when a parked item's check result changes:
+# "check result: <word> exit=<n>". It reports on the wait; it is no work on the item.
+CHECK_RESULT = "check result: "
 
 _SLUG = re.compile(r"[^a-z0-9]+")
 
@@ -129,6 +132,7 @@ class Item:
     check: str | None = None
     resume: str | None = None
     cwd: str | None = None
+    last_check: dict | None = None
 
     @property
     def contested(self) -> bool:
@@ -149,6 +153,8 @@ class Item:
         data = dataclasses.asdict(self)
         data["contested"] = self.contested
         data["stale"] = self.is_stale()
+        if data["last_check"] is None:
+            del data["last_check"]
         return data
 
 
@@ -369,6 +375,9 @@ def fold(events: list[Event]) -> list[Item]:
                         opened_at=entry.at, updated_at=entry.at)
             state[entry.id] = item
         item.events += 1
+        if _is_check_result(entry):
+            item.last_check = {"result": entry.body[len(CHECK_RESULT):], "at": entry.at}
+            continue
         item.updated_at = entry.at
         if entry.title:
             item.title = entry.title
@@ -391,6 +400,7 @@ def fold(events: list[Event]) -> list[Item]:
             item.reason = entry.body
             item.until, item.check = entry.until, entry.check
             item.resume, item.cwd = entry.resume, entry.cwd
+            item.last_check = None
         elif entry.event == EVENT_UNBLOCK:
             item.status = ACTIVE if item.holders else OPEN
             item.reason = None
@@ -407,8 +417,13 @@ def fold(events: list[Event]) -> list[Item]:
     return list(state.values())
 
 
+def _is_check_result(entry: Event) -> bool:
+    return (entry.event == EVENT_LOG and entry.agent == RESUME_AGENT
+            and (entry.body or "").startswith(CHECK_RESULT))
+
+
 def _clear_wait(item: Item) -> None:
-    item.until = item.check = item.resume = item.cwd = None
+    item.until = item.check = item.resume = item.cwd = item.last_check = None
 
 
 def parked(project_root: str | Path) -> list[Item]:

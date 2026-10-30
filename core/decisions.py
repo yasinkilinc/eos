@@ -188,9 +188,9 @@ def _in_scope(record: executions.Record, work_item: str | None, execution: str |
     return execution is not None and record.id == execution
 
 
-def _fold(records: list[executions.Record], work_item: str | None, execution: str | None
-          ) -> list[Decision]:
-    """The latest state of each decision in scope, latest by `at` across every
+def _fold(records: list[executions.Record], work_item: str | None, execution: str | None,
+          *, every: bool = False) -> list[Decision]:
+    """The latest state of each decision in scope (`every`: of the project), latest by `at` across every
     ledger. `at` has whole seconds, so within one second a `resolved` or
     `approved` event sorts after the `evidenced`/`assumption` it can only follow;
     other ties keep read order. Only an event `record`, `resolve` or `approve`
@@ -199,7 +199,7 @@ def _fold(records: list[executions.Record], work_item: str | None, execution: st
     decided: list[tuple[executions.Record, executions.Event]] = []
     seen: set[str] = set()
     for record in records:
-        if not _in_scope(record, work_item, execution):
+        if not every and not _in_scope(record, work_item, execution):
             continue
         for entry in record.events:
             if entry.kind != "decided" or entry.tool != TOOL or not entry.ref:
@@ -256,22 +256,33 @@ def record(project_root: str | Path, claim: str, evidence: list[str], *,
                   source="cli", reasons=reasons)
 
 
-def _existing(records: list[executions.Record], run: executions.Record, decision_id: str
-              ) -> Decision:
-    found = [d for d in _fold(records, run.work_item, run.id) if d.id == decision_id]
+def _existing(records: list[executions.Record], decision_id: str) -> Decision:
+    found = [d for d in _fold(records, None, None, every=True) if d.id == decision_id]
     if not found:
-        raise ValueError(f"no decision {decision_id} in this work item")
+        raise ValueError(f"no decision {decision_id} in this project")
     if found[0].state != "assumption":
         raise ValueError(f"decision {decision_id} is {found[0].state}, not an open assumption")
     return found[0]
 
 
+def _owner(project_root: str | Path, session: str | None, records: list[executions.Record],
+           before: Decision) -> tuple[executions.Record, Path]:
+    """The run a decision belongs to and its ledger: its state change is written there,
+    so the decision's own scope shows it, also when that run is closed."""
+    run = next(r for r in records if r.id == before.execution)
+    for ledger in _ledgers(project_root, session):
+        if executions.load_path(ledger, only=run.id):
+            return run, ledger
+    raise ValueError(f"execution {run.id} is in no ledger of this project")
+
+
 def resolve(project_root: str | Path, decision_id: str, evidence: list[str], *,
             session: str | None = None, now: str | None = None) -> Decision:
-    """Close an assumption with evidence. Evidence that is refused writes nothing:
-    the decision stays as it was and the refusal codes come back on the result."""
+    """Close any open assumption of the project with evidence the open run may cite.
+    Evidence that is refused writes nothing: the decision stays as it was and the
+    refusal codes come back on the result."""
     run, ledger, records = _open_run(project_root, session)
-    before = _existing(records, run, decision_id)
+    before = _existing(records, decision_id)
     _well_formed(evidence)
     reasons = _reasons(records, run, evidence, now)
     if not evidence:
@@ -281,18 +292,21 @@ def resolve(project_root: str | Path, decision_id: str, evidence: list[str], *,
                          ref=decision_id, body="resolve refused", reasons=reasons,
                          session=session, source="cli")
         return Decision(**{**before.__dict__, "reasons": tuple(reasons)})
-    return _write(project_root, run, ledger, decision_id, before.claim, list(evidence), "resolved",
+    owner, owner_ledger = _owner(project_root, session, records, before)
+    return _write(project_root, owner, owner_ledger, decision_id, before.claim, list(evidence), "resolved",
                   before.check, session=session, agent=before.agent, source="cli", reasons=[])
 
 
 def approve(project_root: str | Path, decision_id: str, *, prompt_excerpt: str,
             session: str | None = None, records: list[executions.Record] | None = None
             ) -> Decision:
-    """The user said yes. Only the prompt hook calls this; the excerpt is kept as
-    the decision's check. `records`, when the caller already read them."""
-    run, ledger, records = _open_run(project_root, session, records)
-    before = _existing(records, run, decision_id)
-    return _write(project_root, run, ledger, decision_id, before.claim, list(before.evidence),
+    """The user said yes. Only the prompt hook calls this, and it names one id of the
+    project; the excerpt is kept as the decision's check. `records`, when the caller
+    already read them."""
+    _, _, records = _open_run(project_root, session, records)
+    before = _existing(records, decision_id)
+    owner, owner_ledger = _owner(project_root, session, records, before)
+    return _write(project_root, owner, owner_ledger, decision_id, before.claim, list(before.evidence),
                   "approved", prompt_excerpt, session=session, agent=before.agent, source="hook",
                   reasons=[])
 
@@ -304,6 +318,11 @@ def for_scope(project_root: str | Path, *, work_item: str | None, execution: str
     if records is None:
         records = all_records(project_root, session)
     return _fold(records, work_item, execution)
+
+
+def all_open(records: list[executions.Record]) -> list[Decision]:
+    """Every open assumption in these records, whatever run or work item holds it."""
+    return [d for d in _fold(records, None, None, every=True) if d.state == "assumption"]
 
 
 def open_assumptions(project_root: str | Path, *, work_item: str | None, execution: str | None,

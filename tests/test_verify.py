@@ -289,3 +289,26 @@ def test_exit_status_passed_on_and_read_only_tails_count(tmp_path):
     for n, command in enumerate(["make test; echo $?", "make test && git commit -am x", "make test && sed -i s/a/b/ f",
                                  "true; exit $?"]):
         assert not _cleared(tmp_path / f"x{n}", command), command
+
+
+def _scope(*passes):
+    return [verify.Scope("code", ("src/**",), passes, "make test")]
+
+
+def test_a_dry_run_or_a_collection_is_not_a_check():
+    make = _scope(r"make\s+test\b")
+    pytest_scope = _scope(r"(?:python\s+-m\s+)?pytest\b")
+    for command in ("make test --dry-run", "make test -n", "make -n test", "make test --just-print", "make test --recon",
+                    "FOO=1 make test --dry-run", "bash -c 'make test --dry-run'"):
+        assert verify.cleared(make, command, ["code"]) == [], command
+    for command in ("pytest --collect-only", "pytest --co -q", "python -m pytest tests --collect-only -q"):
+        assert verify.cleared(pytest_scope, command, ["code"]) == [], command
+
+
+def test_a_real_run_with_a_flag_that_only_looks_like_one_is_a_check():
+    make = _scope(r"make\s+test\b")
+    pytest_scope = _scope(r"(?:python\s+-m\s+)?pytest\b")
+    for command in ("make test", "make test -j4", "make test --no-print-directory"):
+        assert verify.cleared(make, command, ["code"]) == ["code"], command
+    for command in ("pytest -n 4 tests", "pytest -q tests/test_dry-run.py", "pytest tests -k 'collect-only'"):
+        assert verify.cleared(pytest_scope, command, ["code"]) == ["code"], command
