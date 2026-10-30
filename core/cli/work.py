@@ -37,7 +37,23 @@ def cmd_work_log(args: argparse.Namespace) -> int:
 
 
 def cmd_work_block(args: argparse.Namespace) -> int:
-    return _record_work(args, "block", body=args.reason)
+    return _record_work(args, "block", body=args.reason, until=args.until, check=args.check,
+                        resume=args.resume, cwd=args.cwd)
+
+
+def cmd_work_parked(args: argparse.Namespace) -> int:
+    """Blocked items with a recorded wait, and whether a runner may resume them."""
+    from core import gates, work
+
+    found = work.parked(args.path)
+    if args.format == "json":
+        print(json.dumps({"auto": gates.resume_auto(args.path),
+                          "items": [item.to_dict() for item in found]},
+                         indent=2, ensure_ascii=False))
+        return 0
+    for item in found:
+        print(f"{item.id}  {item.until}  {item.check or ''}".rstrip())
+    return 0
 
 
 def cmd_work_unblock(args: argparse.Namespace) -> int:
@@ -233,4 +249,5 @@ def cmd_work(args: argparse.Namespace) -> int:
         "list": cmd_work_list,
         "show": cmd_work_show,
         "stats": cmd_work_stats,
+        "parked": cmd_work_parked,
     }[args.work_command](args)

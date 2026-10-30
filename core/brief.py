@@ -394,7 +394,17 @@ def _branch_text(root: Path, facts: dict, *, session: str | None, work_limit: in
     now, branch = facts["now"], facts["branch"]
     lines = [f"EOS brief — {root.name}" + (f" @ {branch}" if branch else "")]
 
-    in_flight = facts["in_flight"]
+    parked = [item for item in facts["in_flight"] if item.until]
+    if parked:
+        lines.append("")
+        lines.append(f"PARKED ({len(parked)}) — waiting on a condition; resume when it holds")
+        for item in parked:
+            lines.append(f"  {item.id}  {item.title}  until {item.until}"
+                         + (f"  check: {_clip(item.check, DETAIL_CHARS)}" if item.check else ""))
+            if item.resume:
+                lines.append(f"      resume: {_clip(item.resume, DETAIL_CHARS)}")
+
+    in_flight = [item for item in facts["in_flight"] if not item.until]
     stale = [item for item in in_flight if item.is_stale(now)]
     if in_flight:
         head = f"IN FLIGHT ({len(in_flight)}"
@@ -407,7 +417,7 @@ def _branch_text(root: Path, facts: dict, *, session: str | None, work_limit: in
             previous = item.reason if item.status == work.BLOCKED else None
         if len(in_flight) > work_limit:
             lines.append(f"  …{len(in_flight) - work_limit} more: eos work list .")
-    else:
+    elif not parked:
         lines.append("")
         lines.append("IN FLIGHT (0) — nothing is claimed here. "
                      "Claim what you start: eos work add . --title \"…\" --claim")

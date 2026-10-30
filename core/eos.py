@@ -672,6 +672,11 @@ def main(argv: list[str] | None = None) -> int:
     add_path(work_block_p)
     work_block_p.add_argument("item", help="Item id, or part of its title")
     work_block_p.add_argument("--reason", required=True, help="What it is waiting on")
+    work_block_p.add_argument("--until", help="vpn | env:<name> | user | time:<ISO 8601 with offset or Z>: "
+                                              "park it with a checkable wait")
+    work_block_p.add_argument("--check", help="Command that exits 0 once the wait is over (vpn, env:*)")
+    work_block_p.add_argument("--resume", help="Prompt the resumed session starts with")
+    work_block_p.add_argument("--cwd", help="Absolute directory the resumed session starts in")
     add_actor(work_block_p)
 
     work_unblock_p = work_sub.add_parser("unblock", help="Record that the blocker cleared")
@@ -713,6 +718,10 @@ def main(argv: list[str] | None = None) -> int:
     work_stats_p.add_argument("--since", default=None,
                               help="Only events at or after this date, e.g. 2026-09-01")
     work_stats_p.add_argument("--format", choices=("text", "json"), default="text")
+
+    work_parked_p = work_sub.add_parser("parked", help="Blocked items with a recorded wait")
+    add_path(work_parked_p)
+    work_parked_p.add_argument("--format", choices=("text", "json"), default="text")
 
     ai_p = sub.add_parser("ai", help="Manage the AI integration files")
     ai_sub = ai_p.add_subparsers(dest="ai_command", required=True)

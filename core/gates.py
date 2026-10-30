@@ -48,11 +48,11 @@ class Refusal:
     ids: tuple[str, ...]
 
 
-def _gates_table(project_root: str | Path) -> dict | None:
+def _gates_table(project_root: str | Path, name: str = "gates") -> dict | None:
     from core.lib.config_io import ConfigIO
 
     try:
-        table = ConfigIO.read_toml(Path(project_root) / ".eos" / "config.toml").get("gates")
+        table = ConfigIO.read_toml(Path(project_root) / ".eos" / "config.toml").get(name)
     except (OSError, ValueError):
         return None
     return table if isinstance(table, dict) else None
@@ -70,6 +70,18 @@ def mode(project_root: str | Path) -> str:
         table = _gates_table(parent) if parent is not None else None
     value = table.get("mode") if table is not None else None
     return value if value in MODES else "off"
+
+
+def resume_auto(project_root: str | Path) -> bool:
+    """`[resume] auto` of `.eos/config.toml` (default True); a project with no `[resume]`
+    table takes its workspace's, as `mode` does. Anything but `false` is True."""
+    from core import workspace
+
+    table = _gates_table(project_root, "resume")
+    if table is None:
+        parent = workspace.of(project_root)
+        table = _gates_table(parent, "resume") if parent is not None else None
+    return table.get("auto") is not False if table is not None else True
 
 
 def _folded(text: str) -> str:

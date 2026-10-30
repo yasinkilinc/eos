@@ -238,7 +238,7 @@ def _resolve_work(args):
         return None
 
 
-def _record_work(args, event: str, body: str | None = None) -> int:
+def _record_work(args, event: str, body: str | None = None, **wait) -> int:
     """Append one event to a resolved item and print what it folded to."""
     import datetime
 
@@ -249,7 +249,7 @@ def _record_work(args, event: str, body: str | None = None) -> int:
         return 1
     try:
         work.append(args.path, event, item.id, session=args.session,
-                    agent=getattr(args, "agent", None), body=body)
+                    agent=getattr(args, "agent", None), body=body, **wait)
     except (ValueError, OSError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1

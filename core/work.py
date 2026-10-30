@@ -80,6 +80,11 @@ STALE_AFTER_HOURS = 24
 
 _SLUG = re.compile(r"[^a-z0-9]+")
 
+# What a parked item waits for. `vpn` and `env:<name>` are machine-checkable
+# (`--check`), `time:<iso>` is a clock, `user` is a person and has no check.
+WAIT_KINDS = ("vpn", "env", "user", "time")
+_ENV_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")
+
 
 @dataclasses.dataclass(frozen=True)
 class Event:
@@ -94,6 +99,10 @@ class Event:
     scope: list | None = None
     branch: str | None = None
     commit: str | None = None
+    until: str | None = None
+    check: str | None = None
+    resume: str | None = None
+    cwd: str | None = None
 
     def to_dict(self) -> dict:
         return dataclasses.asdict(self)
@@ -113,6 +122,10 @@ class Item:
     last: str | None = None
     last_by: str | None = None
     events: int = 0
+    until: str | None = None
+    check: str | None = None
+    resume: str | None = None
+    cwd: str | None = None
 
     @property
     def contested(self) -> bool:
@@ -201,10 +214,61 @@ def _refuse_unusable(value: str | None, what: str) -> None:
             "committed and pushed like the notes are; put the secret nowhere near it.")
 
 
+def parse_until(value: str) -> str:
+    """The normalised wait: `vpn`, `env:<name>`, `user` or `time:<ISO 8601 with offset or Z>`."""
+    text = (value or "").strip()
+    kind, _, rest = text.partition(":")
+    kind = kind.casefold()
+    if kind in ("vpn", "user") and not rest:
+        return kind
+    if kind == "env" and _ENV_NAME.fullmatch(rest):
+        return f"env:{rest}"
+    if kind == "time" and rest:
+        parsed = _parse_aware(rest)
+        if parsed is not None:
+            return f"time:{rest}"
+        raise ValueError(f"--until {text!r}: time needs an ISO 8601 instant with an "
+                         "offset or Z, e.g. time:2026-10-30T05:20:00Z")
+    raise ValueError(f"--until {text!r} is not one of vpn, env:<name>, user, time:<ISO 8601>")
+
+
+def _parse_aware(value: str) -> datetime.datetime | None:
+    try:
+        parsed = datetime.datetime.fromisoformat(value.strip().replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return parsed if parsed.tzinfo is not None else None
+
+
+def _validate_wait(until: str | None, check: str | None, resume: str | None,
+                   cwd: str | None) -> str | None:
+    """Refuse a wait nothing could act on; returns the normalised `until`."""
+    if until is None:
+        if check or resume or cwd:
+            raise ValueError("--check, --resume and --cwd only mean something with --until")
+        return None
+    until = parse_until(until)
+    kind = until.partition(":")[0]
+    if kind in ("vpn", "env") and not (check and resume):
+        raise ValueError(f"--until {until} needs --check (what proves it is over) and "
+                         "--resume (what the resumed session is told)")
+    if kind == "time" and not resume:
+        raise ValueError(f"--until {until} needs --resume (what the resumed session is told)")
+    if kind == "user" and check:
+        raise ValueError("--until user refuses --check: only a person can clear it")
+    if cwd and not (Path(cwd).is_absolute() and Path(cwd).is_dir()):
+        raise ValueError(f"--cwd {cwd!r} must be an existing absolute directory")
+    for text, what in ((check, "check"), (resume, "resume"), (cwd, "cwd")):
+        _refuse_unusable(text, what)
+    return until
+
+
 def append(project_root: str | Path, event: str, item_id: str, *,
            session: str | None = None, agent: str | None = None,
            title: str | None = None, body: str | None = None,
-           ticket: str | None = None, scope: list | None = None) -> Event:
+           ticket: str | None = None, scope: list | None = None,
+           until: str | None = None, check: str | None = None,
+           resume: str | None = None, cwd: str | None = None) -> Event:
     """Append one event. Nothing here rewrites a line that is already written."""
     from core.knowledge.evidence import utc_now
 
@@ -214,6 +278,9 @@ def append(project_root: str | Path, event: str, item_id: str, *,
         raise ValueError("an event without an item id belongs to nothing")
     _refuse_unusable(title, "title")
     _refuse_unusable(body, "body")
+    if event != EVENT_BLOCK and (until or check or resume or cwd):
+        raise ValueError("a wait (--until, --check, --resume, --cwd) belongs to a block event")
+    until = _validate_wait(until, check, resume, cwd)
 
     commit, branch = git_head(project_root)
     entry = Event(
@@ -221,6 +288,7 @@ def append(project_root: str | Path, event: str, item_id: str, *,
         session=session, agent=agent, title=title, body=body,
         ticket=ticket, scope=list(scope) if scope else None,
         branch=branch, commit=commit,
+        until=until, check=check, resume=resume, cwd=cwd,
     )
     target = path_for(project_root)
     target.parent.mkdir(parents=True, exist_ok=True)
@@ -317,17 +385,31 @@ def fold(events: list[Event]) -> list[Item]:
         elif entry.event == EVENT_BLOCK:
             item.status = BLOCKED
             item.reason = entry.body
+            item.until, item.check = entry.until, entry.check
+            item.resume, item.cwd = entry.resume, entry.cwd
         elif entry.event == EVENT_UNBLOCK:
             item.status = ACTIVE if item.holders else OPEN
             item.reason = None
+            _clear_wait(item)
         elif entry.event == EVENT_DONE:
             item.status = DONE
             item.holders = []
+            _clear_wait(item)
         elif entry.event == EVENT_DROP:
             item.status = DROPPED
             item.reason = entry.body
             item.holders = []
+            _clear_wait(item)
     return list(state.values())
+
+
+def _clear_wait(item: Item) -> None:
+    item.until = item.check = item.resume = item.cwd = None
+
+
+def parked(project_root: str | Path) -> list[Item]:
+    """Blocked items that recorded a wait; a plain block (no `until`) is not parked."""
+    return [item for item in items(project_root, status=BLOCKED) if item.until]
 
 
 _ORDER = {status: rank for rank, status in enumerate(LIVE + (DONE, DROPPED))}
