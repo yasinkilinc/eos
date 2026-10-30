@@ -155,7 +155,7 @@ def check(project_root: str | Path, *, session: str | None, action: str, path: s
         services = _services(path)
         if not any(e.kind == "ran" and e.tool in _RED_TOOLS and e.exit_code not in (None, 0)
                    and e.source in _VERIFY_SOURCES
-                   and (e.tool != "mvn" or services is None or e.target in services)
+                   and (e.tool != "mvn" or services is None or _mvn_service(e) in (None, *services))
                    for e in _scope_events(records, run)):
             refusals.append(Refusal("red-first", "no failing apitest run, or mvn run of the "
                                     "edited service, before this edit", _FIX_RED, ()))
@@ -220,6 +220,13 @@ def done_claim(text: str) -> bool:
                for found in _CLAIM.finditer(plain))
 
 
+def _mvn_service(entry: executions.Event) -> str | None:
+    """The service a wrapper `mvn` event ran for: the operand after the subcommand in its
+    `ref` (`test svc-a`, `test ../x/svc-a/`), as a basename; None when it has none."""
+    words = (entry.ref or "").split()
+    return Path(words[1].rstrip("/")).name if len(words) > 1 else None
+
+
 def _services(path: str | None) -> set[str] | None:
     """The service names a wrapper may record for the repo holding `path`: its checkout's
     name and, for a linked worktree, the main checkout's. None when no repo is found."""
@@ -227,10 +234,10 @@ def _services(path: str | None) -> set[str] | None:
         return None
     where = Path(path).parent
     try:
-        top, common = (subprocess.run(
-            ["git", "-C", str(where), "rev-parse", flag], capture_output=True, text=True,
-            check=True).stdout.strip() for flag in ("--show-toplevel", "--git-common-dir"))
-    except (OSError, subprocess.CalledProcessError):
+        top, common = subprocess.run(
+            ["git", "-C", str(where), "rev-parse", "--show-toplevel", "--git-common-dir"],
+            capture_output=True, text=True, check=True).stdout.splitlines()
+    except (OSError, ValueError, subprocess.CalledProcessError):
         return None
     names = {Path(top).name}
     main = (where / common).resolve() if not Path(common).is_absolute() else Path(common)

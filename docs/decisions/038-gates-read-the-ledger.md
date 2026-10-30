@@ -31,7 +31,7 @@ the decisions and events is the run's work item, else the run, as in
 passes: live-state evidence older than 24 hours no longer does. `red-first` is
 exempt for the `product-upgrade` agent and for runs of a procedure whose slug
 starts with `upgrade`. For an edit with a known file, a failing `mvn` run clears
-`red-first` only when its `target` names the edited file's repo (the main checkout's
+`red-first` only when the service in its `ref` (`test <service>`, as a basename) names the edited file's repo (the main checkout's
 name for a linked worktree); a failing `apitest` run clears it for any repo; with no
 repo found the old rule (any failing run) holds. The run title for `root-cause` is matched after folding
 Turkish characters. `eos gate check` reads every ledger once, and none when the

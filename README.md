@@ -46,7 +46,7 @@ executable launcher under `~/.local/bin/eos`. Override the locations with
   a claim clears a parked item's wait. `[resume] auto` in `.eos/config.toml` is read by
   `gates.resume_auto`; `eos brief` prints a PARKED section.
 - **Red-first counts only a failing run of the edited service.** A failing `mvn` run
-  clears `red-first` for an edit only when its `target` names the edited file's repo
+  clears `red-first` for an edit only when the service in its `ref` (`test <service>`) names the edited file's repo
   (the main checkout's name for a linked worktree); a failing `apitest` run clears it for
   any repo; with no repo found any failing run still clears it.
 
