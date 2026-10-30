@@ -885,10 +885,17 @@ def _session_start(root: Path, hook: Hook, cfg: dict, agent: str | None) -> str:
     if cfg["brief"]:
         from core import brief, workspace
 
+        if hook.host != DEVIN:
+            from core import report
+
+            try:
+                parts.append(report.for_brief(root, hook.session or None))
+            except Exception:  # noqa: BLE001 - hand-edited stores never cost the brief
+                pass
         # The frame leads the records, so the first brief's budget holds it.
         first = (brief.build(root, session=hook.session or None, agent=agent,
                              reserve=_frame_width(cfg)) or "").rstrip()
-        records = records or bool(first)
+        records = any(parts) or bool(first)
         parts.append(first)
         # A workspace (2.x roadmap C5): sessions start at its root, so the
         # projects under it are briefed from here -- the ones with something
@@ -1227,11 +1234,20 @@ def _user_prompt(root: Path, hook: Hook, cfg: dict, agent: str | None) -> str:
     prompt = hook.prompt.strip()[:MAX_TASK_CHARS]
     if not prompt or any(mark in prompt.lstrip()[:200] for mark in _NOTICE_MARKS):
         return ""
+    _note_user_prompt(root, hook)
     done, refused = _approvals(root, hook)
     approved = "\n".join([f"EOS: {i} approved by the user's prompt." for i in done]
                          + [f'EOS: {i} not approved — write "{i} onay" alone on a line.' for i in refused])
     text = _prompt_brief(root, hook, cfg, agent, prompt)
     return "\n\n".join(part for part in (approved, text) if part)
+
+
+def _note_user_prompt(root: Path, hook: Hook) -> None:
+    """For `eos report`'s window: never from Devin until A19, nor a runner's own prompt."""
+    from core import report
+
+    if hook.host != DEVIN and not report.resumed_session(root, hook.session):
+        report.note_prompt(root)
 
 
 def _prompt_brief(root: Path, hook: Hook, cfg: dict, agent: str | None, prompt: str) -> str:

@@ -78,6 +78,9 @@ LIVE = (ACTIVE, BLOCKED, OPEN)
 # one of them is safe to take work from. Naming it is the whole intervention.
 STALE_AFTER_HOURS = 24
 
+# The agent a runner of parked items writes under: a session it starts is not the user.
+RESUME_AGENT = "resume-runner"
+
 _SLUG = re.compile(r"[^a-z0-9]+")
 
 # What a parked item waits for. `vpn` and `env:<name>` are machine-checkable

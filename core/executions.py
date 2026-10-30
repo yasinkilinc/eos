@@ -488,6 +488,52 @@ def _success_source(project_root: str | Path, record: Record) -> tuple[str | Non
     return ("claimed" if left else "verified"), left
 
 
+# Who may write an event that proves something: a session can type any event with
+# `eos run event` (source cli), and that is text, not a check that ran.
+_PROOF_SOURCES = ("wrapper", "hook")
+
+
+def _tool_wrote_a_pass(entry: Event) -> bool:
+    if entry.source not in _PROOF_SOURCES or entry.tool == "subagent":
+        return False
+    if entry.kind == "verified" and entry.tool == "verify":
+        return entry.status == "ok"
+    return entry.kind in ("ran", "called", "verified") and entry.exit_code == 0
+
+
+def proof(project_root: str | Path, record: Record) -> list[Event]:
+    """The events behind a verified outcome, each written by a tool; [] when one of
+    them was not, or the record no longer shows them. The same two paths as
+    `outcome_source`: the last check of each scope the run changed, else the check
+    each `## Success` line names after the run's last change."""
+    from core import steps, verify
+
+    scopes = verify.load(project_root)
+    changed = [e.ref for e in record.events if e.kind == "changed" and e.ref and not is_memory_write(e)]
+    touched = {verify.instance(scopes, project_root, value) for value in changed} - {None} if scopes else set()
+    if touched:
+        last = {e.ref: e for e in record.events if e.kind == "verified" and e.tool == "verify" and e.ref}
+        found = [last.get(key) for key in sorted(touched)]
+        return found if all(e is not None and _tool_wrote_a_pass(e) for e in found) else []
+    if not record.procedure:
+        return []
+    try:
+        wanted = steps.success_checks(project_root, notes.find_procedure(project_root, record.procedure))
+    except (ValueError, OSError):
+        return []
+    events = [e for e in record.events if not is_memory_write(e)]
+    changes = [n for n, e in enumerate(events) if e.kind == "changed"]
+    after = [e for e in (events[changes[-1] + 1:] if changes else events) if _tool_wrote_a_pass(e)]
+    found = []
+    for tool, verb in wanted:
+        match = [e for e in after if normalize_tool(e.tool) == tool
+                 and (verb is None or ((e.ref or e.body or "").split() or [None])[0] == verb)]
+        if not match:
+            return []
+        found.append(match[-1])
+    return found
+
+
 def _open_in(ledger: Path, execution: str) -> bool:
     record = next(iter(load_path(ledger, only=execution)), None)
     return record is not None and record.outcome is None

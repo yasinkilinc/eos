@@ -68,6 +68,7 @@ from core.cli.notes import cmd_findings, cmd_note  # noqa: F401
 from core.cli.procedures import cmd_procedure  # noqa: F401
 from core.cli.project import cmd_ai, cmd_bench, cmd_clean, cmd_compose, cmd_context, cmd_doctor, cmd_graph, cmd_hook, cmd_index, cmd_info, cmd_init, cmd_mcp, cmd_scan, cmd_status, cmd_ui, cmd_update  # noqa: F401
 from core.cli.route import cmd_capabilities, cmd_route  # noqa: F401
+from core.cli.report import cmd_report  # noqa: F401
 from core.cli.runs import cmd_run  # noqa: F401
 from core.cli.whydid import cmd_whydid  # noqa: F401
 from core.cli.work import cmd_work  # noqa: F401
@@ -563,6 +564,12 @@ def main(argv: list[str] | None = None) -> int:
                           help="Only decisions whose claim contains every word, any case")
     whydid_p.add_argument("--session", default=None, help=argparse.SUPPRESS)
 
+    report_p = sub.add_parser("report", help="Since a time: runs proven done, parked work, questions for the user")
+    add_path(report_p)
+    report_p.add_argument("--since", default=None, metavar="TIME",
+                          help="ISO 8601 date or time; default: the user's last prompt here")
+    report_p.add_argument("--format", choices=("text", "json"), default="text")
+
     run_p = sub.add_parser("run", help="What a session did: executions and their events (ADR-022)")
     run_sub = run_p.add_subparsers(dest="run_command", required=True)
 
@@ -795,6 +802,7 @@ def main(argv: list[str] | None = None) -> int:
         "decide": cmd_decide,
         "gate": cmd_gate,
         "why-did": cmd_whydid,
+        "report": cmd_report,
         "run": cmd_run,
         "procedure": cmd_procedure,
         "brief": cmd_brief,
