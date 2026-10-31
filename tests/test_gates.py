@@ -217,7 +217,7 @@ def test_red_first_truncated_ref_clears(project, tmp_path):
     executions.start(project, "Work", session="s1")
     _evidenced(project, "s1")
     ref = ("test /srv/work/area/svc-a/.worktrees/"
-           "svc-a-FEMBS1-1234/src/main/java/long/prefix/of/a/pa")[:120].ljust(120, "x")
+           "svc-a-PROJ-1234/src/main/java/long/prefix/of/a/pa")[:120].ljust(120, "x")
     assert len(ref) == 120
     _tool(project, "s1", tool="mvn", exit_code=1, ref=ref)
     edited = _repo(tmp_path, "svc-b")

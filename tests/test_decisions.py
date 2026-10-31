@@ -617,8 +617,8 @@ def test_a_check_carrying_a_long_number_is_refused(project, check):
     assert "905321234567" not in str(refused.value) and "106425" not in str(refused.value)
 
 
-@pytest.mark.parametrize("check", ["automation/jenkins.sh status fm-crm 1234",
-                                   "automation/bb.sh pr fm-rim 412", "automation/jira.sh issue FEMBS2-2220",
+@pytest.mark.parametrize("check", ["automation/jenkins.sh status svc-a 1234",
+                                   "automation/bb.sh pr svc-b 412", "automation/jira.sh issue PROJ-2220",
                                    "automation/argo.sh status env1"])
 def test_a_check_with_short_numbers_is_kept(project, check):
     executions.start(project, "Work", session="s1")

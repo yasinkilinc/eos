@@ -60,7 +60,7 @@ sha256 of the raw output file and its absolute path, written by
 first operand only (`automation/db.sh pg env1 crm`). A check holding a quote
 (`'` or `"`), `=`, `;`, a SQL verb as a word (`select`, `insert`, `update`,
 `delete`, `where`, any case), a run of 5 or more digits anywhere (an msisdn
-has 12, a customer id 6; `env1`, `FEMBS2-2220` and a build number up to 4
+has 12, a customer id 6; `env1`, `PROJ-2220` and a build number up to 4
 digits pass) or longer than 120 characters is refused with a `ValueError`
 before anything is written, and `eos decide` exits 2 with `error: ...` telling
 the caller to drop identifiers and values. It is never truncated, and the
