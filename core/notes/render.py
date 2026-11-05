@@ -108,8 +108,100 @@ def _words(text: str, stem_words: bool = False) -> frozenset[str]:
 
     Remembered per text: the task brief weighed the corpus three times and
     scored it again, tokenising every note four times a prompt. Frozen, so no
-    caller can change what the next one is handed.
+    caller can change what the next one is handed. A text of KEPT_MIN_CHARS or
+    more is also kept across processes (`_kept_words`).
     """
+    if len(text) < KEPT_MIN_CHARS:
+        return _tokenise(text, stem_words)
+    return _kept_words(text, stem_words)
+
+
+# Every prompt hook is a new process: tokenising 2,217 note bodies cost 163 ms
+# of each prompt, loading what an earlier process kept 32 ms (2026-11-05). A
+# query or a title is cheaper to tokenise than to look up and is never kept,
+# so an ordinary prompt writes nothing. The version invalidates the file when
+# an upgrade may tokenise differently; an entry unused for KEPT_DAYS is dropped.
+KEPT_FILENAME = "words-cache.pickle"
+KEPT_MIN_CHARS = 256
+KEPT_DAYS = 30
+_KEPT_VERSION = (Path(__file__).resolve().parents[1] / "VERSION").read_text(encoding="utf-8").strip() \
+    if (Path(__file__).resolve().parents[1] / "VERSION").is_file() else "unknown"
+_kept: dict[bytes, tuple[frozenset[str], int]] | None = None
+_kept_file: Path | None = None
+_kept_used: set[bytes] = set()
+_kept_dirty = False
+
+
+def _today() -> int:
+    import datetime
+
+    return datetime.date.today().toordinal()
+
+
+def _kept_load() -> dict[bytes, tuple[frozenset[str], int]]:
+    """The kept words, read once a process. The file is fixed at the first
+    read, so a save at exit writes where the words came from."""
+    global _kept, _kept_file
+    if _kept is not None:
+        return _kept
+    import atexit
+    import pickle
+
+    from core.lib import lock
+
+    _kept_file = lock._state_dir() / KEPT_FILENAME
+    _kept = {}
+    try:
+        stored = pickle.loads(_kept_file.read_bytes())
+    except Exception:  # noqa: BLE001 - a missing or damaged file is tokenised again
+        stored = None
+    if isinstance(stored, dict) and stored.get("version") == _KEPT_VERSION \
+            and isinstance(stored.get("entries"), dict):
+        _kept = stored["entries"]
+    atexit.register(_kept_save)
+    return _kept
+
+
+def _kept_words(text: str, stem_words: bool) -> frozenset[str]:
+    global _kept_dirty
+    import hashlib
+
+    kept = _kept_load()
+    key = hashlib.blake2b(f"{int(stem_words)}{text}".encode("utf-8", "surrogatepass"), digest_size=16).digest()
+    _kept_used.add(key)
+    found = kept.get(key)
+    if found is not None:
+        return found[0]
+    words = _tokenise(text, stem_words)
+    kept[key] = (words, _today())
+    _kept_dirty = True
+    return words
+
+
+def _kept_save() -> None:
+    """Write the kept words when this process tokenised a new long text; an
+    entry this process used is dated today, one unused for KEPT_DAYS dropped."""
+    global _kept_dirty
+    if not _kept_dirty or _kept is None or _kept_file is None:
+        return
+    import os
+    import pickle
+
+    today = _today()
+    entries = {key: (words, today if key in _kept_used else day) for key, (words, day) in _kept.items()
+               if key in _kept_used or today - day <= KEPT_DAYS}
+    try:
+        _kept_file.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+        scratch = _kept_file.with_name(f"{_kept_file.name}.{os.getpid()}.tmp")
+        scratch.write_bytes(pickle.dumps({"version": _KEPT_VERSION, "entries": entries},
+                                         protocol=pickle.HIGHEST_PROTOCOL))
+        os.replace(scratch, _kept_file)
+    except OSError:
+        return  # unwritten: the next process tokenises those texts again
+    _kept_dirty = False
+
+
+def _tokenise(text: str, stem_words: bool) -> frozenset[str]:
     # Before tokenising: a decomposed `İ`'s combining dot is no word
     # character, so `İPTAL` would split into `I` and `PTAL`.
     text = unicodedata.normalize("NFC", text)
