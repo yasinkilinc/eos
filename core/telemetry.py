@@ -174,7 +174,8 @@ class Timer:
 def record(project_root: str | Path, command: str, flags: list[str] | None = None,
            milliseconds: float = 0.0, chars: int = 0, rebuilt: bool = False,
            ok: bool = True, session: str | None = None,
-           session_from: str | None = None) -> None:
+           session_from: str | None = None,
+           phases: dict[str, float] | None = None) -> None:
     if not enabled(project_root):
         return
     target = path_for(project_root)
@@ -197,6 +198,9 @@ def record(project_root: str | Path, command: str, flags: list[str] | None = Non
         "rebuilt": bool(rebuilt),
         "ok": bool(ok),
     }
+    if phases:
+        # A hook's own names for where its time went, fixed in code, never input.
+        entry["phases"] = {name: round(float(ms), 1) for name, ms in phases.items()}
     from core.lib import lock
 
     try:

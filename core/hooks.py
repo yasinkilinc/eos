@@ -59,6 +59,7 @@ import re
 import sys
 import threading
 import time
+from contextlib import contextmanager
 from pathlib import Path
 
 # Where per-session hook state lives when the harness gives a plugin its own
@@ -317,6 +318,7 @@ def main(argv: list[str] | None = None) -> int:
 
 def _main(argv: list[str] | None) -> int:
     started = time.perf_counter()
+    _phases.clear()
     args = list(argv or [])
     event = args.pop(0) if args else ""
     agent, project, host = None, None, ""
@@ -503,13 +505,28 @@ def _host_lines(root: Path, command: str, hook: Hook, projects: list) -> str:
     return done.stdout.strip() if done.returncode == 0 else ""
 
 
+# Milliseconds per named phase of the hook running now; only the prompt hook
+# names any. Its 1.2 s was half unaccounted for and the stores it reads may
+# not be called by hand to find out (2026-11-05).
+_phases: dict[str, float] = {}
+
+
+@contextmanager
+def _phase(name: str):
+    began = time.perf_counter()
+    try:
+        yield
+    finally:
+        _phases[name] = _phases.get(name, 0.0) + (time.perf_counter() - began) * 1000
+
+
 def _telemetry(root: Path, event: str, started: float, chars: int, session: str) -> None:
     try:
         from core import telemetry
 
         telemetry.record(root, "hook", [event or "?"], (time.perf_counter() - started) * 1000,
                          chars=chars, session=session or None,
-                         session_from="hook" if session else None)
+                         session_from="hook" if session else None, phases=dict(_phases))
     except Exception:  # noqa: BLE001
         pass
 
@@ -1268,7 +1285,8 @@ def _user_prompt(root: Path, hook: Hook, cfg: dict, agent: str | None) -> str:
     prompt = hook.prompt.strip()[:MAX_TASK_CHARS]
     if not prompt or any(mark in prompt.lstrip()[:200] for mark in _NOTICE_MARKS):
         return ""
-    done, refused = _approvals(root, hook)
+    with _phase("approvals"):
+        done, refused = _approvals(root, hook)
     approved = "\n".join([f"EOS: {i} approved by the user's prompt." for i in done] + refused)
     text = _prompt_brief(root, hook, cfg, agent, prompt)
     return "\n\n".join(part for part in (approved, text) if part)
@@ -1371,34 +1389,39 @@ def _prompt_brief(root: Path, hook: Hook, cfg: dict, agent: str | None, prompt: 
         digests.extend(sections)
         return True
 
-    offer(task_brief(root, width))
-    _log_decision(root, hook, _logged(decisions[0], blocks[0] if blocks else "", width if framed[0] else 0))
-    shown, late = _report_within(root, hook, PROMPT_SECONDS - (time.monotonic() - started))
+    with _phase("brief"):
+        offer(task_brief(root, width))
+    with _phase("log"):
+        _log_decision(root, hook, _logged(decisions[0], blocks[0] if blocks else "", width if framed[0] else 0))
+    with _phase("report"):
+        shown, late = _report_within(root, hook, PROMPT_SECONDS - (time.monotonic() - started))
     if late:
         offer(REPORT_LATE, records=False)
     if shown is not None:
         # First, framed as records, and never dropped: the budget below is for the task's blocks.
         blocks.insert(0, shown.text)
         framed[0] = True
-    home = workspace.of(root) if not projects else None
-    if home is not None:
-        # A session started in a project of a workspace: the workspace's own
-        # procedures and runs for this task, with commands naming its path.
-        text = task_brief(home)
-        offer(workspace.relocate(text, home.name, os.path.relpath(home, root)) if text else "")
-    for project in named:
-        path = workspace.where(root, project)
-        text = task_brief(project.root)
-        if not offer(workspace.relocate(text, project.root.name, path) if text else "",
-                     f"…{project.name} also has a brief for this: eos brief {path} --task \"…\""):
-            break
-    if projects:
-        try:
-            offer(workspace.notes_elsewhere(root, projects, prompt, {root} | {p.root for p in named}))
-        except Exception:  # noqa: BLE001 - hand-edited stores never cost the brief
-            pass
-    offer(_host_lines(root, cfg["prompt_command"], hook, named), records=False)
-    offer(_pressure_line(root, hook, cfg), records=False)
+    with _phase("workspace"):
+        home = workspace.of(root) if not projects else None
+        if home is not None:
+            # A session started in a project of a workspace: the workspace's own
+            # procedures and runs for this task, with commands naming its path.
+            text = task_brief(home)
+            offer(workspace.relocate(text, home.name, os.path.relpath(home, root)) if text else "")
+        for project in named:
+            path = workspace.where(root, project)
+            text = task_brief(project.root)
+            if not offer(workspace.relocate(text, project.root.name, path) if text else "",
+                         f"…{project.name} also has a brief for this: eos brief {path} --task \"…\""):
+                break
+        if projects:
+            try:
+                offer(workspace.notes_elsewhere(root, projects, prompt, {root} | {p.root for p in named}))
+            except Exception:  # noqa: BLE001 - hand-edited stores never cost the brief
+                pass
+    with _phase("host"):
+        offer(_host_lines(root, cfg["prompt_command"], hook, named), records=False)
+        offer(_pressure_line(root, hook, cfg), records=False)
     if not blocks and not hosted:
         return ""
     if seen is not None and digests:
