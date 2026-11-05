@@ -39,6 +39,15 @@ canonical `core/` runtime to `~/.local/share/eos/<version>/` and installs an
 executable launcher under `~/.local/bin/eos`. Override the locations with
 `EOS_INSTALL_PREFIX`, `EOS_DATA_DIR`, `EOS_BIN_DIR`, or `EOS_PYTHON`.
 
+## What changed in 2.8.2
+
+- **Note bodies are tokenised once across prompts.** Their words are kept in the state
+  directory (`words-cache.pickle`, invalidated by the EOS version, entries unused for 30 days
+  dropped); a query or a title is never written there.
+- **A hook runs with the cyclic garbage collector paused**, restored on return.
+- Together: the task brief on a 113k-event ledger and 2,217 notes went from ~0.90 s to ~0.71 s
+  with the same output.
+
 ## What changed in 2.8.1
 
 - **The prompt brief is about twice as fast on a full ledger.** The rotated ledger files are
