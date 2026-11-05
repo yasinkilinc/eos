@@ -709,11 +709,113 @@ def load_path(ledger: Path, *, only: str | None = None) -> list[Record]:
     skipped before it is decoded: a hook looking up the session's run folded
     the whole ledger on every call (22 ms a routing decision at 3,700 events)."""
     parts = [rotated(ledger, index) for index in range(KEEP_ROTATED, 0, -1)] + [ledger]
+    if only is None:
+        cached = _load_on_cached_rotations(ledger, parts)
+        if cached is not None:
+            return list(cached.values())
     texts = _read_consistently(parts)
     if not texts:
         return []
-    text = "".join(t if t.endswith("\n") else t + "\n" for t in texts)
     records: dict[str, Record] = {}
+    # The writer keeps non-ASCII as is; an older or foreign line may escape it.
+    needles = {json.dumps(only, ensure_ascii=False), json.dumps(only)} if only is not None else None
+    _fold(texts, records, needles)
+    if only is not None:
+        return [records[only]] if only in records else []
+    return list(records.values())
+
+
+def _stamps(parts: list[Path]) -> tuple:
+    found = []
+    for part in parts:
+        try:
+            info = part.stat()
+        except OSError:
+            found.append(None)
+            continue
+        found.append((info.st_ino, info.st_size, info.st_mtime_ns))
+    return tuple(found)
+
+
+def _cache_path(ledger: Path) -> Path:
+    import hashlib
+
+    name = hashlib.sha256(str(ledger.resolve()).encode("utf-8")).hexdigest()[:24]
+    return _state_dir() / "ledger-cache" / f"{name}.pickle"
+
+
+def _cache_key(ledger: Path, stamps: tuple) -> tuple:
+    # A Record or Event field added by an upgrade makes an old fold unreadable.
+    shape = tuple(f.name for f in dataclasses.fields(Record)) + tuple(f.name for f in dataclasses.fields(Event))
+    return (str(ledger.resolve()), stamps, shape)
+
+
+def _read_cache(path: Path, key: tuple) -> dict[str, Record] | None:
+    import pickle
+
+    try:
+        stored = pickle.loads(path.read_bytes())
+    except Exception:  # noqa: BLE001 - a missing or damaged cache is folded again
+        return None
+    if not isinstance(stored, dict) or stored.get("key") != key or not isinstance(stored.get("records"), dict):
+        return None
+    return stored["records"]
+
+
+def _write_cache(path: Path, key: tuple, records: dict[str, Record]) -> None:
+    import pickle
+
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+        scratch = path.with_name(f"{path.name}.{os.getpid()}.tmp")
+        scratch.write_bytes(pickle.dumps({"key": key, "records": records}, protocol=pickle.HIGHEST_PROTOCOL))
+        os.replace(scratch, path)
+    except OSError:
+        pass  # a cache that cannot be written costs the next prompt a full fold, never this one
+
+
+def _load_on_cached_rotations(ledger: Path, parts: list[Path]) -> dict[str, Record] | None:
+    """The rotated files change only at a rotation, yet a brief decoded all of
+    them on every prompt (0.8 s of a 1.6 s prompt hook at 113k events). Their
+    fold is kept in the state directory -- never beside the ledger, which a
+    project may commit -- and only the live file is decoded on top of it.
+    None when nothing is rotated yet, or when a rotation kept moving the files
+    during the read: the caller's lock-aware read is the one that copes."""
+    old = parts[:-1]
+    for _ in range(3):
+        stamps = _stamps(old)
+        if all(stamp is None for stamp in stamps):
+            return None
+        key = _cache_key(ledger, stamps)
+        path = _cache_path(ledger)
+        records = _read_cache(path, key)
+        old_texts, vanished = None, False
+        if records is None:
+            old_texts = []
+            for part, stamp in zip(old, stamps):
+                try:
+                    old_texts.append(part.read_text(encoding="utf-8", errors="replace"))
+                except OSError:
+                    vanished = vanished or stamp is not None  # there a moment ago
+        live_before = _stamps([ledger])[0]
+        try:
+            live = ledger.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            live, vanished = "", vanished or live_before is not None
+        if vanished or _stamps(old) != stamps:
+            continue  # a rotation moved the live file into .1 during the read
+        if records is None:
+            records = {}
+            _fold(old_texts, records, None)
+            _write_cache(path, key, records)
+        _fold([live], records, None)
+        return records
+    return None
+
+
+def _fold(texts: list[str], records: dict[str, Record], needles: set[str] | None) -> None:
+    """Fold the ledger lines in `texts` into `records`, in order."""
+    text = "".join(t if t.endswith("\n") else t + "\n" for t in texts if t)
 
     def get(execution: str) -> Record:
         record = records.get(execution)
@@ -722,8 +824,6 @@ def load_path(ledger: Path, *, only: str | None = None) -> list[Record]:
             records[execution] = record
         return record
 
-    # The writer keeps non-ASCII as is; an older or foreign line may escape it.
-    needles = {json.dumps(only, ensure_ascii=False), json.dumps(only)} if only is not None else None
     for line in text.splitlines():
         line = line.strip()
         if not line or (needles is not None and not any(needle in line for needle in needles)):
@@ -766,9 +866,6 @@ def load_path(ledger: Path, *, only: str | None = None) -> list[Record]:
                 record.lesson = data.get("lesson")
                 record.commit_end = data.get("commit_end")
                 record.outcome_source = data.get("outcome_source")
-    if only is not None:
-        return [records[only]] if only in records else []
-    return list(records.values())
 
 
 def load(project_root: str | Path) -> list[Record]:
