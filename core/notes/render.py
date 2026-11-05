@@ -1,6 +1,7 @@
 """Ranking notes against a query and rendering them into a context section."""
 from __future__ import annotations
 
+import functools
 import math
 import re
 import unicodedata
@@ -92,7 +93,8 @@ def stem(word: str) -> str:
         word = shorter
 
 
-def _words(text: str, stem_words: bool = False) -> set[str]:
+@functools.lru_cache(maxsize=16384)
+def _words(text: str, stem_words: bool = False) -> frozenset[str]:
     """The words a query or a note is matched on.
 
     Longer than two characters, casefolded. Two exceptions at two letters: a
@@ -103,6 +105,10 @@ def _words(text: str, stem_words: bool = False) -> set[str]:
     (`word_weights`), so a short stopword kept here costs no ranking. An
     identifier like PROJ-1700 counts as itself and its number, not its prefix.
     With `stem_words` (`[notes] stem`), every alphabetic word is stemmed.
+
+    Remembered per text: the task brief weighed the corpus three times and
+    scored it again, tokenising every note four times a prompt. Frozen, so no
+    caller can change what the next one is handed.
     """
     # Before tokenising: a decomposed `İ`'s combining dot is no word
     # character, so `İPTAL` would split into `I` and `PTAL`.
@@ -117,7 +123,7 @@ def _words(text: str, stem_words: bool = False) -> set[str]:
         if len(word) > 2 or (len(token) == 2 and token.isalpha()
                              and (token.isupper() or not token.isascii())):
             words.add(stem(word) if stem_words and word.isalpha() else word)
-    return words - prefixes
+    return frozenset(words - prefixes)
 
 
 def heading(note: Note) -> str:
