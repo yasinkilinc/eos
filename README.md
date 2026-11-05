@@ -39,6 +39,15 @@ canonical `core/` runtime to `~/.local/share/eos/<version>/` and installs an
 executable launcher under `~/.local/bin/eos`. Override the locations with
 `EOS_INSTALL_PREFIX`, `EOS_DATA_DIR`, `EOS_BIN_DIR`, or `EOS_PYTHON`.
 
+## What changed in 2.8.1
+
+- **The prompt brief is about twice as fast on a full ledger.** The rotated ledger files are
+  folded once and kept in the state directory (`ledger-cache/`), so a prompt decodes only the
+  live file; a note is tokenised once per process. On a 113k-event ledger and 2,217 notes the
+  prompt hook went from 2.70 s to 1.39 s with the same brief.
+- **The morning report** marks the last report shown, approves an open assumption across the
+  project, and a slow report no longer costs the prompt brief.
+
 ## What changed in 2.8.0
 
 - **`eos report [path] [--since TIME] [--format json]`: the morning report.** Done: a run that
