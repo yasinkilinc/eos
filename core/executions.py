@@ -787,6 +787,14 @@ def _load_on_cached_rotations(ledger: Path, parts: list[Path]) -> dict[str, Reco
         if all(stamp is None for stamp in stamps):
             return None
         key = _cache_key(ledger, stamps)
+        held = _held.get(key[0])
+        if held is not None and held[0] == key:
+            try:
+                live = ledger.read_text(encoding="utf-8", errors="replace")
+            except OSError:
+                live = None
+            if live == held[1] and _stamps(old) == stamps:
+                return _copied(held[2])
         path = _cache_path(ledger)
         records = _read_cache(path, key)
         old_texts, vanished = None, False
@@ -809,8 +817,26 @@ def _load_on_cached_rotations(ledger: Path, parts: list[Path]) -> dict[str, Reco
             _fold(old_texts, records, None)
             _write_cache(path, key, records)
         _fold([live], records, None)
-        return records
+        _held[key[0]] = (key, live, records)
+        return _copied(records)
     return None
+
+
+# The last fold of each rotated ledger this process read, with the live text it
+# folded: one prompt hook loaded the same 113k-event ledger three times, ~250 ms
+# each (2026-11-05). The live file is compared by its whole text, not its stamp:
+# a rewrite within one mtime tick keeps the size and the stamp.
+_held: dict[str, tuple[tuple, str, dict[str, Record]]] = {}
+
+
+def _copied(records: dict[str, Record]) -> dict[str, Record]:
+    """Records a caller may change without changing the next load: the events are
+    frozen and shared, the records and their event lists are new."""
+    copies = {}
+    for execution, record in records.items():
+        copy = dataclasses.replace(record, events=list(record.events))
+        copies[execution] = copy
+    return copies
 
 
 def _fold(texts: list[str], records: dict[str, Record], needles: set[str] | None) -> None:

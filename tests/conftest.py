@@ -20,10 +20,12 @@ def _isolated_queue_state(tmp_path, monkeypatch):
 def _isolated_state(tmp_path, monkeypatch):
     """Every test gets its own state directory and an empty memory of the
     words tokenised so far, so no test writes the developer's ~/.local/state
-    or reads what another test kept there."""
+    or reads what another test kept there; nor a ledger fold another test held."""
+    from core import executions
     from core.notes import render
 
     monkeypatch.setenv("EOS_STATE_DIR", str(tmp_path / "state"))
+    monkeypatch.setattr(executions, "_held", {})
     render._words.cache_clear()
     for name, empty in (("_kept", None), ("_kept_file", None), ("_kept_used", set()), ("_kept_dirty", False)):
         monkeypatch.setattr(render, name, empty, raising=False)

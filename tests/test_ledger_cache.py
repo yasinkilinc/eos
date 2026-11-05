@@ -33,9 +33,13 @@ def _fill(project, title="a run that spans a rotation", events=12, finish=True):
 
 def _uncached(ledger, tmp_path, monkeypatch, name):
     monkeypatch.setenv("EOS_STATE_DIR", str(tmp_path / name))
+    held = dict(executions._held)
+    executions._held.clear()
     try:
         return executions.load_path(ledger)
     finally:
+        executions._held.clear()
+        executions._held.update(held)
         monkeypatch.setenv("EOS_STATE_DIR", str(tmp_path / "state"))
 
 
