@@ -299,7 +299,23 @@ def main(argv: list[str] | None = None) -> int:
     """`eos hook <event> [--agent NAME] [--project PATH] [--host devin]`, the event JSON on stdin.
 
     A deny from a Devin payload is its reason on stderr with exit 2 (Devin's
-    way to block); Claude Code gets the `permissionDecision` JSON."""
+    way to block); Claude Code gets the `permissionDecision` JSON.
+
+    The cyclic collector is paused for the hook: its passes over the ledger's
+    and the corpus's objects cost 90 ms of an 825 ms task brief and free
+    nothing a process of seconds does not drop at exit. Restored on return."""
+    import gc
+
+    collecting = gc.isenabled()
+    gc.disable()
+    try:
+        return _main(argv)
+    finally:
+        if collecting:
+            gc.enable()
+
+
+def _main(argv: list[str] | None) -> int:
     started = time.perf_counter()
     args = list(argv or [])
     event = args.pop(0) if args else ""
