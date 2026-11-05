@@ -39,6 +39,12 @@ canonical `core/` runtime to `~/.local/share/eos/<version>/` and installs an
 executable launcher under `~/.local/bin/eos`. Override the locations with
 `EOS_INSTALL_PREFIX`, `EOS_DATA_DIR`, `EOS_BIN_DIR`, or `EOS_PYTHON`.
 
+## What changed in 2.8.3
+
+- **The prompt hook says where its time went.** Its telemetry line carries `phases`: the
+  milliseconds of `approvals`, `brief`, `log`, `report`, `workspace` and `host`. Other hooks
+  write no such field.
+
 ## What changed in 2.8.2
 
 - **Note bodies are tokenised once across prompts.** Their words are kept in the state
